@@ -134,6 +134,7 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
         coverUrl: coverUrl,
         totalDuration: duration,
         chapters: [],
+        episodeId: episodeId,
       );
       if (mounted) Navigator.pop(context);
       return;
@@ -512,6 +513,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       await cast.castItem(
         api: api, itemId: _itemId, title: _episodeTitle, author: _showTitle,
         coverUrl: api.getCoverUrl(_itemId), totalDuration: _duration, chapters: [],
+        episodeId: _episodeId,
       );
       if (mounted) Navigator.pop(context);
       return;

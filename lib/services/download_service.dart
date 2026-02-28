@@ -92,6 +92,24 @@ class DownloadInfo {
   }
 }
 
+class _QueuedDownload {
+  final ApiService api;
+  final String itemId;
+  final String title;
+  final String? author;
+  final String? coverUrl;
+  final String? episodeId;
+
+  _QueuedDownload({
+    required this.api,
+    required this.itemId,
+    required this.title,
+    this.author,
+    this.coverUrl,
+    this.episodeId,
+  });
+}
+
 class DownloadService extends ChangeNotifier {
   static final DownloadService _instance = DownloadService._();
   factory DownloadService() => _instance;
@@ -102,6 +120,10 @@ class DownloadService extends ChangeNotifier {
   http.Client? _httpClient;
   bool _cancelled = false;
   String? _customDownloadPath;
+
+  /// Queue of pending download requests.
+  final List<_QueuedDownload> _queue = [];
+  bool _processingQueue = false;
 
   /// The current download directory path, or null if using default.
   String? get customDownloadPath => _customDownloadPath;
@@ -360,6 +382,8 @@ class DownloadService extends ChangeNotifier {
   }) async {
     if (_activeDownloadId == itemId) return null;
     if (isDownloaded(itemId)) return null;
+    // Already queued — don't duplicate
+    if (_queue.any((q) => q.itemId == itemId)) return null;
 
     // Check wifi-only setting
     final wifiOnly = await PlayerSettings.getWifiOnlyDownloads();
@@ -370,6 +394,61 @@ class DownloadService extends ChangeNotifier {
       }
     }
 
+    // If another download is active, queue this one
+    if (_activeDownloadId != null) {
+      _queue.add(_QueuedDownload(
+        api: api,
+        itemId: itemId,
+        title: title,
+        author: author,
+        coverUrl: coverUrl,
+        episodeId: episodeId,
+      ));
+      _downloads[itemId] = DownloadInfo(
+        itemId: itemId,
+        status: DownloadStatus.downloading,
+        progress: 0,
+        title: title,
+        author: author,
+        coverUrl: coverUrl,
+      );
+      notifyListeners();
+      // Ensure queue processor is running
+      if (!_processingQueue) _processQueue();
+      return null;
+    }
+
+    await _executeDownload(
+      api: api, itemId: itemId, title: title,
+      author: author, coverUrl: coverUrl, episodeId: episodeId,
+    );
+    // Process any queued downloads
+    if (_queue.isNotEmpty && !_processingQueue) _processQueue();
+    return null;
+  }
+
+  Future<void> _processQueue() async {
+    _processingQueue = true;
+    while (_queue.isNotEmpty) {
+      final next = _queue.removeAt(0);
+      // Skip if cancelled/removed while waiting
+      if (isDownloaded(next.itemId)) continue;
+      await _executeDownload(
+        api: next.api, itemId: next.itemId, title: next.title,
+        author: next.author, coverUrl: next.coverUrl, episodeId: next.episodeId,
+      );
+    }
+    _processingQueue = false;
+  }
+
+  Future<void> _executeDownload({
+    required ApiService api,
+    required String itemId,
+    required String title,
+    String? author,
+    String? coverUrl,
+    String? episodeId,
+  }) async {
     _activeDownloadId = itemId;
     _cancelled = false;
     _downloads[itemId] = DownloadInfo(
@@ -610,6 +689,8 @@ class DownloadService extends ChangeNotifier {
       _activeDownloadId = null;
       DownloadNotificationService().dismiss();
     }
+    // Remove from queue if it was waiting
+    _queue.removeWhere((q) => q.itemId == itemId);
     _downloads.remove(itemId);
     notifyListeners();
   }

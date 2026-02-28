@@ -514,7 +514,8 @@ class _ExpandedCardState extends State<ExpandedCard> {
                               builder: (context, constraints) {
                                 final coverWidth = constraints.maxWidth * 0.90;
                                 final coverSize = coverWidth < constraints.maxHeight ? coverWidth : constraints.maxHeight;
-                                final isDownloaded = DownloadService().isDownloaded(_itemId);
+                                final dlKey = _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
+                                final isDownloaded = DownloadService().isDownloaded(dlKey);
                                 final castService = ChromecastService();
                                 final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
                                 return Container(
@@ -1111,12 +1112,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
                             cast.castItem(
                               api: api, itemId: _itemId, title: _title, author: _author,
                               coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
+                              episodeId: _episodeId ?? widget.player.currentEpisodeId,
                             );
                           }
                         } else {
                           showCastDevicePicker(context,
                             api: api, itemId: _itemId, title: _title, author: _author,
-                            coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters);
+                            coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
+                            episodeId: _episodeId ?? widget.player.currentEpisodeId);
                         }
                       },
                     );

@@ -17,6 +17,7 @@ void showCastDevicePicker(
   String? coverUrl,
   double? totalDuration,
   List<dynamic>? chapters,
+  String? episodeId,
 }) {
   final cast = ChromecastService();
   showModalBottomSheet(
@@ -71,7 +72,7 @@ void showCastDevicePicker(
                             _waitAndCast(cast, api: api, itemId: itemId,
                               title: title ?? '', author: author ?? '',
                               coverUrl: coverUrl, totalDuration: totalDuration ?? 0,
-                              chapters: chapters ?? []);
+                              chapters: chapters ?? [], episodeId: episodeId);
                           }
                         },
                       );
@@ -98,10 +99,12 @@ void _waitAndCast(
   required String? coverUrl,
   required double totalDuration,
   required List<dynamic> chapters,
+  String? episodeId,
 }) {
   if (cast.isConnected) {
     cast.castItem(api: api, itemId: itemId, title: title, author: author,
-      coverUrl: coverUrl, totalDuration: totalDuration, chapters: chapters);
+      coverUrl: coverUrl, totalDuration: totalDuration, chapters: chapters,
+      episodeId: episodeId);
     return;
   }
 
@@ -118,7 +121,8 @@ void _waitAndCast(
       cleanup();
       Future.delayed(const Duration(milliseconds: 500), () {
         cast.castItem(api: api, itemId: itemId, title: title, author: author,
-          coverUrl: coverUrl, totalDuration: totalDuration, chapters: chapters);
+          coverUrl: coverUrl, totalDuration: totalDuration, chapters: chapters,
+          episodeId: episodeId);
       });
     }
   });

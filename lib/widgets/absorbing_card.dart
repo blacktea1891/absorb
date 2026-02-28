@@ -407,7 +407,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final coverSize = coverWidth < constraints.maxHeight
                           ? coverWidth
                           : constraints.maxHeight;
-                      final isDownloaded = DownloadService().isDownloaded(_itemId);
+                      final dlKey = _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
+                      final isDownloaded = DownloadService().isDownloaded(dlKey);
                       final castService = ChromecastService();
                       final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
                       return GestureDetector(
@@ -613,26 +614,47 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                         )),
                       ]),
                       const SizedBox(height: 8),
-                      // More menu: Details + History (centered below buttons)
+                      // More menu / Cast controls (centered below buttons)
                       Center(
-                        child: GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onTap: () => _showMoreMenu(context, accent, tt),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: cs.onSurface.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.more_horiz_rounded, size: 18, color: cs.onSurface.withValues(alpha: 0.54)),
-                                const SizedBox(width: 4),
-                                Text('More', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: cs.onSurface.withValues(alpha: 0.54))),
-                              ],
-                            ),
-                          ),
+                        child: ListenableBuilder(
+                          listenable: ChromecastService(),
+                          builder: (context, _) {
+                            final castActive = ChromecastService().isCasting;
+                            return GestureDetector(
+                              behavior: HitTestBehavior.opaque,
+                              onTap: castActive
+                                  ? () => showModalBottomSheet(
+                                        context: context,
+                                        backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+                                        shape: const RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                                        ),
+                                        builder: (_) => const CastControlSheet(),
+                                      )
+                                  : () => _showMoreMenu(context, accent, tt),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: castActive ? accent.withValues(alpha: 0.15) : cs.onSurface.withValues(alpha: 0.08),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: castActive
+                                      ? [
+                                          Icon(Icons.cast_connected_rounded, size: 18, color: accent),
+                                          const SizedBox(width: 4),
+                                          Text('Casting', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: accent)),
+                                        ]
+                                      : [
+                                          Icon(Icons.more_horiz_rounded, size: 18, color: cs.onSurface.withValues(alpha: 0.54)),
+                                          const SizedBox(width: 4),
+                                          Text('More', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: cs.onSurface.withValues(alpha: 0.54))),
+                                        ],
+                                ),
+                              ),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -973,12 +995,14 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                             cast.castItem(
                               api: api, itemId: _itemId, title: _title, author: _author,
                               coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
+                              episodeId: _episodeId ?? widget.player.currentEpisodeId,
                             );
                           }
                         } else {
                           showCastDevicePicker(context,
                             api: api, itemId: _itemId, title: _title, author: _author,
-                            coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters);
+                            coverUrl: _coverUrl, totalDuration: _duration, chapters: _chapters,
+                            episodeId: _episodeId ?? widget.player.currentEpisodeId);
                         }
                       },
                     );

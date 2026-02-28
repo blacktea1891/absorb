@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
+import '../services/chromecast_service.dart';
 import '../services/download_service.dart';
 import '../services/scoped_prefs.dart';
 import '../widgets/absorb_page_header.dart';
@@ -27,10 +28,13 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   final _player = AudioPlayerService();
   final _pageController = PageController(viewportFraction: 0.92);
 
+  final _cast = ChromecastService();
+
   @override
   void initState() {
     super.initState();
     _player.addListener(_rebuild);
+    _cast.addListener(_rebuild);
     _restoreLastFinished();
   }
 
@@ -44,6 +48,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   @override
   void dispose() {
     _player.removeListener(_rebuild);
+    _cast.removeListener(_rebuild);
     _pageController.dispose();
     super.dispose();
   }
@@ -51,6 +56,9 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   String? _lastPlayingId;
   String? _lastPlayingEpisodeId;
   String? _lastFinishedId;
+  bool _wasCasting = false;
+  String? _lastCastItemId;
+  String? _lastCastEpisodeId;
   bool _isSyncing = false;
   // When true, _getAbsorbingBooks keeps the original list order (no move-to-front).
   // Used during the slide-to-front animation so the user sees their book smoothly
@@ -94,6 +102,23 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
         ScopedPrefs.setString('absorbing_last_finished', finishedKey);
       }
     }
+
+    // Track cast state — when casting stops/disconnects, keep that card at front
+    final nowCasting = _cast.isCasting;
+    if (nowCasting) {
+      _lastCastItemId = _cast.castingItemId;
+      _lastCastEpisodeId = _cast.castingEpisodeId;
+    } else if (_wasCasting && _lastCastItemId != null) {
+      final finishedKey = _lastCastEpisodeId != null
+          ? '$_lastCastItemId-$_lastCastEpisodeId'
+          : _lastCastItemId!;
+      _lastFinishedId = finishedKey;
+      ScopedPrefs.setString('absorbing_last_finished', finishedKey);
+      _lastCastItemId = null;
+      _lastCastEpisodeId = null;
+    }
+    _wasCasting = nowCasting;
+
     setState(() {});
   }
 
@@ -245,42 +270,66 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
       }
     }
 
-    // If the currently playing item isn't in the list, add it at the front.
+    // If the currently playing/casting item isn't in the list, add it at the front.
     // For podcast episodes, match by compound key.
     // Skip if the playing item belongs to a different library type.
     final isPod = lib.isPodcastLibrary;
-    if (_player.hasBook && _player.currentItemId != null) {
-      final playingId = _player.currentItemId!;
-      final playingEpId = _player.currentEpisodeId;
-      final playingIsPodcast = playingEpId != null;
-      // Only show if the playing item matches the current library type
-      if (playingIsPodcast == isPod) {
-        final playingKey = playingEpId != null ? '$playingId-$playingEpId' : playingId;
 
-        final existingIdx = items.indexWhere((b) => _absorbingKey(b) == playingKey);
+    // Determine active item — local player takes priority, then Chromecast
+    String? activeId;
+    String? activeEpId;
+    String? activeTitle;
+    String? activeAuthor;
+    String? activeEpTitle;
+    double activeDuration = 0;
+    List<dynamic> activeChapters = [];
+
+    if (_player.hasBook && _player.currentItemId != null) {
+      activeId = _player.currentItemId;
+      activeEpId = _player.currentEpisodeId;
+      activeTitle = _player.currentTitle;
+      activeAuthor = _player.currentAuthor;
+      activeEpTitle = _player.currentEpisodeTitle;
+      activeDuration = _player.totalDuration;
+      activeChapters = _player.chapters;
+    } else if (_cast.isCasting && _cast.castingItemId != null) {
+      activeId = _cast.castingItemId;
+      activeTitle = _cast.castingTitle;
+      activeAuthor = _cast.castingAuthor;
+      activeDuration = _cast.castingDuration;
+      activeChapters = _cast.castingChapters;
+    }
+
+    if (activeId != null) {
+      final activeIsPodcast = activeEpId != null;
+      // Only show if the active item matches the current library type
+      if (activeIsPodcast == isPod) {
+        final activeKey = activeEpId != null ? '$activeId-$activeEpId' : activeId;
+
+        final existingIdx = items.indexWhere((b) => _absorbingKey(b) == activeKey);
         if (!_suppressReorder && existingIdx > 0) {
           final item = items.removeAt(existingIdx);
           items.insert(0, item);
         } else if (existingIdx < 0) {
-          // Synthesize entry for the currently playing item
+          // Synthesize entry for the currently active item
           final entry = <String, dynamic>{
-            'id': playingId,
+            'id': activeId,
             'media': {
               'metadata': {
-                'title': _player.currentTitle,
-                'authorName': _player.currentAuthor,
+                'title': activeTitle,
+                'authorName': activeAuthor,
               },
-              'duration': _player.totalDuration,
-              'chapters': _player.chapters,
+              'duration': activeDuration,
+              'chapters': activeChapters,
             },
           };
-          if (playingEpId != null) {
+          if (activeEpId != null) {
             entry['recentEpisode'] = {
-              'id': playingEpId,
-              'title': _player.currentEpisodeTitle ?? _player.currentTitle,
-              'duration': _player.totalDuration,
+              'id': activeEpId,
+              'title': activeEpTitle ?? activeTitle,
+              'duration': activeDuration,
             };
-            entry['_absorbingKey'] = playingKey;
+            entry['_absorbingKey'] = activeKey;
           }
           items.insert(0, entry);
         }

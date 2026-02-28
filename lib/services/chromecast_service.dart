@@ -22,7 +22,7 @@ class ChromecastService extends ChangeNotifier {
   bool get isCasting => isConnected && _playbackState != CastPlaybackState.idle;
   bool get isPlaying => _playbackState == CastPlaybackState.playing;
 
-  String? _castingItemId, _castingTitle, _castingAuthor, _castingCoverUrl;
+  String? _castingItemId, _castingEpisodeId, _castingTitle, _castingAuthor, _castingCoverUrl;
   double _castingDuration = 0;
   List<dynamic> _castingChapters = [];
   ApiService? _api;
@@ -30,6 +30,7 @@ class ChromecastService extends ChangeNotifier {
   String? _connectedDeviceName;
 
   String? get castingItemId => _castingItemId;
+  String? get castingEpisodeId => _castingEpisodeId;
   String? get castingTitle => _castingTitle;
   String? get castingAuthor => _castingAuthor;
   String? get castingCoverUrl => _castingCoverUrl;
@@ -106,7 +107,7 @@ class ChromecastService extends ChangeNotifier {
     _connectionState = CastConnectionState.disconnected;
     _playbackState = CastPlaybackState.idle;
     _connectedDeviceName = null;
-    _castingItemId = _castingTitle = _castingAuthor = _castingCoverUrl = null;
+    _castingItemId = _castingEpisodeId = _castingTitle = _castingAuthor = _castingCoverUrl = null;
     _castingDuration = 0;
     _castingChapters = [];
     _castPosition = Duration.zero;
@@ -190,6 +191,7 @@ class ChromecastService extends ChangeNotifier {
     required String title, required String author,
     required String? coverUrl, required double totalDuration,
     required List<dynamic> chapters, double startTime = 0,
+    String? episodeId,
   }) async {
     debugPrint('[Cast] >>> castItem() — "$title" (id: $itemId)');
     debugPrint('[Cast] isConnected=$isConnected, connectionState=$_connectionState');
@@ -206,6 +208,7 @@ class ChromecastService extends ChangeNotifier {
 
     _api = api;
     _castingItemId = itemId;
+    _castingEpisodeId = episodeId;
     _castingTitle = title;
     _castingAuthor = author;
     _castingCoverUrl = coverUrl;
@@ -219,8 +222,10 @@ class ChromecastService extends ChangeNotifier {
     if (localPos > 0 && startTime == 0) startTime = localPos;
 
     try {
-      debugPrint('[Cast] Starting playback session with server...');
-      final sessionData = await api.startPlaybackSession(itemId);
+      debugPrint('[Cast] Starting playback session with server... (episodeId: $episodeId)');
+      final sessionData = episodeId != null
+          ? await api.startEpisodePlaybackSession(itemId, episodeId)
+          : await api.startPlaybackSession(itemId);
       if (sessionData == null) {
         debugPrint('[Cast] Server returned null session — aborting');
         _playbackState = CastPlaybackState.idle; notifyListeners(); return false;
@@ -247,14 +252,32 @@ class ChromecastService extends ChangeNotifier {
       final sid = sessionData['id'] as String?;
       if (sid != null) try { await api.closePlaybackSession(sid); } catch (_) {}
 
-      debugPrint('[Cast] Starting from position: ${startTime}s');
+      // Load per-book speed (or global default)
+      final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
+      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      _castSpeed = speed;
+
+      debugPrint('[Cast] Starting from position: ${startTime}s, speed: ${speed}x');
+      bool loaded;
       if (audioTracks.length == 1) {
         debugPrint('[Cast] Single track mode');
-        return _loadSingleTrack(api, audioTracks.first, title, author, coverUrl, totalDuration, startTime);
+        loaded = await _loadSingleTrack(api, audioTracks.first, title, author, coverUrl, totalDuration, startTime);
       } else {
         debugPrint('[Cast] Multi-track queue mode (${audioTracks.length} tracks)');
-        return _loadMultiTrackQueue(api, audioTracks, title, author, coverUrl, totalDuration, chapters, startTime);
+        loaded = await _loadMultiTrackQueue(api, audioTracks, title, author, coverUrl, totalDuration, chapters, startTime);
       }
+
+      // Apply playback speed after media is loaded
+      if (loaded && (speed - 1.0).abs() > 0.01) {
+        await Future.delayed(const Duration(milliseconds: 300));
+        try {
+          await GoogleCastRemoteMediaClient.instance.setPlaybackRate(speed);
+          debugPrint('[Cast] Applied book speed: ${speed}x');
+        } catch (e) {
+          debugPrint('[Cast] setPlaybackRate error: $e');
+        }
+      }
+      return loaded;
     } catch (e, st) {
       debugPrint('[Cast] castItem error: $e\n$st');
       _playbackState = CastPlaybackState.idle; notifyListeners(); return false;
@@ -449,7 +472,7 @@ class ChromecastService extends ChangeNotifier {
     await _syncProgressToServer();
     try { await GoogleCastRemoteMediaClient.instance.stop(); } catch (_) {}
     _playbackState = CastPlaybackState.idle;
-    _castingItemId = _castingTitle = _castingAuthor = _castingCoverUrl = null;
+    _castingItemId = _castingEpisodeId = _castingTitle = _castingAuthor = _castingCoverUrl = null;
     _castingDuration = 0; _castingChapters = [];
     notifyListeners();
   }
