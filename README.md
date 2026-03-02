@@ -40,7 +40,7 @@ A modern audiobookshelf client for Android with a card-based player experience.
 
 ## Install
 
-[<img src="https://raw.githubusercontent.com/AsteriusIT/github-badges/main/badges/get-it-on-github.png" alt="Get it on GitHub" height="80">](../../releases)
+[<img src="https://img.shields.io/badge/Get_it_on-GitHub-blue?style=for-the-badge&logo=github" alt="Get it on GitHub" height="50">](../../releases)
 [<img src="https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png" alt="Get it on Obtainium" height="80">](https://apps.obtainium.imranr.dev/redirect.html?r=obtainium://add/https://github.com/pounat/absorb)
 
 Absorb is also in **closed testing on Google Play**. If you'd like access, reach out or request an invite.
