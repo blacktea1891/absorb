@@ -43,6 +43,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   ui.Image? _blurredCover; // Precached blurred background
   String? _blurredCoverUrl; // URL the blur was built from
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
+  bool _autoRemoveFinished = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -56,7 +57,11 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   List<dynamic> get _chapters {
     // Prefer fetched chapters (from full item), fall back to inline data
     if (_fetchedChapters != null && _fetchedChapters!.isNotEmpty) return _fetchedChapters!;
-    return _media['chapters'] as List<dynamic>? ?? [];
+    final inline = _media['chapters'] as List<dynamic>? ?? [];
+    if (inline.isNotEmpty) return inline;
+    // For active podcast episodes, chapters come from the playback session
+    if (_isActive && widget.player.chapters.isNotEmpty) return widget.player.chapters;
+    return [];
   }
   bool get _isActive {
     if (widget.player.currentItemId != _itemId) return false;
@@ -113,6 +118,13 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     DownloadService().addListener(_onDownloadChanged);
     PlayerSettings.settingsChanged.addListener(_reloadButtonOrder);
     _reloadButtonOrder();
+    _loadWhenFinished();
+  }
+
+  void _loadWhenFinished() {
+    PlayerSettings.getWhenFinished().then((mode) {
+      if (mounted) setState(() => _autoRemoveFinished = mode == 'auto_remove');
+    });
   }
 
   void _reloadButtonOrder() {
@@ -452,7 +464,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                         shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                       )),
                     const Spacer(),
-                    if (totalChapters > 0 && !_isPodcastEpisode)
+                    if (totalChapters > 0 && (!_isPodcastEpisode || _chapters.isNotEmpty))
                       Text('Ch ${(chapterIdx + 1).clamp(1, totalChapters)} / $totalChapters',
                         style: tt.labelMedium?.copyWith(
                           color: isDark ? Colors.white.withValues(alpha: 0.85) : Colors.black.withValues(alpha: 0.75),
@@ -465,7 +477,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
               // ── Book progress bar ──
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: !_isPodcastEpisode && !lib.isPodcastLibrary, showChapterBar: false, itemId: _itemId),
+                child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty), showChapterBar: false, itemId: _itemId),
               ),
                 const SizedBox(height: 10),
                 // ── Cover with title/author/chapter overlaid + download badge ──
@@ -566,7 +578,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                   ),
                                 ],
                                 // Finished overlay
-                                if (isFinished) ...[
+                                if (isFinished && !_autoRemoveFinished) ...[
                                   Positioned.fill(
                                     child: Container(
                                       color: Colors.black.withValues(alpha: 0.78),
@@ -657,7 +669,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 // ── Chapter pill-scrubber (same width as book bar) ──
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
+                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                 ),
                 // ── Controls + buttons ──
                 Expanded(

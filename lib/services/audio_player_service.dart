@@ -95,6 +95,9 @@ class PlayerSettings {
   static Future<bool> getAutoPlayNextPodcast() => _get('autoPlayNextPodcast', false);
   static Future<void> setAutoPlayNextPodcast(bool value) => _set('autoPlayNextPodcast', value);
 
+  static Future<String> getWhenFinished() => _get('whenFinished', 'overlay');
+  static Future<void> setWhenFinished(String value) => _set('whenFinished', value);
+
   // ── Player UI settings (notify listeners on change) ──
 
   static Future<bool> getShowBookSlider() => _get('showBookSlider', false);
@@ -1169,6 +1172,17 @@ class AudioPlayerService extends ChangeNotifier {
           _playbackSessionId = sessionData['id'] as String?;
           debugPrint('[Player] Got server session for local playback: $_playbackSessionId');
 
+          // Pick up chapters from session (e.g. podcast episodes with embedded chapters)
+          if (chapters.isEmpty) {
+            final sessionChapters = sessionData['chapters'] as List<dynamic>? ?? [];
+            if (sessionChapters.isNotEmpty) {
+              chapters = sessionChapters;
+              _chapters = sessionChapters;
+              _handler?.updateChaptersQueue(sessionChapters);
+              debugPrint('[Player] Loaded ${sessionChapters.length} chapters from session');
+            }
+          }
+
           // Compare server position vs local — always use whichever is further ahead.
           // You can't un-listen to a book, so the furthest position is the most recent.
           // (Session updatedAt is unreliable — it reflects session creation time, not
@@ -1212,13 +1226,23 @@ class AudioPlayerService extends ChangeNotifier {
       return false;
     }
 
-    // Get cached session data for track durations
+    // Get cached session data for track durations (and chapters if needed)
     final cachedJson = _downloadService.getCachedSessionData(itemId);
     List<dynamic>? audioTracks;
     if (cachedJson != null) {
       try {
         final session = jsonDecode(cachedJson) as Map<String, dynamic>;
         audioTracks = session['audioTracks'] as List<dynamic>?;
+        // Pick up chapters from cached session when not already loaded
+        if (chapters.isEmpty) {
+          final cachedChapters = session['chapters'] as List<dynamic>? ?? [];
+          if (cachedChapters.isNotEmpty) {
+            chapters = cachedChapters;
+            _chapters = cachedChapters;
+            _handler?.updateChaptersQueue(cachedChapters);
+            debugPrint('[Player] Loaded ${cachedChapters.length} chapters from cached session');
+          }
+        }
       } catch (_) {}
     }
 
@@ -1298,6 +1322,17 @@ class AudioPlayerService extends ChangeNotifier {
     if (audioTracks == null || audioTracks.isEmpty) {
       _clearState();
       return false;
+    }
+
+    // Pick up chapters from session (e.g. podcast episodes with embedded chapters)
+    if (chapters.isEmpty) {
+      final sessionChapters = sessionData['chapters'] as List<dynamic>? ?? [];
+      if (sessionChapters.isNotEmpty) {
+        chapters = sessionChapters;
+        _chapters = sessionChapters;
+        _handler?.updateChaptersQueue(sessionChapters);
+        debugPrint('[Player] Loaded ${sessionChapters.length} chapters from session');
+      }
     }
 
     // Update totalDuration from session if it was unknown (e.g. podcast episodes
