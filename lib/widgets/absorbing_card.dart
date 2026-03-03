@@ -752,7 +752,12 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     if (_isCastingThis) {
       pos = cast.castPosition.inMilliseconds / 1000.0;
     } else if (_isActive) {
-      pos = widget.player.position.inMilliseconds / 1000.0;
+      final seekTarget = widget.player.activeSeekTarget;
+      if (seekTarget != null) {
+        pos = seekTarget;
+      } else {
+        pos = widget.player.position.inMilliseconds / 1000.0;
+      }
     } else {
       // Use stored progress to calculate position when not actively playing
       final lib = context.read<LibraryProvider>();
@@ -777,7 +782,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       final ch = ChromecastService().currentChapter;
       return ch?['title'] as String?;
     }
-    if (_isActive && widget.player.currentChapter != null) {
+    if (_isActive && widget.player.activeSeekTarget == null && widget.player.currentChapter != null) {
       return widget.player.currentChapter!['title'] as String?;
     }
     if (chapterIdx >= 0 && chapterIdx < _chapters.length) {

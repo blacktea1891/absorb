@@ -209,7 +209,7 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with TickerPr
             }
           }
         } else if (widget.isActive) {
-          final chapter = player.currentChapter;
+          final chapter = player.activeSeekTarget == null ? player.currentChapter : null;
           if (chapter != null) {
             chapterStart = (chapter['start'] as num?)?.toDouble() ?? 0;
             chapterEnd = (chapter['end'] as num?)?.toDouble() ?? totalDur;

@@ -373,8 +373,26 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
           ));
         }).toList()),
         const SizedBox(height: 16),
-        AbsorbSlider(value: _speed, min: 0.5, max: 3.0, divisions: 50, activeColor: widget.accent, onChanged: _setSpeed),
-        Padding(padding: const EdgeInsets.symmetric(horizontal: 12), child: Row(
+        Row(children: [
+          GestureDetector(
+            onTap: () => _setSpeed(_speed - 0.05),
+            child: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08)),
+              child: Icon(Icons.remove_rounded, size: 20, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+            ),
+          ),
+          Expanded(child: AbsorbSlider(value: _speed, min: 0.5, max: 3.0, divisions: 50, activeColor: widget.accent, onChanged: _setSpeed)),
+          GestureDetector(
+            onTap: () => _setSpeed(_speed + 0.05),
+            child: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(shape: BoxShape.circle, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08)),
+              child: Icon(Icons.add_rounded, size: 20, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
+            ),
+          ),
+        ]),
+        Padding(padding: const EdgeInsets.symmetric(horizontal: 36), child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('0.5x', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 11)),
