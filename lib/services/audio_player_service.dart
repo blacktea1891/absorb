@@ -725,7 +725,7 @@ class AudioPlayerService extends ChangeNotifier {
   double? get activeSeekTarget {
     if (_lastSeekTargetSeconds == null || _lastSeekTime == null) return null;
     final elapsed = DateTime.now().difference(_lastSeekTime!).inMilliseconds;
-    if (elapsed > 2000) {
+    if (elapsed > 8000) {
       _lastSeekTargetSeconds = null;
       _lastSeekTime = null;
       return null;
@@ -1006,7 +1006,6 @@ class AudioPlayerService extends ChangeNotifier {
     _handler?.updateChaptersQueue(chapters);
     // New book = fresh session — clear any auto sleep dismissal
     SleepTimerService().resetDismiss();
-    notifyListeners();
 
     // Progress key: compound for episodes, plain for books
     final progressKey = episodeId != null ? '$itemId-$episodeId' : itemId;
@@ -1017,6 +1016,13 @@ class AudioPlayerService extends ChangeNotifier {
       startTime = localPos;
       debugPrint('[Player] Resuming from local position: ${startTime}s');
     }
+
+    // Set seek target early so the UI doesn't flash chapter 1 while loading
+    if (startTime > 0) {
+      _lastSeekTargetSeconds = startTime;
+      _lastSeekTime = DateTime.now();
+    }
+    notifyListeners();
 
     // Check if downloaded — play locally
     final bool result;
