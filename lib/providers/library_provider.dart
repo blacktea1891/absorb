@@ -1263,6 +1263,9 @@ class LibraryProvider extends ChangeNotifier {
         if (_selectedLibraryId != null && !isOffline) {
           loadPersonalizedView(force: true);
         }
+        PlayerSettings.getWhenFinished().then((mode) {
+          if (mode == 'auto_remove') removeFromAbsorbing(itemId);
+        });
       });
       return; // skip the default refresh below — handled above
     }
@@ -1271,6 +1274,9 @@ class LibraryProvider extends ChangeNotifier {
       // Brief delay so the server has time to populate continue-series
       Future.delayed(const Duration(milliseconds: 500), () {
         loadPersonalizedView(force: true);
+        PlayerSettings.getWhenFinished().then((mode) {
+          if (mode == 'auto_remove') removeFromAbsorbing(itemId);
+        });
       });
     }
   }

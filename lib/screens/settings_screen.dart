@@ -40,6 +40,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int _shakeAddMinutes = 5;
   bool _autoPlayNextBook = false;
   bool _autoPlayNextPodcast = false;
+  String _whenFinished = 'overlay';
   bool _hideEbookOnly = false;
   bool _showGoodreadsButton = false;
   bool _loggingEnabled = false;
@@ -71,6 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final shakeMins = await PlayerSettings.getShakeAddMinutes();
     final autoPlayBook = await PlayerSettings.getAutoPlayNextBook();
     final autoPlayPod = await PlayerSettings.getAutoPlayNextPodcast();
+    final whenFinished = await PlayerSettings.getWhenFinished();
     final hideEbook = await PlayerSettings.getHideEbookOnly();
     final showGoodreads = await PlayerSettings.getShowGoodreadsButton();
     final logging = await PlayerSettings.getLoggingEnabled();
@@ -95,6 +97,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _shakeAddMinutes = shakeMins;
       _autoPlayNextBook = autoPlayBook;
       _autoPlayNextPodcast = autoPlayPod;
+      _whenFinished = whenFinished;
       _hideEbookOnly = hideEbook;
       _showGoodreadsButton = showGoodreads;
       _loggingEnabled = logging;
@@ -605,6 +608,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         setState(() => _autoPlayNextPodcast = v);
                         PlayerSettings.setAutoPlayNextPodcast(v);
                       } : null,
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('When finished', style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+                        const SizedBox(height: 4),
+                        Text('What happens to the absorbing card when a book or episode finishes',
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        const SizedBox(height: 8),
+                        SizedBox(width: double.infinity, child: SegmentedButton<String>(
+                          segments: const [
+                            ButtonSegment(value: 'overlay', icon: Icon(Icons.layers_rounded), label: Text('Show Overlay')),
+                            ButtonSegment(value: 'auto_remove', icon: Icon(Icons.auto_delete_rounded), label: Text('Auto-remove')),
+                          ],
+                          selected: {_whenFinished},
+                          onSelectionChanged: _loaded ? (s) {
+                            setState(() => _whenFinished = s.first);
+                            PlayerSettings.setWhenFinished(s.first);
+                          } : null,
+                          style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                        )),
+                      ]),
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     // ── Auto-Rewind ──
