@@ -20,6 +20,7 @@ import '../services/metadata_override_service.dart';
 import '../screens/app_shell.dart';
 import 'series_books_sheet.dart';
 import 'absorbing_shared.dart';
+import 'html_description.dart';
 import 'metadata_lookup_sheet.dart';
 
 // ─── BOOK DETAIL BOTTOM SHEET ───────────────────────────────
@@ -196,7 +197,6 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     final authorName = metadata['authorName'] as String? ?? '';
     final narrator = metadata['narratorName'] as String? ?? '';
     final descRaw = metadata['description'] as String? ?? '';
-    final desc = descRaw.replaceAll(RegExp(r'<[^>]*>'), '').replaceAll('&amp;', '&').replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&quot;', '"').replaceAll('&#39;', "'").replaceAll('&nbsp;', ' ').trim();
     final duration = (media['duration'] as num?)?.toDouble() ?? 0;
     final seriesEntries = metadata['series'] as List<dynamic>? ?? [];
     final genres = (metadata['genres'] as List<dynamic>?)?.cast<String>() ?? [];
@@ -402,10 +402,15 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
               ),
             ));
         })],
-      if (desc.isNotEmpty) ...[const SizedBox(height: 16),
+      if (descRaw.isNotEmpty) ...[const SizedBox(height: 16),
         Text('About', style: tt.titleSmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
         const SizedBox(height: 6),
-        Text(desc, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.7), height: 1.5))],
+        HtmlDescription(
+          html: descRaw,
+          maxLines: 6,
+          style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.7), height: 1.5),
+          linkColor: cs.primary,
+        )],
       if (chapters.isNotEmpty) ...[const SizedBox(height: 16),
         GestureDetector(onTap: () => setState(() => _chaptersExpanded = !_chaptersExpanded),
           child: Row(children: [

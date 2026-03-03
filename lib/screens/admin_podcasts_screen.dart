@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../widgets/absorb_page_header.dart';
+import '../widgets/html_description.dart';
 
 class AdminPodcastsScreen extends StatefulWidget {
   final Map<String, dynamic> library;
@@ -553,11 +554,11 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
 
                   // Description
                   if (_description.isNotEmpty) ...[
-                    Text(
-                      _description,
-                      style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.5), height: 1.5),
+                    HtmlDescription(
+                      html: _description,
                       maxLines: 6,
-                      overflow: TextOverflow.ellipsis,
+                      style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.5), height: 1.5),
+                      linkColor: cs.primary,
                     ),
                     const SizedBox(height: 16),
                   ],
@@ -1050,7 +1051,7 @@ class _EpisodeDetailSheet extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
 
     final title = episode['title']?.toString() ?? 'Episode';
-    final description = _cleanHtml(episode['description']?.toString() ?? episode['subtitle']?.toString() ?? '');
+    final descriptionHtml = episode['description']?.toString() ?? episode['subtitle']?.toString() ?? '';
     final pubDateRaw = episode['publishedAt'] ?? episode['pubDate'];
     final pubDate = pubDateRaw is num ? pubDateRaw : (num.tryParse(pubDateRaw?.toString() ?? ''));
     final duration = episode['duration']?.toString() ?? '';
@@ -1105,12 +1106,17 @@ class _EpisodeDetailSheet extends StatelessWidget {
               child: Text(fileType, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24), fontSize: 10)))),
 
         // Description
-        if (description.isNotEmpty)
+        if (descriptionHtml.isNotEmpty)
           Flexible(
             child: Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: SingleChildScrollView(
                 child: SizedBox(width: double.infinity,
-                  child: Text(description, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), height: 1.5))),
+                  child: HtmlDescription(
+                    html: descriptionHtml,
+                    maxLines: 200,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), height: 1.5),
+                    linkColor: cs.primary,
+                  )),
               )),
           ),
 
@@ -1149,22 +1155,6 @@ class _EpisodeDetailSheet extends StatelessWidget {
         ),
       ]),
     );
-  }
-
-  String _cleanHtml(String html) {
-    return html
-        .replaceAll(RegExp(r'<br\s*/?>'), '\n')
-        .replaceAll(RegExp(r'<p\s*>'), '\n')
-        .replaceAll(RegExp(r'</p>'), '')
-        .replaceAll(RegExp(r'<[^>]+>'), '')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-        .trim();
   }
 
   String _fmtDate(int ms) {
@@ -1206,7 +1196,7 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
 
     final title = episode['title']?.toString() ?? 'Episode';
-    final description = _cleanHtml(episode['description']?.toString() ?? episode['subtitle']?.toString() ?? '');
+    final descriptionHtml = episode['description']?.toString() ?? episode['subtitle']?.toString() ?? '';
     final pubAt = episode['publishedAt'];
     final pubDate = pubAt is num ? pubAt : (num.tryParse(pubAt?.toString() ?? ''));
     final durRaw = episode['duration'];
@@ -1249,12 +1239,17 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
                 child: Text(c, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), fontSize: 11)),
               )).toList()))),
 
-        if (description.isNotEmpty)
+        if (descriptionHtml.isNotEmpty)
           Flexible(
             child: Padding(padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
               child: SingleChildScrollView(
                 child: SizedBox(width: double.infinity,
-                  child: Text(description, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), height: 1.5))),
+                  child: HtmlDescription(
+                    html: descriptionHtml,
+                    maxLines: 200,
+                    style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.54), height: 1.5),
+                    linkColor: cs.primary,
+                  )),
               )),
           ),
 
@@ -1294,22 +1289,6 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
         ),
       ]),
     );
-  }
-
-  String _cleanHtml(String html) {
-    return html
-        .replaceAll(RegExp(r'<br\s*/?>'), '\n')
-        .replaceAll(RegExp(r'<p\s*>'), '\n')
-        .replaceAll(RegExp(r'</p>'), '')
-        .replaceAll(RegExp(r'<[^>]+>'), '')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .replaceAll('&quot;', '"')
-        .replaceAll('&#39;', "'")
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-        .trim();
   }
 
   String _fmtDate(int ms) {

@@ -8,6 +8,7 @@ import '../services/download_service.dart';
 import '../services/progress_sync_service.dart';
 import '../services/chromecast_service.dart';
 import '../providers/auth_provider.dart';
+import 'html_description.dart';
 
 /// Bottom sheet that shows a podcast's episode list.
 /// Mirrors the UX of [BookDetailSheet] but adapted for podcast shows.
@@ -50,7 +51,6 @@ class EpisodeListSheet extends StatefulWidget {
 class _EpisodeListSheetState extends State<EpisodeListSheet> {
   List<dynamic> _episodes = [];
   bool _isLoading = true;
-  bool _descriptionExpanded = false;
   bool _isDownloadingAll = false;
 
   String get _itemId => widget.podcastItem['id'] as String? ?? '';
@@ -124,6 +124,8 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
     final duration = (episode['duration'] as num?)?.toDouble() ?? 0;
     final coverUrl = api.getCoverUrl(_itemId);
 
+    final chapters = episode['chapters'] as List<dynamic>? ?? [];
+
     // Check if Chromecast is connected
     final cast = ChromecastService();
     if (cast.isConnected) {
@@ -134,7 +136,7 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
         author: _title,
         coverUrl: coverUrl,
         totalDuration: duration,
-        chapters: [],
+        chapters: chapters,
         episodeId: episodeId,
       );
       if (mounted) Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
@@ -149,7 +151,7 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       author: _title,
       coverUrl: coverUrl,
       totalDuration: duration,
-      chapters: [],
+      chapters: chapters,
       episodeId: episodeId,
       episodeTitle: episodeTitle,
     );
@@ -272,13 +274,11 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
               // Description
               if (_description.isNotEmpty) ...[
                 const SizedBox(height: 10),
-                GestureDetector(
-                  onTap: () => setState(() => _descriptionExpanded = !_descriptionExpanded),
-                  child: Text(_description,
-                    maxLines: _descriptionExpanded ? 100 : 2,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.4)),
+                HtmlDescription(
+                  html: _description,
+                  maxLines: 2,
+                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.4),
+                  linkColor: cs.primary,
                 ),
               ],
 
@@ -479,7 +479,7 @@ class EpisodeDetailSheet extends StatefulWidget {
 }
 
 class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
-  bool _descriptionExpanded = false;
+  bool _chaptersExpanded = false;
 
   String get _itemId => widget.podcastItem['id'] as String? ?? '';
 
@@ -501,17 +501,9 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
   int get _publishedAt => (widget.episode['publishedAt'] as num?)?.toInt() ?? 0;
   String? get _episodeNumber => widget.episode['episode'] as String?;
   String? get _season => widget.episode['season'] as String?;
+  List<dynamic> get _chapters => widget.episode['chapters'] as List<dynamic>? ?? [];
 
-  String get _cleanDescription {
-    final desc = widget.episode['description'] as String? ?? '';
-    return desc
-        .replaceAll(RegExp(r'<[^>]*>'), '')
-        .replaceAll('&nbsp;', ' ')
-        .replaceAll('&amp;', '&')
-        .replaceAll('&lt;', '<')
-        .replaceAll('&gt;', '>')
-        .trim();
-  }
+  String get _rawDescription => widget.episode['description'] as String? ?? '';
 
   Future<void> _play() async {
     final auth = context.read<AuthProvider>();
@@ -522,7 +514,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
     if (cast.isConnected) {
       await cast.castItem(
         api: api, itemId: _itemId, title: _episodeTitle, author: _showTitle,
-        coverUrl: api.getCoverUrl(_itemId), totalDuration: _duration, chapters: [],
+        coverUrl: api.getCoverUrl(_itemId), totalDuration: _duration, chapters: _chapters,
         episodeId: _episodeId,
       );
       if (mounted) Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
@@ -531,7 +523,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
 
     await AudioPlayerService().playItem(
       api: api, itemId: _itemId, title: _episodeTitle, author: _showTitle,
-      coverUrl: api.getCoverUrl(_itemId), totalDuration: _duration, chapters: [],
+      coverUrl: api.getCoverUrl(_itemId), totalDuration: _duration, chapters: _chapters,
       episodeId: _episodeId,
       episodeTitle: _episodeTitle,
     );
@@ -872,29 +864,34 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
               ),
             ),
 
+            // Chapters
+            if (_chapters.isNotEmpty) ...[const SizedBox(height: 16),
+              GestureDetector(onTap: () => setState(() => _chaptersExpanded = !_chaptersExpanded),
+                child: Row(children: [
+                  Text('Chapters (${_chapters.length})', style: tt.titleSmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                  const Spacer(), Icon(_chaptersExpanded ? Icons.expand_less : Icons.expand_more, color: cs.onSurface.withValues(alpha: 0.3), size: 20)])),
+              if (_chaptersExpanded) ...[const SizedBox(height: 8),
+                ..._chapters.asMap().entries.map((e) {
+                  final ch = e.value as Map<String, dynamic>;
+                  return Padding(padding: const EdgeInsets.symmetric(vertical: 3),
+                    child: Row(children: [
+                      SizedBox(width: 28, child: Text('${e.key + 1}', style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3)))),
+                      Expanded(child: Text(ch['title'] as String? ?? 'Chapter ${e.key + 1}', maxLines: 1, overflow: TextOverflow.ellipsis, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.6)))),
+                      Text(_fmtDur(((ch['end'] as num?)?.toDouble() ?? 0) - ((ch['start'] as num?)?.toDouble() ?? 0)), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
+                    ]));
+                })]],
+
             // Description
-            if (_cleanDescription.isNotEmpty) ...[
+            if (_rawDescription.isNotEmpty) ...[
               const SizedBox(height: 16),
               Text('About This Episode', style: tt.titleSmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
               const SizedBox(height: 6),
-              GestureDetector(
-                onTap: () => setState(() => _descriptionExpanded = !_descriptionExpanded),
-                child: Text(_cleanDescription,
-                  maxLines: _descriptionExpanded ? 200 : 4,
-                  overflow: TextOverflow.ellipsis,
-                  style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.7), height: 1.5)),
+              HtmlDescription(
+                html: _rawDescription,
+                maxLines: 4,
+                style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.7), height: 1.5),
+                linkColor: cs.primary,
               ),
-              if (_cleanDescription.length > 200)
-                Padding(
-                  padding: const EdgeInsets.only(top: 4),
-                  child: GestureDetector(
-                    onTap: () => setState(() => _descriptionExpanded = !_descriptionExpanded),
-                    child: Text(
-                      _descriptionExpanded ? 'Show less' : 'Show more',
-                      style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w500),
-                    ),
-                  ),
-                ),
             ],
           ],
         ),
@@ -910,6 +907,12 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
         Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 6),
         Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w500))])));
+  }
+
+  String _fmtDur(double s) {
+    final h = (s / 3600).floor(); final m = ((s % 3600) / 60).floor();
+    if (h > 0) return '${h}h ${m}m';
+    return '${m}m';
   }
 
   Future<void> _resetProgress(BuildContext context) async {

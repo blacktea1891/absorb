@@ -105,7 +105,11 @@ class _ExpandedCardState extends State<ExpandedCard> {
   double get _duration => (_media['duration'] as num?)?.toDouble() ?? 0;
   List<dynamic> get _chapters {
     if (_fetchedChapters != null && _fetchedChapters!.isNotEmpty) return _fetchedChapters!;
-    return _media['chapters'] as List<dynamic>? ?? [];
+    final inline = _media['chapters'] as List<dynamic>? ?? [];
+    if (inline.isNotEmpty) return inline;
+    // For active podcast episodes, chapters come from the playback session
+    if (_isActive && widget.player.chapters.isNotEmpty) return widget.player.chapters;
+    return [];
   }
   bool get _isActive {
     if (widget.player.currentItemId != _itemId) return false;
@@ -550,7 +554,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                 shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                               )),
                             const Spacer(),
-                            if (totalChapters > 0 && !_isPodcastEpisode)
+                            if (totalChapters > 0 && (!_isPodcastEpisode || _chapters.isNotEmpty))
                               Text('Ch ${(chapterIdx + 1).clamp(1, totalChapters)} / $totalChapters',
                                 style: tt.labelMedium?.copyWith(
                                   color: isDark ? Colors.white.withValues(alpha: 0.85) : Colors.black.withValues(alpha: 0.75),
@@ -563,7 +567,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       // ── Book progress bar ──
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: !_isPodcastEpisode && !lib.isPodcastLibrary, showChapterBar: false, itemId: _itemId),
+                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty), showChapterBar: false, itemId: _itemId),
                       ),
                       const SizedBox(height: 16),
                       // ── Cover art (larger — 90% width) ──
@@ -730,7 +734,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       // ── Chapter scrubber ──
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: _isPodcastEpisode ? 0.0 : progress, staticDuration: _isPodcastEpisode ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: _isPodcastEpisode ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
+                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                       ),
                       // ── Controls + buttons ──
                       Expanded(
