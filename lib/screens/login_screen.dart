@@ -995,12 +995,7 @@ class _LoginScreenState extends State<LoginScreen>
               setState(() => _obscurePassword = !_obscurePassword);
             },
           ),
-          validator: (v) {
-            if (v == null || v.isEmpty) {
-              return 'Please enter your password';
-            }
-            return null;
-          },
+          // No validator — ABS allows passwordless accounts
         ),
         const SizedBox(height: 24),
 
