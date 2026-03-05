@@ -8,6 +8,8 @@ import android.media.audiofx.Equalizer
 import android.media.audiofx.LoudnessEnhancer
 import android.media.audiofx.Virtualizer
 import android.os.Build
+import android.os.Environment
+import android.os.StatFs
 import android.util.Log
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -67,6 +69,23 @@ class MainActivity : AudioServiceActivity() {
             }
         Log.d(TAG, "EQ method channel registered")
 
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.absorb.storage")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "getDeviceStorage" -> {
+                        try {
+                            val stat = StatFs(Environment.getDataDirectory().path)
+                            result.success(mapOf(
+                                "totalBytes" to stat.totalBytes,
+                                "availableBytes" to stat.availableBytes
+                            ))
+                        } catch (e: Exception) {
+                            result.error("STORAGE_ERROR", e.message, null)
+                        }
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     private fun handleInit(result: MethodChannel.Result) {

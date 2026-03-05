@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -195,6 +196,40 @@ class DownloadService extends ChangeNotifier {
       }
     }
     return total;
+  }
+
+  /// Calculate total file size for a single download item.
+  int getItemFileSize(String itemId) {
+    final info = _downloads[itemId];
+    if (info == null || info.status != DownloadStatus.downloaded) return 0;
+    int total = 0;
+    for (final path in info.localPaths) {
+      try {
+        final file = File(path);
+        if (file.existsSync()) {
+          total += file.lengthSync();
+        }
+      } catch (_) {}
+    }
+    return total;
+  }
+
+  static const _storageChannel = MethodChannel('com.absorb.storage');
+
+  /// Get device storage info: {totalBytes, availableBytes}. Returns null on failure.
+  static Future<Map<String, int>?> getDeviceStorage() async {
+    try {
+      final result = await _storageChannel.invokeMethod('getDeviceStorage');
+      if (result is Map) {
+        return {
+          'totalBytes': (result['totalBytes'] as num).toInt(),
+          'availableBytes': (result['availableBytes'] as num).toInt(),
+        };
+      }
+    } catch (e) {
+      debugPrint('[Download] getDeviceStorage error: $e');
+    }
+    return null;
   }
 
   DownloadInfo getInfo(String itemId) =>

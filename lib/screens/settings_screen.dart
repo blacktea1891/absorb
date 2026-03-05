@@ -18,6 +18,7 @@ import '../services/log_service.dart';
 import '../screens/login_screen.dart';
 import '../screens/app_shell.dart';
 import '../screens/admin_screen.dart';
+import '../screens/downloads_screen.dart';
 import '../screens/bookmarks_screen.dart';
 import '../main.dart' show themeNotifier, parseThemeMode;
 import '../widgets/absorb_page_header.dart';
@@ -58,6 +59,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _loaded = false;
   String _downloadLocationLabel = 'App Internal Storage (Default)';
   int _totalDownloadSizeBytes = 0;
+  int _deviceTotalBytes = 0;
+  int _deviceAvailableBytes = 0;
   AutoSleepSettings _autoSleepSettings = const AutoSleepSettings();
   String _appVersion = '';
   String? _expandedSection;
@@ -96,6 +99,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     final dlLabel = await DownloadService().downloadLocationLabel;
     final dlSize = await DownloadService().totalDownloadSize;
+    final deviceStorage = await DownloadService.getDeviceStorage();
     final autoSleep = await AutoSleepSettings.load();
     final pkgInfo = await PackageInfo.fromPlatform();
     if (mounted) setState(() {
@@ -125,6 +129,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _themeMode = theme;
       _downloadLocationLabel = dlLabel;
       _totalDownloadSizeBytes = dlSize;
+      if (deviceStorage != null) {
+        _deviceTotalBytes = deviceStorage['totalBytes']!;
+        _deviceAvailableBytes = deviceStorage['availableBytes']!;
+      }
       _autoSleepSettings = autoSleep;
       _appVersion = pkgInfo.version;
       _loaded = true;
@@ -1125,14 +1133,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => _pickDownloadLocation(context, cs, tt),
                     ),
-                    if (_totalDownloadSizeBytes > 0) ...[
+                    if (_totalDownloadSizeBytes > 0 || _deviceTotalBytes > 0) ...[
                       const Divider(height: 1, indent: 16, endIndent: 16),
                       ListTile(
                         leading: Icon(Icons.data_usage_rounded, color: cs.onSurfaceVariant),
                         title: const Text('Storage used'),
                         subtitle: Text(
-                          _formatBytes(_totalDownloadSizeBytes),
+                          '${_totalDownloadSizeBytes > 0 ? '${_formatBytes(_totalDownloadSizeBytes)} used by downloads' : ''}'
+                          '${_totalDownloadSizeBytes > 0 && _deviceTotalBytes > 0 ? '\n' : ''}'
+                          '${_deviceTotalBytes > 0 ? '${_formatBytes(_deviceAvailableBytes)} free of ${_formatBytes(_deviceTotalBytes)}' : ''}',
                           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        isThreeLine: _totalDownloadSizeBytes > 0 && _deviceTotalBytes > 0,
                       ),
                     ],
                     const Divider(height: 1, indent: 16, endIndent: 16),
@@ -1140,7 +1151,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       leading: Icon(Icons.storage_rounded, color: cs.primary),
                       title: const Text('Manage downloads'),
                       trailing: const Icon(Icons.chevron_right),
-                      onTap: () => _showDownloadManager(context, cs, tt),
+                      onTap: () => Navigator.push(context,
+                        MaterialPageRoute(builder: (_) => const DownloadsScreen())),
                     ),
                   ],
                 ),
@@ -1805,107 +1817,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ),
           ],
-        ),
-      ),
-    );
-  }
-
-  void _showDownloadManager(BuildContext context, ColorScheme cs, TextTheme tt) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (ctx) => DraggableScrollableSheet(
-        initialChildSize: 0.5,
-        minChildSize: 0.05,
-        maxChildSize: 0.85,
-        expand: false,
-        builder: (ctx, scrollController) => Container(
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: ListenableBuilder(
-          listenable: DownloadService(),
-          builder: (ctx, _) {
-            final items = DownloadService().downloadedItems;
-            return Column(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(width: 40, height: 4,
-                        decoration: BoxDecoration(
-                          color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(2))),
-                      const SizedBox(height: 16),
-                      Text('Downloads',
-                        style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 12),
-                    ],
-                  ),
-                ),
-                if (items.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text('No downloads',
-                      style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
-                  )
-                else
-                  Expanded(
-                    child: ListView.builder(
-                      controller: scrollController,
-                      padding: EdgeInsets.only(bottom: 32 + MediaQuery.of(ctx).viewPadding.bottom),
-                      itemCount: items.length,
-                      itemBuilder: (ctx, index) {
-                        final info = items[index];
-                        return ListTile(
-                          leading: Icon(Icons.headphones_rounded, color: cs.primary),
-                          title: Text(info.title ?? 'Unknown',
-                            maxLines: 1, overflow: TextOverflow.ellipsis),
-                          subtitle: Text(info.author ?? '',
-                            maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                          trailing: IconButton(
-                            icon: Icon(Icons.delete_outline, color: cs.error),
-                            onPressed: () {
-                              showDialog(
-                                context: ctx,
-                                builder: (d) => AlertDialog(
-                                  title: const Text('Remove download?'),
-                                  content: Text('Delete "${info.title}" from device?'),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(d),
-                                      child: const Text('Cancel')),
-                                    FilledButton(
-                                      onPressed: () {
-                                        DownloadService().deleteDownload(info.itemId);
-                                        Navigator.pop(d);
-                                        ScaffoldMessenger.of(ctx)
-                                          ..clearSnackBars()
-                                          ..showSnackBar(SnackBar(
-                                            content: Text('"${info.title}" removed'),
-                                            duration: const Duration(seconds: 2),
-                                            behavior: SnackBarBehavior.floating,
-                                          ));
-                                      },
-                                      child: const Text('Remove')),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-              ],
-            );
-          },
-        ),
         ),
       ),
     );
