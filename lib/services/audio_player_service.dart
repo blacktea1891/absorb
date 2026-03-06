@@ -487,6 +487,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   Timer? _clickTimer;
   int _clickCount = 0;
   DateTime? _hardwareButtonTime; // cooldown after hardware next/prev
+  bool _noisyPauseFlag = false; // suppress click resolution after BT disconnect
 
   @override
   Future<void> click([MediaButton button = MediaButton.media]) async {
@@ -518,9 +519,15 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
     _clickCount++;
     _clickTimer?.cancel();
+    _noisyPauseFlag = false;
     _clickTimer = Timer(const Duration(milliseconds: 400), () async {
       final count = _clickCount;
       _clickCount = 0;
+      if (_noisyPauseFlag) {
+        debugPrint('[Handler] click resolved: count=$count — suppressed (noisy pause)');
+        _noisyPauseFlag = false;
+        return;
+      }
       debugPrint('[Handler] click resolved: count=$count playing=${_player.playing}');
       switch (count) {
         case 1:
@@ -543,6 +550,17 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
           break;
       }
     });
+  }
+
+  /// Cancel any pending media-button click so a BT disconnect doesn't
+  /// accidentally resume playback on the phone speaker.
+  void cancelPendingClick() {
+    _noisyPauseFlag = true;
+    if (_clickTimer?.isActive ?? false) {
+      debugPrint('[Handler] Cancelling pending click (noisy pause)');
+      _clickTimer!.cancel();
+      _clickCount = 0;
+    }
   }
 
   @override
@@ -1139,6 +1157,9 @@ class AudioPlayerService extends ChangeNotifier {
       debugPrint('[AudioSession] Becoming noisy — pausing');
       _noisyPause = true;
       service._wasPlayingBeforeInterrupt = false;
+      // Cancel any pending media-button click from the BT disconnect so the
+      // delayed click handler doesn't resume playback on the phone speaker.
+      _handler?.cancelPendingClick();
       if (service.isPlaying) {
         await service.pause();
       }
