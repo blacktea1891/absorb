@@ -37,6 +37,7 @@ class _MetadataLookupSheetState extends State<MetadataLookupSheet> {
 
   static const _providers = [
     ('audible', 'Audible'),
+    ('google', 'Google Books'),
     ('itunes', 'iTunes'),
     ('openlibrary', 'Open Library'),
   ];

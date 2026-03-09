@@ -64,6 +64,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
   AutoSleepSettings _autoSleepSettings = const AutoSleepSettings();
   String _appVersion = '';
   String? _expandedSection;
+  final Map<String, GlobalKey> _sectionKeys = {};
+
+  GlobalKey _keyFor(String section) => _sectionKeys.putIfAbsent(section, () => GlobalKey());
+
+  void _onSectionExpanded(String section, bool expanded) {
+    setState(() {
+      if (expanded) {
+        _expandedSection = section;
+      } else if (_expandedSection == section) {
+        _expandedSection = null;
+      }
+    });
+    if (expanded) {
+      // Wait for the collapse/expand animations to finish before scrolling
+      Future.delayed(const Duration(milliseconds: 350), () {
+        final ctx = _keyFor(section).currentContext;
+        if (ctx != null && mounted) {
+          Scrollable.ensureVisible(ctx, duration: const Duration(milliseconds: 250), curve: Curves.easeOut, alignment: 0.0);
+        }
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -471,11 +493,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Appearance ──
                 _CollapsibleSection(
+                  key: _keyFor('Appearance'),
                   icon: Icons.palette_outlined,
                   title: 'Appearance',
                   cs: cs,
                   isExpanded: _expandedSection == 'Appearance',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Appearance'; else if (_expandedSection == 'Appearance') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Appearance', v),
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -513,11 +536,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Absorbing Cards ──
                 _CollapsibleSection(
+                  key: _keyFor('Absorbing Cards'),
                   icon: Icons.style_rounded,
                   title: 'Absorbing Cards',
                   cs: cs,
                   isExpanded: _expandedSection == 'Absorbing Cards',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Absorbing Cards'; else if (_expandedSection == 'Absorbing Cards') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Absorbing Cards', v),
                   children: [
                     SwitchListTile(
                       title: const Text('Full screen player'),
@@ -672,11 +696,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Playback ──
                 _CollapsibleSection(
+                  key: _keyFor('Playback'),
                   icon: Icons.play_circle_outline_rounded,
                   title: 'Playback',
                   cs: cs,
                   isExpanded: _expandedSection == 'Playback',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Playback'; else if (_expandedSection == 'Playback') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Playback', v),
                   children: [
                     // Default speed
                     Padding(
@@ -878,11 +903,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Sleep Timer ──
                 _CollapsibleSection(
+                  key: _keyFor('Sleep Timer'),
                   icon: Icons.bedtime_outlined,
                   title: 'Sleep Timer',
                   cs: cs,
                   isExpanded: _expandedSection == 'Sleep Timer',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Sleep Timer'; else if (_expandedSection == 'Sleep Timer') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Sleep Timer', v),
                   children: [
                     SwitchListTile(
                       title: const Text('Shake to add time'),
@@ -1061,11 +1087,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Downloads & Storage ──
                 _CollapsibleSection(
+                  key: _keyFor('Downloads & Storage'),
                   icon: Icons.download_outlined,
                   title: 'Downloads & Storage',
                   cs: cs,
                   isExpanded: _expandedSection == 'Downloads & Storage',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Downloads & Storage'; else if (_expandedSection == 'Downloads & Storage') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Downloads & Storage', v),
                   children: [
                     SwitchListTile(
                       title: const Text('Download over Wi-Fi only'),
@@ -1190,11 +1217,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Library ──
                 _CollapsibleSection(
+                  key: _keyFor('Library'),
                   icon: Icons.auto_stories_outlined,
                   title: 'Library',
                   cs: cs,
                   isExpanded: _expandedSection == 'Library',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Library'; else if (_expandedSection == 'Library') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Library', v),
                   children: [
                     SwitchListTile(
                       title: const Text('Hide eBook-only titles'),
@@ -1247,11 +1275,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Permissions ──
                 _CollapsibleSection(
+                  key: _keyFor('Permissions'),
                   icon: Icons.shield_outlined,
                   title: 'Permissions',
                   cs: cs,
                   isExpanded: _expandedSection == 'Permissions',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Permissions'; else if (_expandedSection == 'Permissions') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Permissions', v),
                   children: [
                     ListTile(
                       leading: const Icon(Icons.notifications_outlined),
@@ -1308,11 +1337,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                 // ── Issues & Support ──
                 _CollapsibleSection(
+                  key: _keyFor('Issues & Support'),
                   icon: Icons.support_agent_rounded,
                   title: 'Issues & Support',
                   cs: cs,
                   isExpanded: _expandedSection == 'Issues & Support',
-                  onExpansionChanged: (v) => setState(() { if (v) _expandedSection = 'Issues & Support'; else if (_expandedSection == 'Issues & Support') _expandedSection = null; }),
+                  onExpansionChanged: (v) => _onSectionExpanded('Issues & Support', v),
                   children: [
                     ListTile(
                       leading: Icon(Icons.bug_report_outlined, color: cs.onSurfaceVariant),
@@ -2178,6 +2208,7 @@ class _CollapsibleSection extends StatefulWidget {
   final ValueChanged<bool>? onExpansionChanged;
 
   const _CollapsibleSection({
+    super.key,
     required this.icon,
     required this.title,
     required this.cs,
