@@ -269,44 +269,56 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       );
     }
 
-    return PopupMenuButton<String>(
+    return IconButton(
       icon: Icon(Icons.more_vert_rounded, color: cs.onSurfaceVariant),
-      onSelected: (value) async {
-        switch (value) {
-          case 'download':
-            _downloadAll();
-          case 'auto_download':
-            final lib = context.read<LibraryProvider>();
-            await lib.toggleRollingDownload(_itemId);
-            setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(_itemId));
-        }
+      onPressed: () => _showPodcastMoreSheet(cs, allDownloaded, downloaded),
+    );
+  }
+
+  void _showPodcastMoreSheet(ColorScheme cs, bool allDownloaded, int downloaded) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+              if (!allDownloaded)
+                _podMoreItem(cs, Icons.download_rounded,
+                  downloaded > 0 ? 'Download Remaining (${_episodes.length - downloaded})' : 'Download All',
+                  onTap: () { Navigator.pop(ctx); _downloadAll(); }),
+              if (_itemId.isNotEmpty)
+                _podMoreItem(cs,
+                  _autoDownloadEnabled ? Icons.downloading_rounded : Icons.download_outlined,
+                  _autoDownloadEnabled ? 'Turn Auto-Download Off' : 'Turn Auto-Download On',
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final lib = context.read<LibraryProvider>();
+                    await lib.toggleRollingDownload(_itemId);
+                    setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(_itemId));
+                  }),
+            ]),
+          ),
+        );
       },
-      itemBuilder: (_) => [
-        if (!allDownloaded)
-          PopupMenuItem(
-            value: 'download',
-            child: ListTile(
-              leading: const Icon(Icons.download_rounded),
-              title: Text(downloaded > 0
-                  ? 'Download Remaining (${_episodes.length - downloaded})'
-                  : 'Download All'),
-              dense: true, contentPadding: EdgeInsets.zero,
-            ),
-          ),
-        if (_itemId.isNotEmpty)
-          PopupMenuItem(
-            value: 'auto_download',
-            child: ListTile(
-              leading: Icon(_autoDownloadEnabled
-                  ? Icons.downloading_rounded
-                  : Icons.download_outlined),
-              title: Text(_autoDownloadEnabled
-                  ? 'Turn Auto-Download Off'
-                  : 'Turn Auto-Download On'),
-              dense: true, contentPadding: EdgeInsets.zero,
-            ),
-          ),
-      ],
+    );
+  }
+
+  Widget _podMoreItem(ColorScheme cs, IconData icon, String label, {required VoidCallback onTap}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: GestureDetector(onTap: onTap, child: Container(height: 44,
+        decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 8),
+          Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500))]))),
     );
   }
 
@@ -826,7 +838,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                   );
                 },
               )),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(child: GestureDetector(
                 onTap: _toggleFinished,
                 child: Container(
@@ -844,7 +856,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                     ),
                     const SizedBox(width: 6),
                     Text(
-                      isFinished ? 'Mark Unfinished' : 'Mark Finished',
+                      isFinished ? 'Finished' : 'Mark Finished',
                       style: TextStyle(
                         color: isFinished ? Colors.green : cs.onSurfaceVariant,
                         fontSize: 12, fontWeight: FontWeight.w500,
@@ -853,50 +865,20 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                   ]),
                 ),
               )),
+              const SizedBox(width: 8),
+              GestureDetector(
+                onTap: () => _showMoreSheet(context, lib, dlKey, progress, isFinished),
+                child: Container(
+                  height: 36, width: 44,
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withValues(alpha: 0.06),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: cs.onSurface.withValues(alpha: 0.1)),
+                  ),
+                  child: Icon(Icons.more_horiz_rounded, size: 18, color: cs.onSurfaceVariant),
+                ),
+              ),
             ]),
-
-            // Reset Progress
-            if (progress > 0 || isFinished) ...[
-              const SizedBox(height: 8),
-              _sheetBtn(icon: Icons.restart_alt_rounded,
-                label: 'Reset Progress', onTap: () => _resetProgress(context)),
-            ],
-            // Add / Remove from Absorbing
-            const SizedBox(height: 8),
-            _sheetBtn(
-              icon: lib.isOnAbsorbingList(dlKey)
-                ? Icons.remove_circle_outline_rounded
-                : Icons.add_circle_outline_rounded,
-              label: lib.isOnAbsorbingList(dlKey)
-                ? 'Remove from Absorbing'
-                : 'Add to Absorbing',
-              onTap: () async {
-                if (lib.isOnAbsorbingList(dlKey)) {
-                  await lib.removeFromAbsorbing(dlKey);
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      duration: const Duration(seconds: 3),
-                      content: const Text('Removed from Absorbing'),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
-                  }
-                } else {
-                  await lib.addToAbsorbingQueue(dlKey);
-                  // Populate cache so the absorbing card can render this episode
-                  final cached = Map<String, dynamic>.from(widget.podcastItem);
-                  cached['recentEpisode'] = Map<String, dynamic>.from(widget.episode);
-                  cached['_absorbingKey'] = dlKey;
-                  lib.absorbingItemCache[dlKey] = cached;
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      duration: const Duration(seconds: 3),
-                      content: const Text('Added to Absorbing'),
-                      behavior: SnackBarBehavior.floating,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
-                  }
-                }
-              },
-            ),
 
             // Metadata chips
             const SizedBox(height: 16),
@@ -966,14 +948,66 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
     );
   }
 
-  Widget _sheetBtn({required IconData icon, required String label, required VoidCallback onTap}) {
+  void _showMoreSheet(BuildContext context, LibraryProvider lib, String dlKey, double progress, bool isFinished) {
     final cs = Theme.of(context).colorScheme;
-    return GestureDetector(onTap: onTap, child: Container(height: 44,
-      decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
-      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 6),
-        Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w500))])));
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+              _moreItem(cs, lib.isOnAbsorbingList(_itemId)
+                  ? Icons.remove_circle_outline_rounded : Icons.add_circle_outline_rounded,
+                lib.isOnAbsorbingList(_itemId) ? 'Remove from Absorbing' : 'Add to Absorbing',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  if (lib.isOnAbsorbingList(_itemId)) {
+                    await lib.removeFromAbsorbing(_itemId);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        duration: const Duration(seconds: 3),
+                        content: const Text('Removed from Absorbing'),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+                    }
+                  } else {
+                    await lib.addToAbsorbingQueue(_itemId);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        duration: const Duration(seconds: 3),
+                        content: const Text('Added to Absorbing'),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+                    }
+                  }
+                }),
+              if (progress > 0 || isFinished)
+                _moreItem(cs, Icons.restart_alt_rounded, 'Reset Progress',
+                  onTap: () { Navigator.pop(ctx); _resetProgress(context); }),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _moreItem(ColorScheme cs, IconData icon, String label, {required VoidCallback onTap}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: GestureDetector(onTap: onTap, child: Container(height: 44,
+        decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 8),
+          Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500))]))),
+    );
   }
 
   String _fmtDur(double s) {
