@@ -268,78 +268,89 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
       );
     }
 
-    return PopupMenuButton<String>(
+    return IconButton(
       icon: Icon(Icons.more_vert_rounded, color: cs.onSurfaceVariant),
-      onSelected: (value) async {
-        switch (value) {
-          case 'download':
-            _downloadAll();
-          case 'mark_finished':
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Fully Absorb Series?'),
-                content: Text('This will mark all ${_books.length} books in this series as finished.'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Fully Absorb')),
-                ],
-              ),
-            );
-            if (confirmed == true) _markAllFinished();
-          case 'mark_not_finished':
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Mark All Not Finished?'),
-                content: Text('This will clear the finished status for all ${_books.length} books in this series.'),
-                actions: [
-                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Unmark All')),
-                ],
-              ),
-            );
-            if (confirmed == true) _markAllNotFinished();
-          case 'auto_download':
-            final lib = context.read<LibraryProvider>();
-            await lib.toggleRollingDownload(widget.seriesId!);
-            setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(widget.seriesId!));
-        }
+      onPressed: () => _showSeriesMoreSheet(cs, allDownloaded, downloaded, allDone, hasSeriesId),
+    );
+  }
+
+  void _showSeriesMoreSheet(ColorScheme cs, bool allDownloaded, int downloaded, bool allDone, bool hasSeriesId) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+              if (!allDownloaded)
+                _moreItem(cs, Icons.download_rounded,
+                  downloaded > 0 ? 'Download Remaining (${_books.length - downloaded})' : 'Download All',
+                  onTap: () { Navigator.pop(ctx); _downloadAll(); }),
+              _moreItem(cs,
+                allDone ? Icons.remove_done_rounded : Icons.done_all_rounded,
+                allDone ? 'Mark All Not Finished' : 'Mark All Finished',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  if (allDone) {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dlg) => AlertDialog(
+                        title: const Text('Mark All Not Finished?'),
+                        content: Text('This will clear the finished status for all ${_books.length} books in this series.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dlg, false), child: const Text('Cancel')),
+                          FilledButton(onPressed: () => Navigator.pop(dlg, true), child: const Text('Unmark All')),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) _markAllNotFinished();
+                  } else {
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (dlg) => AlertDialog(
+                        title: const Text('Fully Absorb Series?'),
+                        content: Text('This will mark all ${_books.length} books in this series as finished.'),
+                        actions: [
+                          TextButton(onPressed: () => Navigator.pop(dlg, false), child: const Text('Cancel')),
+                          FilledButton(onPressed: () => Navigator.pop(dlg, true), child: const Text('Fully Absorb')),
+                        ],
+                      ),
+                    );
+                    if (confirmed == true) _markAllFinished();
+                  }
+                }),
+              if (hasSeriesId)
+                _moreItem(cs,
+                  _autoDownloadEnabled ? Icons.downloading_rounded : Icons.download_outlined,
+                  _autoDownloadEnabled ? 'Turn Auto-Download Off' : 'Turn Auto-Download On',
+                  onTap: () async {
+                    Navigator.pop(ctx);
+                    final lib = context.read<LibraryProvider>();
+                    await lib.toggleRollingDownload(widget.seriesId!);
+                    setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(widget.seriesId!));
+                  }),
+            ]),
+          ),
+        );
       },
-      itemBuilder: (_) => [
-        if (!allDownloaded)
-          PopupMenuItem(
-            value: 'download',
-            child: ListTile(
-              leading: const Icon(Icons.download_rounded),
-              title: Text(downloaded > 0
-                  ? 'Download Remaining (${_books.length - downloaded})'
-                  : 'Download All'),
-              dense: true, contentPadding: EdgeInsets.zero,
-            ),
-          ),
-        PopupMenuItem(
-          value: allDone ? 'mark_not_finished' : 'mark_finished',
-          child: ListTile(
-            leading: Icon(allDone ? Icons.remove_done_rounded : Icons.done_all_rounded),
-            title: Text(allDone ? 'Mark All Not Finished' : 'Mark All Finished'),
-            dense: true, contentPadding: EdgeInsets.zero,
-          ),
-        ),
-        if (hasSeriesId)
-          PopupMenuItem(
-            value: 'auto_download',
-            child: ListTile(
-              leading: Icon(_autoDownloadEnabled
-                  ? Icons.downloading_rounded
-                  : Icons.download_outlined),
-              title: Text(_autoDownloadEnabled
-                  ? 'Turn Auto-Download Off'
-                  : 'Turn Auto-Download On'),
-              dense: true, contentPadding: EdgeInsets.zero,
-            ),
-          ),
-      ],
+    );
+  }
+
+  Widget _moreItem(ColorScheme cs, IconData icon, String label, {required VoidCallback onTap}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: GestureDetector(onTap: onTap, child: Container(height: 44,
+        decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 8),
+          Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500))]))),
     );
   }
 
