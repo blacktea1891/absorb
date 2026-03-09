@@ -307,35 +307,13 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
           },
         ),
       ),
+      // ─── Action row: Download | Finished | More ─────────────────
       const SizedBox(height: 12),
-      if (isEbookOnly && ebookFile != null) ...[
-        GestureDetector(
-          onTap: () => _saveEbook(context, auth, ebookFile, title),
-          child: Container(
-            height: 36,
-            decoration: BoxDecoration(
-              color: cs.onSurface.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
-            ),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _ebookSaving
-                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurfaceVariant))
-                  : Icon(_ebookSaved ? Icons.download_done_rounded : Icons.save_alt_rounded, size: 16, color: cs.onSurfaceVariant),
-              const SizedBox(width: 6),
-              Text(
-                _ebookSaving ? 'Saving…' : _ebookSaved ? 'Download eBook Again' : 'Download eBook',
-                style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w500),
-              ),
-            ]),
-          ),
-        ),
-        const SizedBox(height: 8),
-      ],
       Row(children: [
-        if (!isEbookOnly)
+        if (!isEbookOnly) ...[
           Expanded(child: DownloadWideButton(itemId: widget.itemId, coverUrl: _coverUrl, title: title, author: authorName, accent: cs.primary)),
-        if (!isEbookOnly) const SizedBox(width: 10),
+          const SizedBox(width: 8),
+        ],
         Expanded(child: GestureDetector(
           onTap: () => isFinished
               ? _markNotFinished(context, auth, currentTime, duration)
@@ -364,72 +342,21 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
             ]),
           ),
         )),
-      ]),
-      if (ebookFile != null && !isEbookOnly) ...[
-        const SizedBox(height: 8),
+        const SizedBox(width: 8),
+        // More button - opens styled bottom sheet with secondary actions
         GestureDetector(
-          onTap: () => _saveEbook(context, auth, ebookFile, title),
+          onTap: () => _showMoreSheet(context, auth, lib, title, authorName, progress, isFinished, duration, ebookFile, isEbookOnly),
           child: Container(
-            height: 36,
+            height: 36, width: 44,
             decoration: BoxDecoration(
               color: cs.onSurface.withValues(alpha: 0.06),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+              border: Border.all(color: cs.onSurface.withValues(alpha: 0.1)),
             ),
-            child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _ebookSaving
-                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurfaceVariant))
-                  : Icon(_ebookSaved ? Icons.download_done_rounded : Icons.save_alt_rounded, size: 16, color: cs.onSurfaceVariant),
-              const SizedBox(width: 6),
-              Text(
-                _ebookSaving ? 'Saving…' : _ebookSaved ? 'Download eBook Again' : 'Download eBook',
-                style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w500),
-              ),
-            ]),
+            child: Icon(Icons.more_horiz_rounded, size: 18, color: cs.onSurfaceVariant),
           ),
         ),
-      ],
-      if (progress > 0 || isFinished) ...[
-        const SizedBox(height: 8),
-        _sheetBtn(icon: Icons.restart_alt_rounded,
-          label: 'Reset Progress', onTap: () => _resetProgress(context, auth, duration)),
-      ],
-      const SizedBox(height: 8),
-      _sheetBtn(
-        icon: lib.isOnAbsorbingList(widget.itemId)
-          ? Icons.remove_circle_outline_rounded
-          : Icons.add_circle_outline_rounded,
-        label: lib.isOnAbsorbingList(widget.itemId)
-          ? 'Remove from Absorbing'
-          : 'Add to Absorbing',
-        onTap: () async {
-          if (lib.isOnAbsorbingList(widget.itemId)) {
-            await lib.removeFromAbsorbing(widget.itemId);
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                duration: const Duration(seconds: 3),
-                content: const Text('Removed from Absorbing'),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
-            }
-          } else {
-            await lib.addToAbsorbingQueue(widget.itemId);
-            // Populate cache so the absorbing card can render immediately
-            if (_item != null) {
-              final cached = Map<String, dynamic>.from(_item!);
-              cached['_absorbingKey'] = widget.itemId;
-              lib.absorbingItemCache[widget.itemId] = cached;
-            }
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                duration: const Duration(seconds: 3),
-                content: const Text('Added to Absorbing'),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
-            }
-          }
-        },
-      ),
+      ]),
       const SizedBox(height: 16),
       Wrap(spacing: 8, runSpacing: 8, children: [
         if (year.isNotEmpty) _chip(Icons.calendar_today_rounded, year),
@@ -492,42 +419,91 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                 Text(_fmtDur(((ch['end'] as num?)?.toDouble() ?? 0) - ((ch['start'] as num?)?.toDouble() ?? 0)), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
               ]));
           })]],
-      // ─── Metadata lookup (bottom of sheet) ─────────────────
-      if (_showGoodreads) ...[
-        const SizedBox(height: 8),
-        _sheetBtn(
-          icon: Icons.local_library_rounded,
-          label: 'Search on Goodreads',
-          onTap: () => _openGoodreads(title, authorName),
-        ),
-      ],
-      if (auth.apiService != null && !lib.isOffline) ...[
-        const SizedBox(height: 20),
-        _sheetBtn(
-          icon: Icons.manage_search_rounded,
-          label: _hasLocalOverride ? 'Re-Lookup Metadata' : 'Lookup Metadata',
-          onTap: () => _openMetadataLookup(context, auth, title, authorName),
-        ),
-      ],
-      if (_hasLocalOverride) ...[
-        const SizedBox(height: 8),
-        _sheetBtn(
-          icon: Icons.layers_clear_rounded,
-          label: 'Clear Local Metadata',
-          onTap: () => _clearOverride(context),
-        ),
-      ],
+      // Secondary actions are in the More sheet now.
     ]);
   }
 
-  Widget _sheetBtn({required IconData icon, required String label, required VoidCallback onTap}) {
+  void _showMoreSheet(BuildContext context, AuthProvider auth, LibraryProvider lib,
+      String title, String authorName, double progress, bool isFinished,
+      double duration, Map<String, dynamic>? ebookFile, bool isEbookOnly) {
     final cs = Theme.of(context).colorScheme;
-    return GestureDetector(onTap: onTap, child: Container(height: 44,
-      decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
-      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-        Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 6),
-        Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 12, fontWeight: FontWeight.w500))])));
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+              _moreItem(cs, lib.isOnAbsorbingList(widget.itemId)
+                  ? Icons.remove_circle_outline_rounded : Icons.add_circle_outline_rounded,
+                lib.isOnAbsorbingList(widget.itemId) ? 'Remove from Absorbing' : 'Add to Absorbing',
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  if (lib.isOnAbsorbingList(widget.itemId)) {
+                    await lib.removeFromAbsorbing(widget.itemId);
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        duration: const Duration(seconds: 3),
+                        content: const Text('Removed from Absorbing'),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+                    }
+                  } else {
+                    await lib.addToAbsorbingQueue(widget.itemId);
+                    if (_item != null) {
+                      final cached = Map<String, dynamic>.from(_item!);
+                      cached['_absorbingKey'] = widget.itemId;
+                      lib.absorbingItemCache[widget.itemId] = cached;
+                    }
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                        duration: const Duration(seconds: 3),
+                        content: const Text('Added to Absorbing'),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+                    }
+                  }
+                }),
+              if (ebookFile != null)
+                _moreItem(cs, _ebookSaved ? Icons.download_done_rounded : Icons.save_alt_rounded,
+                  _ebookSaved ? 'Download eBook Again' : 'Download eBook',
+                  onTap: () { Navigator.pop(ctx); _saveEbook(context, auth, ebookFile, title); }),
+              if (progress > 0 || isFinished)
+                _moreItem(cs, Icons.restart_alt_rounded, 'Reset Progress',
+                  onTap: () { Navigator.pop(ctx); _resetProgress(context, auth, duration); }),
+              if (auth.apiService != null && !lib.isOffline)
+                _moreItem(cs, Icons.manage_search_rounded,
+                  _hasLocalOverride ? 'Re-Lookup Metadata' : 'Lookup Metadata',
+                  onTap: () { Navigator.pop(ctx); _openMetadataLookup(context, auth, title, authorName); }),
+              if (_hasLocalOverride)
+                _moreItem(cs, Icons.layers_clear_rounded, 'Clear Local Metadata',
+                  onTap: () { Navigator.pop(ctx); _clearOverride(context); }),
+              if (_showGoodreads)
+                _moreItem(cs, Icons.local_library_rounded, 'Search on Goodreads',
+                  onTap: () { Navigator.pop(ctx); _openGoodreads(title, authorName); }),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _moreItem(ColorScheme cs, IconData icon, String label, {required VoidCallback onTap}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: GestureDetector(onTap: onTap, child: Container(height: 44,
+        decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 8),
+          Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500))]))),
+    );
   }
 
   List<Widget> _audioInfoChips(Map<String, dynamic> media) {
