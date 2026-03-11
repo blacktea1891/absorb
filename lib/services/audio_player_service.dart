@@ -874,6 +874,7 @@ class AudioPlayerService extends ChangeNotifier {
   List<double> _trackStartOffsets = []; // [0, dur0, dur0+dur1, ...]
   int _currentTrackIndex = 0;
   int _lastNotifiedChapterIndex = -1;
+  int _lastChapterCheckSec = -1;
   StreamSubscription? _indexSub;
 
   // ── Notification chapter progress mode ──
@@ -1831,6 +1832,7 @@ class AudioPlayerService extends ChangeNotifier {
     _completionSub?.cancel();
     _bgSaveTimer?.cancel();
     _lastSyncSecond = -1;
+    _lastChapterCheckSec = -1;
     _lastKnownPositionSec = 0;
 
     // Independent periodic timer for position persistence.
@@ -1893,8 +1895,10 @@ class AudioPlayerService extends ChangeNotifier {
       if (sec <= 0) return;
 
       // ─── Chapter change detection ──────────────────────────
-      // Update notification subtitle when the chapter changes
-      if (_chapters.isNotEmpty && _currentItemId != null) {
+      // Update notification subtitle when the chapter changes.
+      // Throttled to once per second — chapters can't change faster than that.
+      if (_chapters.isNotEmpty && _currentItemId != null && sec != _lastChapterCheckSec) {
+        _lastChapterCheckSec = sec;
         int chapterIdx = -1;
         String? chapterTitle;
         double chapterStart = 0;
