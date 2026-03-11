@@ -786,9 +786,13 @@ class DownloadService extends ChangeNotifier {
       } else {
         final isStorageFull = e.toString().contains('No space left') ||
             e.toString().contains('ENOSPC');
+        final isPermissionDenied = e.toString().contains('Permission denied') ||
+            e.toString().contains('error = 13');
         final errorMsg = isStorageFull
             ? 'Not enough storage space'
-            : 'Download failed';
+            : isPermissionDenied
+                ? 'Permission denied - check download location in Settings'
+                : 'Download failed';
         debugPrint('[Download] Error: $e');
         _downloads[itemId] = DownloadInfo(
           itemId: itemId,

@@ -1844,6 +1844,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 label: const Text('Choose folder'),
                 onPressed: () async {
                   Navigator.pop(ctx);
+                  // Request storage permission (needed on Android 9 and below).
+                  // On Android 10+, this permission is deprecated - we skip blocking
+                  // and let the write test below catch any actual access issues.
+                  if (Platform.isAndroid) {
+                    final status = await Permission.storage.status;
+                    if (status.isPermanentlyDenied) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: const Text('Storage permission permanently denied - enable it in app settings'),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12)),
+                          action: SnackBarAction(
+                            label: 'Open Settings',
+                            onPressed: openAppSettings,
+                          ),
+                        ));
+                      }
+                      return;
+                    }
+                    if (!status.isGranted) {
+                      await Permission.storage.request();
+                      // Don't block - proceed regardless
+                    }
+                  }
                   final result = await FilePicker.platform.getDirectoryPath(
                     dialogTitle: 'Choose download folder',
                   );
