@@ -351,33 +351,45 @@ class AndroidAutoService {
         );
       }).where((l) => l.id.isNotEmpty && (l.isBook || l.isPodcast)).toList();
 
-      // ── Continue Listening (from default library) ──
-      final defaultLibId = await getDefaultLibraryId();
-      if (defaultLibId != null) {
-        final sections = await api.getPersonalizedView(
-          defaultLibId,
-          include: const ['numEpisodesIncomplete'],
-          shelves: const ['continue-listening', 'continue-series'],
-          limit: 10,
-        );
-        final continueEntries = <AutoBookEntry>[];
-        final seenIds = <String>{};
+      // ── Continue Listening (merged from all libraries) ──
+      final clFutures = _libraries.map((lib) => api.getPersonalizedView(
+            lib.id,
+            include: const ['numEpisodesIncomplete'],
+            shelves: const ['continue-listening', 'continue-series'],
+            limit: 10,
+          ));
+      final allSections = await Future.wait(clFutures);
 
+      // Collect all entities across libraries, deduplicate, sort by recency
+      final seenIds = <String>{};
+      final allEntities = <Map<String, dynamic>>[];
+      for (final sections in allSections) {
         for (final section in sections) {
           final sectionId = section['id'] as String? ?? '';
           if (sectionId == 'continue-listening' || sectionId == 'continue-series') {
             for (final entity in (section['entities'] as List<dynamic>? ?? [])) {
               if (entity is Map<String, dynamic>) {
-                final entry = _entityToEntry(entity, api);
-                if (entry != null && seenIds.add(entry.id)) {
-                  continueEntries.add(entry);
+                final id = entity['id'] as String? ?? '';
+                final ep = entity['recentEpisode'] as Map<String, dynamic>?;
+                final key = ep != null ? '$id-${ep['id'] ?? ''}' : id;
+                if (key.isNotEmpty && seenIds.add(key)) {
+                  allEntities.add(entity);
                 }
               }
             }
           }
         }
-        _continueListening = continueEntries;
       }
+      // Sort by last listened time (most recent first)
+      allEntities.sort((a, b) {
+        final aTime = ((a['mediaProgress'] as Map<String, dynamic>?)?['lastUpdate'] as num?)?.toDouble() ?? 0;
+        final bTime = ((b['mediaProgress'] as Map<String, dynamic>?)?['lastUpdate'] as num?)?.toDouble() ?? 0;
+        return bTime.compareTo(aTime);
+      });
+      _continueListening = allEntities
+          .map((e) => _entityToEntry(e, api))
+          .whereType<AutoBookEntry>()
+          .toList();
     } catch (e) {
       // Server unreachable — clear stale tabs so only Downloads shows offline
       _continueListening = [];
