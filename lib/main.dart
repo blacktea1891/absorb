@@ -86,6 +86,18 @@ void main() async {
     applyThemeMode(savedTheme);
     snappyTransitionsNotifier.value = await PlayerSettings.getSnappyTransitions();
     colorSourceNotifier.value = await PlayerSettings.getColorSource();
+    // Restore last cover seed color so the theme doesn't flash wallpaper colors
+    if (colorSourceNotifier.value == 'cover') {
+      final seedInt = await PlayerSettings.getCoverSeedColor();
+      if (seedInt != null) {
+        final seedColor = Color(seedInt);
+        coverSchemeNotifier.value = ColorScheme.fromSeed(
+          seedColor: seedColor,
+          brightness: parseThemeMode(await PlayerSettings.getThemeMode()) == ThemeMode.light
+              ? Brightness.light : Brightness.dark,
+        );
+      }
+    }
   } catch (_) {}
 
   // Capture Flutter framework errors (widget build failures, etc.)
@@ -366,9 +378,20 @@ class _AuthGateState extends State<AuthGate> {
     await ScopedPrefs.migrateToScope();
 
     // Reload settings that were read in main() before scope was active
-    applyThemeMode(await PlayerSettings.getThemeMode());
+    final scopedTheme = await PlayerSettings.getThemeMode();
+    applyThemeMode(scopedTheme);
     snappyTransitionsNotifier.value = await PlayerSettings.getSnappyTransitions();
     colorSourceNotifier.value = await PlayerSettings.getColorSource();
+    if (colorSourceNotifier.value == 'cover') {
+      final seedInt = await PlayerSettings.getCoverSeedColor();
+      if (seedInt != null) {
+        coverSchemeNotifier.value = ColorScheme.fromSeed(
+          seedColor: Color(seedInt),
+          brightness: parseThemeMode(scopedTheme) == ThemeMode.light
+              ? Brightness.light : Brightness.dark,
+        );
+      }
+    }
 
     // Start auth restoration immediately — it doesn't depend on audio/cast/
     // download services and must not be blocked by a hanging service init.
