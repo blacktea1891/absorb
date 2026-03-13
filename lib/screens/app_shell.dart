@@ -205,6 +205,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
     ColorScheme.fromImageProvider(provider: provider, brightness: brightness)
         .then((scheme) {
       coverSchemeNotifier.value = scheme;
+      PlayerSettings.setCoverSeedColor(scheme.primary.toARGB32());
     }).catchError((_) {
       // Image load failed - allow retry
       _lastCoverItemId = null;

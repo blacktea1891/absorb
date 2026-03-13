@@ -296,6 +296,11 @@ class PlayerSettings {
   static Future<String> getColorSource() => _get('colorSource', 'wallpaper');
   static Future<void> setColorSource(String value) => _set('colorSource', value);
 
+  /// Cached seed color from the last cover-art derivation, so we can show
+  /// the correct color immediately on restart without waiting for the image.
+  static Future<int?> getCoverSeedColor() async => await ScopedPrefs.getInt('coverSeedColor');
+  static Future<void> setCoverSeedColor(int value) => _set('coverSeedColor', value);
+
   /// Check if an item has no audio content.
   /// For minified responses (library list), duration == 0 means no audio files.
   /// For full responses (detail sheet), we also check ebookFile + audioFiles.
