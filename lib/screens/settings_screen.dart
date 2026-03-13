@@ -10,6 +10,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:just_audio/just_audio.dart' show AudioPlayer;
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
+import '../services/api_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/sleep_timer_service.dart';
@@ -59,6 +60,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _snappyTransitions = false;
   String _themeMode = 'dark';
   int _streamingCacheSizeMb = 0;
+  bool _localServerEnabled = false;
+  String _localServerUrl = '';
+  bool _disableAudioFocus = false;
   bool _loaded = false;
   String _downloadLocationLabel = 'App Internal Storage (Default)';
   int _totalDownloadSizeBytes = 0;
@@ -129,6 +133,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       AutoSleepSettings.load(),                               // 28
       PackageInfo.fromPlatform(),                             // 29
       PlayerSettings.getStreamingCacheSizeMb(),               // 30
+      PlayerSettings.getLocalServerEnabled(),                  // 31
+      PlayerSettings.getLocalServerUrl(),                      // 32
+      PlayerSettings.getDisableAudioFocus(),                   // 33
     ]);
     final s = results[0] as AutoRewindSettings;
     final speed = results[1] as double;
@@ -161,6 +168,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final autoSleep = results[28] as AutoSleepSettings;
     final pkgInfo = results[29] as PackageInfo;
     final cacheSizeMb = results[30] as int;
+    final localEnabled = results[31] as bool;
+    final localUrl = results[32] as String;
+    final audioFocusOff = results[33] as bool;
     if (mounted) setState(() {
       _rewindSettings = s;
       _defaultSpeed = speed;
@@ -196,6 +206,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _autoSleepSettings = autoSleep;
       _appVersion = pkgInfo.version;
       _streamingCacheSizeMb = cacheSizeMb;
+      _localServerEnabled = localEnabled;
+      _localServerUrl = localUrl;
+      _disableAudioFocus = audioFocusOff;
       _loaded = true;
     });
   }
@@ -1491,6 +1504,130 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                       ),
                     ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // ── Advanced ──
+                _CollapsibleSection(
+                  key: _keyFor('Advanced'),
+                  icon: Icons.tune_rounded,
+                  title: 'Advanced',
+                  cs: cs,
+                  isExpanded: _expandedSection == 'Advanced',
+                  onExpansionChanged: (v) => _onSectionExpanded('Advanced', v),
+                  children: [
+                    SwitchListTile(
+                      title: const Text('Local server'),
+                      subtitle: Text(
+                        _localServerEnabled
+                            ? (auth.useLocalServer
+                                ? 'Connected via local server'
+                                : 'Enabled - using remote server')
+                            : 'Auto-switch to a LAN server on your home WiFi',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _localServerEnabled,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _localServerEnabled = v);
+                        auth.setLocalServerConfig(enabled: v, url: _localServerUrl);
+                      } : null,
+                    ),
+                    if (_localServerEnabled) ...[
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        child: TextField(
+                          controller: TextEditingController(text: _localServerUrl),
+                          decoration: InputDecoration(
+                            labelText: 'Local server URL',
+                            hintText: 'http://192.168.1.100:13378',
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                            suffixIcon: IconButton(
+                              icon: const Icon(Icons.check_rounded),
+                              tooltip: 'Save',
+                              onPressed: () {
+                                // URL is saved via onChanged
+                                FocusScope.of(context).unfocus();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: const Text('Local server URL saved'),
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                          onChanged: (v) {
+                            _localServerUrl = v.trim();
+                            auth.setLocalServerConfig(enabled: _localServerEnabled, url: _localServerUrl);
+                          },
+                        ),
+                      ),
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        leading: Icon(Icons.wifi_find_rounded, color: cs.primary),
+                        title: const Text('Test local connection'),
+                        subtitle: Text(
+                          auth.useLocalServer ? 'Currently using local server' : 'Tap to ping the local server',
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        trailing: auth.useLocalServer
+                            ? Icon(Icons.check_circle_rounded, color: Colors.greenAccent.shade400)
+                            : Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
+                        onTap: () async {
+                          if (_localServerUrl.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              content: const Text('Enter a local server URL first'),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ));
+                            return;
+                          }
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: const Text('Pinging local server...'),
+                            duration: const Duration(seconds: 1),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ));
+                          final reachable = await ApiService.pingServer(_localServerUrl)
+                              .timeout(const Duration(seconds: 3), onTimeout: () => false);
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).clearSnackBars();
+                          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                            content: Text(reachable
+                                ? 'Local server is reachable'
+                                : 'Could not reach local server'),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ));
+                          if (reachable) {
+                            await auth.checkLocalServer();
+                            if (mounted) setState(() {});
+                          }
+                        },
+                      ),
+                    ],
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    SwitchListTile(
+                      title: const Text('Disable audio focus'),
+                      subtitle: Text(
+                        _disableAudioFocus
+                            ? 'On - plays alongside other audio (still pauses for calls)'
+                            : 'Off - other audio pauses when Absorb plays',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _disableAudioFocus,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _disableAudioFocus = v);
+                        PlayerSettings.setDisableAudioFocus(v);
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                          content: Text(v
+                              ? 'Audio focus disabled - restart app to apply'
+                              : 'Audio focus enabled - restart app to apply'),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ));
+                      } : null,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),

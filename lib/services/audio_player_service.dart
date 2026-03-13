@@ -16,6 +16,7 @@ import 'equalizer_service.dart';
 import 'android_auto_service.dart';
 import 'chromecast_service.dart';
 import 'scoped_prefs.dart';
+import '../widgets/card_button_config.dart';
 
 // ─── Auto-rewind settings ───
 
@@ -246,14 +247,33 @@ class PlayerSettings {
   static Future<bool> getSnappyTransitions() => _get('snappyTransitions', false);
   static Future<void> setSnappyTransitions(bool value) => _set('snappyTransitions', value);
 
+  // ── Audio focus ──
+
+  static Future<bool> getDisableAudioFocus() => _get('disableAudioFocus', false);
+  static Future<void> setDisableAudioFocus(bool value) => _set('disableAudioFocus', value);
+
+  // ── Local server ──
+
+  static Future<bool> getLocalServerEnabled() => _get('localServerEnabled', false);
+  static Future<void> setLocalServerEnabled(bool value) => _set('localServerEnabled', value);
+
+  static Future<String> getLocalServerUrl() => _get('localServerUrl', '');
+  static Future<void> setLocalServerUrl(String value) => _set('localServerUrl', value);
+
   // ── Card button order ──
 
-  static const defaultButtonOrder = ['chapters', 'speed', 'sleep', 'bookmarks', 'details', 'equalizer', 'cast', 'history', 'remove'];
+  static const defaultButtonOrder = ['chapters', 'speed', 'sleep', 'bookmarks', 'details', 'equalizer', 'cast', 'history', 'remove', 'car'];
 
   static Future<List<String>> getCardButtonOrder() async {
     final stored = await ScopedPrefs.getStringList('card_button_order');
-    if (stored.isNotEmpty && stored.length == defaultButtonOrder.length) return stored;
-    return List.from(defaultButtonOrder);
+    if (stored.isEmpty) return List.from(defaultButtonOrder);
+    // Append any new buttons that were added since the user last saved their order
+    final knownIds = allCardButtons.map((b) => b.id).toSet();
+    final result = stored.where((id) => knownIds.contains(id)).toList();
+    for (final b in allCardButtons) {
+      if (!result.contains(b.id)) result.add(b.id);
+    }
+    return result;
   }
 
   static Future<void> setCardButtonOrder(List<String> order) async {
@@ -1177,8 +1197,60 @@ class AudioPlayerService extends ChangeNotifier {
   /// starting new playback to avoid blasting audio on the phone speaker.
   static bool get wasNoisyPause => _noisyPause;
 
+  static bool _audioFocusDisabled = false;
+
   static Future<void> _configureAudioSession() async {
+    _audioFocusDisabled = await PlayerSettings.getDisableAudioFocus();
     final session = await AudioSession.instance;
+
+    if (_audioFocusDisabled) {
+      // Allow mixing with other audio - don't request exclusive focus
+      await session.configure(const AudioSessionConfiguration(
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionMode: AVAudioSessionMode.defaultMode,
+        avAudioSessionCategoryOptions: AVAudioSessionCategoryOptions.mixWithOthers,
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.music,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gainTransientMayDuck,
+      ));
+      debugPrint('[AudioSession] Audio focus disabled - mixing with other apps');
+
+      // Still pause for phone calls (AudioInterruptionType.pause)
+      _interruptSub?.cancel();
+      _interruptSub = session.interruptionEventStream.listen((event) async {
+        final service = _instance;
+        if (event.type != AudioInterruptionType.pause) return;
+        if (event.begin) {
+          if (service.isPlaying) {
+            debugPrint('[AudioSession] Phone call - pausing');
+            await service._player?.pause();
+            service._wasPlayingBeforeInterrupt = true;
+          }
+        } else if (service._wasPlayingBeforeInterrupt) {
+          service._wasPlayingBeforeInterrupt = false;
+          await Future.delayed(const Duration(milliseconds: 600));
+          debugPrint('[AudioSession] Phone call ended - resuming');
+          await service.play();
+        }
+      });
+
+      // Still pause when headphones/BT disconnect
+      _noisySub?.cancel();
+      _noisySub = session.becomingNoisyEventStream.listen((_) async {
+        final service = _instance;
+        debugPrint('[AudioSession] Becoming noisy - pausing');
+        _noisyPause = true;
+        service._wasPlayingBeforeInterrupt = false;
+        _handler?.cancelPendingClick();
+        if (service.isPlaying) {
+          await service.pause();
+        }
+      });
+      return;
+    }
+
     await session.configure(const AudioSessionConfiguration.speech());
     await session.setActive(true);
 
@@ -2180,7 +2252,9 @@ class AudioPlayerService extends ChangeNotifier {
     }
     _lastPauseTime = null;
     // Re-activate audio session (needed after stop() releases it)
-    try { (await AudioSession.instance).setActive(true); } catch (_) {}
+    if (!_audioFocusDisabled) {
+      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+    }
     _player?.play();
     _logEvent(PlaybackEventType.play);
     _onPlaybackStateChangedCallback?.call(true);
@@ -2345,7 +2419,9 @@ class AudioPlayerService extends ChangeNotifier {
       SleepTimerService().cancel();
     }
     // Release audio focus so other apps can use it
-    try { (await AudioSession.instance).setActive(false); } catch (_) {}
+    if (!_audioFocusDisabled) {
+      try { (await AudioSession.instance).setActive(false); } catch (_) {}
+    }
   }
 
   /// Stop playback without saving progress — used by reset progress.

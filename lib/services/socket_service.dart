@@ -153,6 +153,19 @@ class SocketService {
     _socket = null;
   }
 
+  /// Switch to a different server URL (e.g. local/remote swap).
+  /// Does a soft disconnect then reconnect with the new URL.
+  void switchServer(String newUrl) {
+    if (_serverUrl == newUrl) return;
+    debugPrint('[Socket] Switching server: $_serverUrl -> $newUrl');
+    _serverUrl = newUrl;
+    if (_socket != null) {
+      _socket!.dispose();
+      _socket = null;
+      softReconnect();
+    }
+  }
+
   /// Reconnect after a soft disconnect, reusing saved credentials.
   void softReconnect() {
     if (_socket != null) return; // already connected

@@ -548,14 +548,20 @@ class LibraryProvider extends ChangeNotifier {
       if (!hasConnectivity) {
         _stopServerPingTimer();
         setNetworkOffline(true);
+        _auth?.clearLocalOverride();
       } else if (!_manualOffline) {
         // Connectivity restored — optimistically go online; if server is still
         // down the API call will fail and _goOfflineWithPing() will be called.
         setNetworkOffline(false);
-        // WiFi restored — catch up on any pending rolling downloads
         if (result.contains(ConnectivityResult.wifi)) {
+          // WiFi available — check if local server is reachable
+          _auth?.checkLocalServer();
           if (_rollingDownloadSeries.isNotEmpty) _catchUpRollingDownloads();
           _catchUpQueueAutoDownloads();
+        } else {
+          // WiFi dropped but still have connectivity (e.g. mobile data) —
+          // local server won't be reachable, revert to remote URL.
+          _auth?.clearLocalOverride();
         }
       }
     });

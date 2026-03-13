@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/android_auto_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/socket_service.dart';
 import '../services/user_account_service.dart';
 
 class AuthProvider extends ChangeNotifier {
@@ -18,6 +19,11 @@ class AuthProvider extends ChangeNotifier {
   bool _serverReachable = true;
   Map<String, String> _customHeaders = {};
 
+  // Local server auto-switch
+  String _localServerUrl = '';
+  bool _localServerEnabled = false;
+  bool _useLocalServer = false;
+
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -27,6 +33,10 @@ class AuthProvider extends ChangeNotifier {
   bool get serverReachable => _serverReachable;
   String? get token => _token;
   String? get serverUrl => _serverUrl;
+  String? get activeServerUrl => (_useLocalServer && _localServerUrl.isNotEmpty) ? _localServerUrl : _serverUrl;
+  bool get useLocalServer => _useLocalServer;
+  bool get localServerEnabled => _localServerEnabled;
+  String get localServerUrl => _localServerUrl;
   String? get username => _username;
   String? get userId => _userId;
   String? get defaultLibraryId => _defaultLibraryId;
@@ -43,8 +53,9 @@ class AuthProvider extends ChangeNotifier {
   bool get isRoot => _userJson?['type'] == 'root';
 
   ApiService? get apiService {
-    if (_serverUrl != null && _token != null) {
-      return ApiService(baseUrl: _serverUrl!, token: _token!, customHeaders: _customHeaders);
+    final url = activeServerUrl;
+    if (url != null && _token != null) {
+      return ApiService(baseUrl: url, token: _token!, customHeaders: _customHeaders);
     }
     return null;
   }
@@ -84,6 +95,9 @@ class AuthProvider extends ChangeNotifier {
             _customHeaders = Map<String, String>.from(jsonDecode(headersJson) as Map);
           } catch (_) {}
         }
+
+        // Load local server config
+        await _loadLocalServerSettings();
 
         // Check if server is actually reachable
         debugPrint('[Auth] pinging server... (${sw.elapsedMilliseconds}ms)');
@@ -263,6 +277,51 @@ class AuthProvider extends ChangeNotifier {
     _isLoading = false;
     notifyListeners();
     return true;
+  }
+
+  /// Load local server settings from PlayerSettings.
+  Future<void> _loadLocalServerSettings() async {
+    _localServerEnabled = await PlayerSettings.getLocalServerEnabled();
+    _localServerUrl = await PlayerSettings.getLocalServerUrl();
+  }
+
+  /// Check if the configured local server is reachable.
+  /// Called on WiFi connectivity changes by LibraryProvider.
+  Future<void> checkLocalServer() async {
+    if (!_localServerEnabled || _localServerUrl.isEmpty || _serverUrl == null) return;
+    final wasLocal = _useLocalServer;
+    try {
+      final reachable = await ApiService.pingServer(_localServerUrl, customHeaders: _customHeaders)
+          .timeout(const Duration(seconds: 3), onTimeout: () => false);
+      _useLocalServer = reachable;
+    } catch (_) {
+      _useLocalServer = false;
+    }
+    if (_useLocalServer != wasLocal) {
+      debugPrint('[Auth] Local server switch: useLocal=$_useLocalServer');
+      SocketService().switchServer(activeServerUrl!);
+      notifyListeners();
+    }
+  }
+
+  /// Revert to the remote server URL (e.g. when WiFi disconnects).
+  void clearLocalOverride() {
+    if (!_useLocalServer) return;
+    _useLocalServer = false;
+    debugPrint('[Auth] Cleared local server override, back to remote');
+    if (_serverUrl != null) {
+      SocketService().switchServer(_serverUrl!);
+    }
+    notifyListeners();
+  }
+
+  /// Update local server settings from the UI.
+  Future<void> setLocalServerConfig({required bool enabled, required String url}) async {
+    _localServerEnabled = enabled;
+    _localServerUrl = url;
+    await PlayerSettings.setLocalServerEnabled(enabled);
+    await PlayerSettings.setLocalServerUrl(url);
+    if (!enabled) clearLocalOverride();
   }
 
   /// Logout and clear stored session.
