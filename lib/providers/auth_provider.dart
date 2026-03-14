@@ -349,6 +349,10 @@ class AuthProvider extends ChangeNotifier {
     // Clear Android Auto browse tree cache so it doesn't show stale data
     AndroidAutoService().clearCache();
 
+    // Remove account from saved accounts list
+    final logoutServer = _serverUrl;
+    final logoutUser = _username;
+
     _token = null;
     _serverUrl = null;
     _username = null;
@@ -360,6 +364,9 @@ class AuthProvider extends ChangeNotifier {
     _errorMessage = null;
 
     try {
+      if (logoutServer != null && logoutUser != null) {
+        await UserAccountService().removeAccount(logoutServer, logoutUser);
+      }
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('server_url');
       await prefs.remove('token');

@@ -61,6 +61,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _snappyTransitions = false;
   String _themeMode = 'dark';
   String _colorSource = 'wallpaper';
+  int _startScreen = 2;
   int _streamingCacheSizeMb = 0;
   bool _localServerEnabled = false;
   String _localServerUrl = '';
@@ -140,6 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getDisableAudioFocus(),                   // 33
       PlayerSettings.getAutoDownloadOnStream(),                  // 34
       PlayerSettings.getColorSource(),                           // 35
+      PlayerSettings.getStartScreen(),                             // 36
     ]);
     final s = results[0] as AutoRewindSettings;
     final speed = results[1] as double;
@@ -177,6 +179,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final audioFocusOff = results[33] as bool;
     final autoDlStream = results[34] as bool;
     final colorSource = results[35] as String;
+    final startScreen = results[36] as int;
     if (mounted) setState(() {
       _rewindSettings = s;
       _defaultSpeed = speed;
@@ -217,6 +220,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _localServerEnabled = localEnabled;
       _localServerUrl = localUrl;
       _disableAudioFocus = audioFocusOff;
+      _startScreen = startScreen;
       _loaded = true;
     });
   }
@@ -587,6 +591,43 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 setState(() => _colorSource = source);
                                 PlayerSettings.setColorSource(source);
                                 colorSourceNotifier.value = source;
+                              } : null,
+                              style: const ButtonStyle(
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Start screen', style: tt.titleSmall),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Which tab to open when the app launches',
+                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: SegmentedButton<int>(
+                              showSelectedIcon: false,
+                              segments: const [
+                                ButtonSegment(value: 0, label: Text('Home')),
+                                ButtonSegment(value: 1, label: Text('Library')),
+                                ButtonSegment(value: 2, label: Text('Absorb')),
+                                ButtonSegment(value: 3, label: Text('Stats')),
+                              ],
+                              selected: {_startScreen},
+                              onSelectionChanged: _loaded ? (selected) {
+                                final idx = selected.first;
+                                setState(() => _startScreen = idx);
+                                PlayerSettings.setStartScreen(idx);
                               } : null,
                               style: const ButtonStyle(
                                 visualDensity: VisualDensity.compact,
@@ -1946,7 +1987,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: OutlinedButton.icon(
                       onPressed: () => _confirmLogout(context),
                       icon: const Icon(Icons.logout_rounded),
-                      label: const Text('Peace out'),
+                      label: const Text('Log out'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: cs.error,
                         side: BorderSide(color: cs.error.withValues(alpha: 0.5)),
@@ -2456,7 +2497,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         icon: const Icon(Icons.logout_rounded),
-        title: const Text('Peace out?'),
+        title: const Text('Log out?'),
         content: const Text('This will sign you out. Your downloads will stay on this device.'),
         actions: [
           TextButton(

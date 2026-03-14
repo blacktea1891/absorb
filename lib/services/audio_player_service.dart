@@ -296,6 +296,10 @@ class PlayerSettings {
   static Future<String> getColorSource() => _get('colorSource', 'wallpaper');
   static Future<void> setColorSource(String value) => _set('colorSource', value);
 
+  /// Default start screen tab index: 0=Home, 1=Library, 2=Absorbing, 3=Stats, 4=Settings
+  static Future<int> getStartScreen() => _get('startScreen', 2);
+  static Future<void> setStartScreen(int value) => _set('startScreen', value);
+
   /// Cached seed color from the last cover-art derivation, so we can show
   /// the correct color immediately on restart without waiting for the image.
   static Future<int?> getCoverSeedColor() async => await ScopedPrefs.getInt('coverSeedColor');

@@ -754,15 +754,23 @@ class _PageDots extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(count, (i) {
             final active = i == page;
-            return AnimatedContainer(
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeOutCubic,
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              width: active ? 20 : 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: active ? cs.onSurface.withValues(alpha: 0.54) : cs.onSurface.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(3),
+            return GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => controller.animateToPage(i,
+                duration: const Duration(milliseconds: 400),
+                curve: Curves.easeOutCubic),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeOutCubic,
+                  width: active ? 20 : 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: active ? cs.onSurface.withValues(alpha: 0.54) : cs.onSurface.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                ),
               ),
             );
           }),

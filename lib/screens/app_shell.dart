@@ -45,7 +45,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
   static _AppShellState? _instance;
 
   // Tabs: 0=Home, 1=Library, 2=Absorbing (default), 3=Stats, 4=Settings
-  int _currentIndex = 2;
+  int _currentIndex = 2; // overridden by user preference in initState
   final _libraryKey = GlobalKey<LibraryScreenState>();
   final _player = AudioPlayerService();
   final _cast = ChromecastService();
@@ -121,10 +121,20 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
     value: 1.0,
   );
 
+  void _loadStartScreen() {
+    PlayerSettings.getStartScreen().then((idx) {
+      if (mounted && idx != _currentIndex && idx >= 0 && idx <= 4) {
+        setState(() => _currentIndex = idx);
+        _ensurePageBuilt(idx);
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
     _instance = this;
+    _loadStartScreen();
     _ensurePageBuilt(_currentIndex);
     _playerHadBook = _player.hasBook;
     _wasPlaying = _player.isPlaying;
