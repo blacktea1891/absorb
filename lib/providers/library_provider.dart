@@ -1115,12 +1115,15 @@ class LibraryProvider extends ChangeNotifier {
     if (_api != null) {
       await ProgressSyncService().flushPendingSync(api: _api!);
     }
+    // Clear local finished state before refresh so server data is authoritative
+    _lastFinishedItemId = null;
     await Future.wait([
       loadPersonalizedView(force: true),
       _refreshProgress(),
     ]);
     // Clear stale local overrides — server data is now authoritative
     _localProgressOverrides.clear();
+    _locallyFinishedItems.clear();
     // Cache fresh server data locally (without marking as pending syncs)
     final sync = ProgressSyncService();
     for (final entry in _progressMap.entries) {

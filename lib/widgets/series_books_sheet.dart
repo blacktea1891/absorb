@@ -86,6 +86,18 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
     // Fetch full data from API for proper sequence info
     _fetchFromApi();
     _loadAutoDownloadState();
+    context.read<LibraryProvider>().addListener(_onLibraryChanged);
+  }
+
+  @override
+  void dispose() {
+    context.read<LibraryProvider>().removeListener(_onLibraryChanged);
+    super.dispose();
+  }
+
+  void _onLibraryChanged() {
+    // Re-fetch to pick up cover changes, metadata updates, etc.
+    _fetchFromApi();
   }
 
   void _scrollToUpNext() {
@@ -105,8 +117,8 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
     if (targetIndex <= 0) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !widget.scrollController.hasClients) return;
-      // Each book card is ~88px (80 height + 8 bottom padding)
-      final offset = (targetIndex * 88.0).clamp(
+      // Each book card is ~120px (112 height + 8 bottom padding)
+      final offset = (targetIndex * 120.0).clamp(
         0.0,
         widget.scrollController.position.maxScrollExtent,
       );
@@ -586,8 +598,9 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
                       ? widget.serverUrl!
                           .substring(0, widget.serverUrl!.length - 1)
                       : widget.serverUrl!;
+                  final updatedAt = book['updatedAt'] as num? ?? 0;
                   coverUrl =
-                      '$cleanUrl/api/items/$bookId/cover?width=400&token=${widget.token}';
+                      '$cleanUrl/api/items/$bookId/cover?width=400&token=${widget.token}&u=$updatedAt';
                 }
 
                 return Padding(
@@ -612,12 +625,13 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
                         }
                       },
                       borderRadius: BorderRadius.circular(14),
-                      child: Row(
+                      child: SizedBox(
+                        height: 112,
+                        child: Row(
                         children: [
                           // Square cover with sequence badge + status badges
-                          SizedBox(
-                            width: 80,
-                            height: 80,
+                          AspectRatio(
+                            aspectRatio: 1,
                             child: Stack(
                               children: [
                                 Positioned.fill(
@@ -810,6 +824,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
                           ),
                         ],
                       ),
+                    ),
                     ),
                   ),
                 );

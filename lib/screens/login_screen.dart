@@ -924,6 +924,14 @@ class _LoginScreenState extends State<LoginScreen>
             ),
           ),
         ),
+        const SizedBox(height: 8),
+        Text(
+          'Redirect URI: audiobookshelf://oauth',
+          style: tt.labelSmall?.copyWith(
+            color: cs.onSurfaceVariant.withValues(alpha: 0.4),
+            letterSpacing: 0.3,
+          ),
+        ),
         const SizedBox(height: 16),
         Row(
           children: [

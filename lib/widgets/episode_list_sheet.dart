@@ -634,6 +634,19 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
 
     try {
       if (isFinished) {
+        // Confirm before un-finishing
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Mark as Not Finished?'),
+            content: const Text('This will clear the finished status but keep your current position.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Unmark')),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
         // Un-finish — keep current position
         await api.updateEpisodeProgress(
           _itemId, _episodeId,
@@ -651,6 +664,19 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
           ));
         }
       } else {
+        // Confirm before marking finished
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Mark as Fully Absorbed?'),
+            content: const Text('This will set your progress to 100% for this episode.'),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Fully Absorb')),
+            ],
+          ),
+        );
+        if (confirmed != true) return;
         // Mark finished — update server then local state for instant UI
         await api.updateEpisodeProgress(
           _itemId, _episodeId,
@@ -674,6 +700,28 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
           content: Text('Failed to update — check your connection')));
       }
     }
+  }
+
+  void _confirmDeleteDownload(BuildContext context, String dlKey) {
+    showDialog(context: context, builder: (ctx) => AlertDialog(
+      title: const Text('Remove download?'),
+      content: const Text('This will be removed from your device.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+        TextButton(onPressed: () {
+          DownloadService().deleteDownload(dlKey);
+          Navigator.pop(ctx);
+          ScaffoldMessenger.of(context)
+            ..clearSnackBars()
+            ..showSnackBar(const SnackBar(
+              content: Text('Download removed'),
+              duration: Duration(seconds: 2),
+              behavior: SnackBarBehavior.floating,
+            ));
+        },
+          child: const Text('Remove', style: TextStyle(color: Colors.redAccent))),
+      ],
+    ));
   }
 
   String? get _coverUrl {
@@ -702,7 +750,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       else if (diff.inDays == 1) dateLabel = 'Yesterday';
       else if (diff.inDays < 7) dateLabel = '${diff.inDays}d ago';
       else if (diff.inDays < 30) dateLabel = '${(diff.inDays / 7).floor()}w ago';
-      else dateLabel = '${date.month}/${date.day}/${date.year}';
+      else dateLabel = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
     }
 
     String durationLabel = '';
@@ -811,7 +859,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                   final Color color;
                   if (downloaded) {
                     icon = Icons.download_done_rounded;
-                    label = 'Downloaded';
+                    label = 'Saved';
                     color = (Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent : Colors.green.shade700).withValues(alpha: 0.7);
                   } else if (downloading) {
                     icon = Icons.downloading_rounded;
@@ -824,7 +872,11 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                   }
 
                   return GestureDetector(
-                    onTap: (downloaded || downloading) ? null : _download,
+                    onTap: downloaded
+                        ? () => _confirmDeleteDownload(context, dlKey)
+                        : downloading
+                            ? () => DownloadService().cancelDownload(dlKey)
+                            : _download,
                     child: Container(
                       height: 36,
                       clipBehavior: Clip.antiAlias,
@@ -1155,10 +1207,8 @@ class _EpisodeRowState extends State<_EpisodeRow> {
         dateLabel = '${diff.inDays}d ago';
       } else if (diff.inDays < 30) {
         dateLabel = '${(diff.inDays / 7).floor()}w ago';
-      } else if (diff.inDays < 365) {
-        dateLabel = '${date.month}/${date.day}';
       } else {
-        dateLabel = '${date.month}/${date.day}/${date.year}';
+        dateLabel = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
       }
     }
 
