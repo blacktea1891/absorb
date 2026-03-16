@@ -506,6 +506,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
     return Scaffold(
       backgroundColor: cs.surface,
       body: GestureDetector(
+        behavior: HitTestBehavior.translucent,
         onVerticalDragUpdate: (details) {
           final newOffset = _dragOffset + details.delta.dy;
           if (newOffset < 0) return; // only allow downward
