@@ -39,6 +39,7 @@ class CardWideButton extends StatelessWidget {
   final bool isActive;
   final bool alwaysEnabled;
   final bool large;
+  final bool compact;
   final VoidCallback? onTap;
   final Widget? child; // if provided, renders child instead (for stateful buttons)
 
@@ -46,7 +47,7 @@ class CardWideButton extends StatelessWidget {
     super.key,
     required this.icon, required this.label,
     required this.accent, required this.isActive,
-    this.alwaysEnabled = false, this.large = false,
+    this.alwaysEnabled = false, this.large = false, this.compact = false,
     this.onTap, this.child,
   });
 
@@ -54,25 +55,31 @@ class CardWideButton extends StatelessWidget {
     if (child != null) return child!;
     final cs = Theme.of(context).colorScheme;
     final enabled = isActive || alwaysEnabled;
+    final iconSize = compact ? 13.0 : (large ? 18.0 : 15.0);
+    final fontSize = compact ? 10.0 : (large ? 13.0 : 11.0);
+    final vPad = compact ? 8.0 : (large ? 14.0 : 10.0);
+    final radius = compact ? 10.0 : (large ? 14.0 : 12.0);
     return GestureDetector(
       onTap: enabled ? onTap : () => showInactiveToast(context),
       child: Container(
-        padding: EdgeInsets.symmetric(vertical: large ? 14 : 10),
+        padding: EdgeInsets.symmetric(vertical: vPad),
         decoration: BoxDecoration(
           color: cs.onSurface.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(large ? 14 : 12),
+          borderRadius: BorderRadius.circular(radius),
           border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: large ? 18 : 15, color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
-            const SizedBox(width: 6),
-            Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
-              color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24),
-              fontSize: large ? 13 : 11, fontWeight: FontWeight.w500))),
-          ],
-        ),
+        child: compact
+          ? Center(child: Icon(icon, size: iconSize, color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)))
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(icon, size: iconSize, color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
+                const SizedBox(width: 6),
+                Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
+                  color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24),
+                  fontSize: fontSize, fontWeight: FontWeight.w500))),
+              ],
+            ),
       ),
     );
   }
@@ -124,7 +131,8 @@ class CardSleepButtonInline extends StatelessWidget {
   final Color accent;
   final bool isActive;
   final bool large;
-  const CardSleepButtonInline({super.key, required this.accent, required this.isActive, this.large = false});
+  final bool compact;
+  const CardSleepButtonInline({super.key, required this.accent, required this.isActive, this.large = false, this.compact = false});
 
   @override Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -145,19 +153,24 @@ class CardSleepButtonInline extends StatelessWidget {
         } else if (active) {
           label = '${sleep.chaptersRemaining} ch left';
         } else {
-          label = 'Sleep Timer';
+          label = compact ? 'Sleep' : 'Sleep Timer';
         }
+
+        final h = compact ? 30.0 : (large ? 48.0 : 36.0);
+        final iconSz = compact ? 13.0 : (large ? 20.0 : 16.0);
+        final fontSize = compact ? 10.0 : (large ? (active && isTime ? 15.0 : 14.0) : (active && isTime ? 13.0 : 12.0));
+        final radius = compact ? 10.0 : (large ? 16.0 : 14.0);
 
         return GestureDetector(
           onTap: isActive ? () {
             showSleepTimerSheet(context, accent);
           } : () => showInactiveToast(context),
           child: Container(
-            height: large ? 48 : 36,
+            height: h,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: active ? accent.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(large ? 16 : 14),
+              borderRadius: BorderRadius.circular(radius),
               border: Border.all(color: active ? accent.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.08)),
             ),
             child: Stack(children: [
@@ -167,24 +180,27 @@ class CardSleepButtonInline extends StatelessWidget {
                   child: Container(
                     decoration: BoxDecoration(
                       color: accent.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(large ? 15 : 13),
+                      borderRadius: BorderRadius.circular(radius - 1),
                     ),
                   ),
                 ),
-              Center(child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.bedtime_outlined, size: large ? 20 : 16,
-                    color: active ? accent : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))),
-                  const SizedBox(width: 8),
-                  Text(label, style: TextStyle(
-                    color: active ? accent : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
-                    fontSize: large ? (active && isTime ? 15 : 14) : (active && isTime ? 13 : 12),
-                    fontWeight: active ? FontWeight.w700 : FontWeight.w500,
-                    fontFeatures: active && isTime ? const [FontFeature.tabularFigures()] : null,
+              Center(child: compact && !active
+                ? Icon(Icons.bedtime_outlined, size: iconSz,
+                    color: isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))
+                : Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.bedtime_outlined, size: iconSz,
+                        color: active ? accent : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))),
+                      SizedBox(width: compact ? 4 : 8),
+                      Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
+                        color: active ? accent : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
+                        fontSize: fontSize,
+                        fontWeight: active ? FontWeight.w700 : FontWeight.w500,
+                        fontFeatures: active && isTime ? const [FontFeature.tabularFigures()] : null,
+                      ))),
+                    ],
                   )),
-                ],
-              )),
             ]),
           ),
         );
@@ -200,7 +216,9 @@ class CardBookmarkButtonInline extends StatefulWidget {
   final bool isActive;
   final String itemId;
   final bool large;
-  const CardBookmarkButtonInline({super.key, required this.player, required this.accent, required this.isActive, required this.itemId, this.large = false});
+  final bool compact;
+  final bool short;
+  const CardBookmarkButtonInline({super.key, required this.player, required this.accent, required this.isActive, required this.itemId, this.large = false, this.compact = false, this.short = false});
   @override State<CardBookmarkButtonInline> createState() => _CardBookmarkButtonInlineState();
 }
 
@@ -214,29 +232,39 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
 
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final cp = widget.compact;
     final lg = widget.large;
     final enabled = widget.isActive || _isCasting;
+    final iconSz = cp ? 13.0 : (lg ? 22.0 : 18.0);
+    final fontSize = cp ? 10.0 : (lg ? 14.0 : 12.0);
+    final vPad = cp ? 6.0 : (lg ? 12.0 : 8.0);
+    final radius = cp ? 10.0 : (lg ? 14.0 : 12.0);
+    final sh = widget.short;
+    final label = cp ? (_count > 0 ? '$_count' : 'Bookmark') : sh ? 'Bookmarks' : (_count > 0 ? 'Bookmarks ($_count)' : 'Bookmark');
     return GestureDetector(
       onTap: enabled ? () => _showBookmarks(context) : () => showInactiveToast(context),
       onLongPress: enabled ? () => _quickAdd(context) : null,
       child: Container(
-        padding: EdgeInsets.symmetric(vertical: lg ? 12 : 8),
+        padding: EdgeInsets.symmetric(vertical: vPad),
         decoration: BoxDecoration(
           color: cs.onSurface.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(lg ? 14 : 12),
+          borderRadius: BorderRadius.circular(radius),
           border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
         ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.bookmark_outline_rounded, size: lg ? 22 : 18,
-              color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
-            const SizedBox(width: 8),
-            Text(_count > 0 ? 'Bookmarks ($_count)' : 'Bookmark', style: TextStyle(
-              color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24),
-              fontSize: lg ? 14 : 12, fontWeight: FontWeight.w500)),
-          ],
-        ),
+        child: cp
+          ? Center(child: Icon(Icons.bookmark_outline_rounded, size: iconSz,
+              color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)))
+          : Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.bookmark_outline_rounded, size: iconSz,
+                  color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
+                const SizedBox(width: 8),
+                Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
+                  color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24),
+                  fontSize: fontSize, fontWeight: FontWeight.w500))),
+              ],
+            ),
       ),
     );
   }
@@ -284,12 +312,17 @@ class CardSpeedButtonInline extends StatelessWidget {
   final Color accent;
   final bool isActive;
   final bool large;
+  final bool compact;
   final String? itemId;
-  const CardSpeedButtonInline({super.key, required this.player, required this.accent, required this.isActive, this.large = false, this.itemId});
+  const CardSpeedButtonInline({super.key, required this.player, required this.accent, required this.isActive, this.large = false, this.compact = false, this.itemId});
 
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final cast = ChromecastService();
+    final h = compact ? 30.0 : (large ? 48.0 : 36.0);
+    final iconSz = compact ? 13.0 : (large ? 20.0 : 16.0);
+    final fontSize = compact ? 10.0 : (large ? 15.0 : 13.0);
+    final radius = compact ? 10.0 : (large ? 16.0 : 14.0);
     return ListenableBuilder(
       listenable: cast,
       builder: (context, _) {
@@ -303,23 +336,27 @@ class CardSpeedButtonInline extends StatelessWidget {
               builder: (ctx) => CardSpeedSheet(player: player, accent: accent, itemId: itemId));
           } : () => showInactiveToast(context),
           child: Container(
-            height: large ? 48 : 36,
+            height: h,
             decoration: BoxDecoration(
               color: cs.onSurface.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(large ? 16 : 14),
+              borderRadius: BorderRadius.circular(radius),
               border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
             ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.speed_rounded, size: large ? 20 : 16,
-                  color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24)),
-                const SizedBox(width: 8),
-                Text('${speedNow.toStringAsFixed(2)}x', style: TextStyle(
+            child: compact
+              ? Center(child: Text('${speedNow.toStringAsFixed(1)}x', style: TextStyle(
                   color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24),
-                  fontSize: large ? 15 : 13, fontWeight: FontWeight.w700)),
-              ],
-            ),
+                  fontSize: fontSize, fontWeight: FontWeight.w700)))
+              : Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.speed_rounded, size: iconSz,
+                      color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24)),
+                    const SizedBox(width: 8),
+                    Text('${speedNow.toStringAsFixed(2)}x', style: TextStyle(
+                      color: enabledNow ? accent : cs.onSurface.withValues(alpha: 0.24),
+                      fontSize: fontSize, fontWeight: FontWeight.w700)),
+                  ],
+                ),
           ),
         );
       },
@@ -619,10 +656,11 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
 class MoreMenuSheet extends StatefulWidget {
   final List<String> overflowIds;
   final List<String> allIds;
+  final int visibleCount;
   final Color accent;
   final Widget Function(String id) buildItem;
   final ValueChanged<List<String>> onReorder;
-  const MoreMenuSheet({super.key, required this.overflowIds, required this.allIds, required this.accent, required this.buildItem, required this.onReorder});
+  const MoreMenuSheet({super.key, required this.overflowIds, required this.allIds, this.visibleCount = 4, required this.accent, required this.buildItem, required this.onReorder});
   @override State<MoreMenuSheet> createState() => _MoreMenuSheetState();
 }
 
@@ -764,8 +802,8 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
                   final def = buttonDefById(id);
                   if (def == null) return SizedBox.shrink(key: ValueKey(id));
 
-                  final isOnCard = i < 4;
-                  final showDivider = i == 4;
+                  final isOnCard = i < widget.visibleCount;
+                  final showDivider = i == widget.visibleCount;
 
                   return Column(
                     key: ValueKey(id),
