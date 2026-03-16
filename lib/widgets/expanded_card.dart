@@ -89,6 +89,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   bool _wasPlaying = false;
   bool _isPopping = false; // Prevent double-pop and setState during exit
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
+  String _buttonLayout = PlayerSettings.defaultButtonLayout;
   bool _autoRemoveFinished = false;
 
   // Our own route, captured for popUntil when modals are stacked above us
@@ -183,6 +184,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
   void _reloadButtonOrder() {
     PlayerSettings.getCardButtonOrder().then((o) {
       if (mounted && o.join(',') != _buttonOrder.join(',')) setState(() => _buttonOrder = o);
+    });
+    PlayerSettings.getCardButtonLayout().then((l) {
+      if (mounted && l != _buttonLayout) setState(() => _buttonLayout = l);
     });
   }
 
@@ -769,24 +773,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                     ),
                                     const SizedBox(height: 24),
                                     // ── Button grid ──
-                                    Row(children: [
-                                      Expanded(child: _buildCardButton(_buttonOrder[0], accent, tt)),
-                                      const SizedBox(width: 10),
-                                      Expanded(child: _buildCardButton(_buttonOrder[1], accent, tt)),
-                                    ]),
-                                    const SizedBox(height: 14),
-                                    Row(children: [
-                                      Expanded(child: _buildCardButton(_buttonOrder[2], accent, tt)),
-                                      const SizedBox(width: 10),
-                                      Expanded(child: _buildCardButton(_buttonOrder[3], accent, tt)),
-                                    ]),
+                                    ..._buildButtonGrid(accent, tt),
                                     const SizedBox(height: 14),
                                     // More menu / Cast controls
                                     Center(
                                       child: ListenableBuilder(
                                         listenable: ChromecastService(),
                                         builder: (context, _) {
-                                          final castActive = ChromecastService().isCasting && !_buttonOrder.take(4).contains('cast');
+                                          final castActive = ChromecastService().isCasting && !_buttonOrder.take(_visibleButtonCount).contains('cast');
                                           return GestureDetector(
                                             behavior: HitTestBehavior.opaque,
                                             onTap: castActive
@@ -1011,41 +1005,76 @@ class _ExpandedCardState extends State<ExpandedCard> {
 
   // ── Dynamic button builders ─────────────────────────────────
 
-  Widget _buildCardButton(String id, Color accent, TextTheme tt) {
+  int get _visibleButtonCount => PlayerSettings.buttonCountForLayout(_buttonLayout);
+
+  List<Widget> _buildButtonGrid(Color accent, TextTheme tt) {
+    final count = _visibleButtonCount;
+    final ids = _buttonOrder.take(count).toList();
+
+    int cols;
+    switch (_buttonLayout) {
+      case 'compact': cols = 3; break;
+      case 'row': cols = 5; break;
+      case 'expanded': cols = 3; break;
+      case 'full': cols = 3; break;
+      default: cols = 2; break;
+    }
+
+    final compact = cols >= 5;
+    final short = cols >= 3;
+    final singleRow = count == ids.length && ids.length <= cols;
+    final rows = <Widget>[];
+    if (singleRow) rows.add(const SizedBox(height: 8));
+    for (int r = 0; r < ids.length; r += cols) {
+      if (r > 0) rows.add(const SizedBox(height: 14));
+      final end = (r + cols).clamp(0, ids.length);
+      final rowIds = ids.sublist(r, end);
+      rows.add(Row(children: [
+        for (int c = 0; c < rowIds.length; c++) ...[
+          if (c > 0) const SizedBox(width: 10),
+          Expanded(child: _buildCardButton(rowIds[c], accent, tt, compact: compact, short: short)),
+        ],
+      ]));
+    }
+    if (singleRow) rows.add(const SizedBox(height: 6));
+    return rows;
+  }
+
+  Widget _buildCardButton(String id, Color accent, TextTheme tt, {bool compact = false, bool short = false}) {
     const large = true;
     switch (id) {
       case 'chapters':
         return CardWideButton(
           icon: Icons.list_rounded, label: 'Chapters',
-          accent: accent, isActive: _isPlaybackActive, large: large,
+          accent: accent, isActive: _isPlaybackActive, large: large, compact: compact,
           onTap: () => _showChapters(context, accent, tt),
         );
       case 'speed':
         return CardWideButton(
           icon: Icons.speed_rounded, label: 'Speed',
-          accent: accent, isActive: _isPlaybackActive, large: large,
-          child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive, large: large, itemId: _itemId),
+          accent: accent, isActive: _isPlaybackActive, large: large, compact: compact,
+          child: CardSpeedButtonInline(player: widget.player, accent: accent, isActive: _isActive, large: large, compact: compact, itemId: _itemId),
         );
       case 'sleep':
         return CardWideButton(
-          icon: Icons.bedtime_outlined, label: 'Sleep Timer',
-          accent: accent, isActive: _isPlaybackActive, large: large,
-          child: CardSleepButtonInline(accent: accent, isActive: _isPlaybackActive, large: large),
+          icon: Icons.bedtime_outlined, label: short ? 'Sleep' : 'Sleep Timer',
+          accent: accent, isActive: _isPlaybackActive, large: large, compact: compact,
+          child: CardSleepButtonInline(accent: accent, isActive: _isPlaybackActive, large: large, compact: compact),
         );
       case 'bookmarks':
         return CardWideButton(
           icon: Icons.bookmark_outline_rounded, label: 'Bookmarks',
-          accent: accent, isActive: _isPlaybackActive, large: large,
+          accent: accent, isActive: _isPlaybackActive, large: large, compact: compact,
           child: CardBookmarkButtonInline(
             player: widget.player, accent: accent,
-            isActive: _isActive, itemId: _itemId, large: large,
+            isActive: _isActive, itemId: _itemId, large: large, compact: compact, short: short,
           ),
         );
       case 'details':
         return CardWideButton(
           icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
-          label: (_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details',
-          accent: accent, isActive: true, alwaysEnabled: true, large: large,
+          label: short ? 'Details' : ((_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details'),
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
           onTap: () {
             if (_episodeId != null || _isPodcastEpisode) {
               final episode = _recentEpisode ?? {
@@ -1061,8 +1090,8 @@ class _ExpandedCardState extends State<ExpandedCard> {
         );
       case 'equalizer':
         return CardWideButton(
-          icon: Icons.equalizer_rounded, label: 'Equalizer',
-          accent: accent, isActive: true, alwaysEnabled: true, large: large,
+          icon: Icons.equalizer_rounded, label: compact ? 'EQ' : 'Equalizer',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
           onTap: () => showEqualizerSheet(context, accent),
         );
       case 'cast':
@@ -1071,7 +1100,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
           builder: (_, __) {
             final cast = ChromecastService();
             final String castLabel;
-            if (cast.isCasting && cast.castingItemId == _itemId) {
+            if (compact || short) {
+              castLabel = cast.isConnected ? 'Casting' : 'Cast';
+            } else if (cast.isCasting && cast.castingItemId == _itemId) {
               castLabel = 'Casting to ${cast.connectedDeviceName ?? "device"}';
             } else if (cast.isConnected) {
               castLabel = 'Cast to ${cast.connectedDeviceName ?? "device"}';
@@ -1080,33 +1111,33 @@ class _ExpandedCardState extends State<ExpandedCard> {
             }
             return CardWideButton(
               icon: cast.isConnected ? Icons.cast_connected_rounded : Icons.cast_rounded,
-              label: castLabel, accent: accent, isActive: true, alwaysEnabled: true, large: large,
+              label: castLabel, accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
               onTap: () => _handleCastTap(context, accent),
             );
           },
         );
       case 'history':
         return CardWideButton(
-          icon: Icons.history_rounded, label: 'Playback History',
-          accent: accent, isActive: _isActive, large: large,
+          icon: Icons.history_rounded, label: (compact || short) ? 'History' : 'Playback History',
+          accent: accent, isActive: _isActive, large: large, compact: compact,
           onTap: () => _showHistory(context, accent, tt),
         );
       case 'remove':
         return CardWideButton(
-          icon: Icons.remove_circle_outline_rounded, label: 'Remove from Absorbing',
-          accent: Colors.red.shade300, isActive: true, alwaysEnabled: true, large: large,
+          icon: Icons.remove_circle_outline_rounded, label: (compact || short) ? 'Remove' : 'Remove from Absorbing',
+          accent: Colors.red.shade300, isActive: true, alwaysEnabled: true, large: large, compact: compact,
           onTap: () { _removeFromAbsorbing(); _dismissExpanded(); },
         );
       case 'car':
         return CardWideButton(
           icon: Icons.directions_car_rounded, label: 'Car Mode',
-          accent: accent, isActive: true, alwaysEnabled: true, large: large,
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
           onTap: () => _openCarMode(context),
         );
       case 'notes':
         return CardWideButton(
           icon: Icons.note_rounded, label: 'Notes',
-          accent: accent, isActive: true, alwaysEnabled: true, large: large,
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
           onTap: () => _showNotes(context, accent),
         );
       default:
@@ -1447,7 +1478,8 @@ class _ExpandedCardState extends State<ExpandedCard> {
   }
 
   void _showMoreMenu(BuildContext context, Color accent, TextTheme tt) {
-    final overflowIds = _buttonOrder.skip(4).toList();
+    final count = _visibleButtonCount;
+    final overflowIds = _buttonOrder.skip(count).toList();
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1455,6 +1487,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
       builder: (ctx) => MoreMenuSheet(
         overflowIds: overflowIds,
         allIds: _buttonOrder,
+        visibleCount: count,
         accent: accent,
         buildItem: (id) => _buildMoreMenuItem(id, accent, tt, ctx),
         onReorder: (newOrder) {

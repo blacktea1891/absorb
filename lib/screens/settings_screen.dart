@@ -66,6 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showGoodreadsButton = false;
   bool _loggingEnabled = false;
   bool _fullScreenPlayer = false;
+  String _cardButtonLayout = 'standard';
   bool _snappyTransitions = false;
   String _themeMode = 'dark';
   String _colorSource = 'wallpaper';
@@ -159,6 +160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getColorSource(),                           // 35
       PlayerSettings.getStartScreen(),                           // 36
       PlayerSettings.getPodcastQueueMode(),                      // 37
+      PlayerSettings.getCardButtonLayout(),                        // 38
     ]);
     final s = results[0] as AutoRewindSettings;
     final speed = results[1] as double;
@@ -198,6 +200,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final colorSource = results[35] as String;
     final startScreen = results[36] as int;
     final podcastQueueMode = results[37] as String;
+    final cardBtnLayout = results[38] as String;
     if (mounted) setState(() {
       _rewindSettings = s;
       _defaultSpeed = speed;
@@ -241,6 +244,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _localServerController.text = localUrl;
       _disableAudioFocus = audioFocusOff;
       _startScreen = startScreen;
+      _cardButtonLayout = cardBtnLayout;
       _loaded = true;
     });
   }
@@ -732,6 +736,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         setState(() => _speedAdjustedTime = v);
                         PlayerSettings.setSpeedAdjustedTime(v);
                       } : null,
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text('Button layout', style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+                        const SizedBox(height: 4),
+                        Text('How action buttons are arranged on the card',
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        const SizedBox(height: 8),
+                        SizedBox(width: double.infinity, child: SegmentedButton<String>(
+                          showSelectedIcon: false,
+                          style: ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 8, vertical: 6)),
+                          ),
+                          segments: const [
+                            ButtonSegment(value: 'compact', label: Text('1x3', style: TextStyle(fontSize: 13))),
+                            ButtonSegment(value: 'standard', label: Text('2x2', style: TextStyle(fontSize: 13))),
+                            ButtonSegment(value: 'row', label: Text('1x5', style: TextStyle(fontSize: 13))),
+                            ButtonSegment(value: 'expanded', label: Text('2x3', style: TextStyle(fontSize: 13))),
+                            ButtonSegment(value: 'full', label: Text('3x3', style: TextStyle(fontSize: 13))),
+                          ],
+                          selected: {_cardButtonLayout},
+                          onSelectionChanged: _loaded ? (v) {
+                            setState(() => _cardButtonLayout = v.first);
+                            PlayerSettings.setCardButtonLayout(v.first);
+                          } : null,
+                        )),
+                      ]),
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     Padding(
@@ -1636,6 +1671,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           size: 18, color: cs.onSurfaceVariant),
                       onTap: () => launchUrl(
                           Uri.parse('https://github.com/pounat/absorb/issues'),
+                          mode: LaunchMode.externalApplication),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    ListTile(
+                      leading: Icon(Icons.discord, color: cs.onSurfaceVariant),
+                      title: const Text('Join Discord'),
+                      subtitle: Text('Community, support, and updates',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      trailing: Icon(Icons.open_in_new_rounded,
+                          size: 18, color: cs.onSurfaceVariant),
+                      onTap: () => launchUrl(
+                          Uri.parse('https://discord.gg/pcMJb5SM'),
                           mode: LaunchMode.externalApplication),
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
