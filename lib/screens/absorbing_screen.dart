@@ -746,37 +746,49 @@ class _PageDots extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    return ListenableBuilder(
-      listenable: controller,
-      builder: (_, __) {
-        final page = controller.hasClients ? (controller.page ?? 0).round() : 0;
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: List.generate(count, (i) {
-            final active = i == page;
-            return GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () => controller.animateToPage(i,
-                duration: const Duration(milliseconds: 400),
-                curve: Curves.easeOutCubic),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeOutCubic,
-                  width: active ? 20 : 6,
-                  height: 6,
-                  decoration: BoxDecoration(
-                    color: active ? cs.onSurface.withValues(alpha: 0.54) : cs.onSurface.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(3),
+    return LayoutBuilder(builder: (context, constraints) {
+      // Active dot is 20 wide, inactive is 6, each has horizontal padding on both sides.
+      // Solve for padding: count * (6 + 2*pad) + (20 - 6) <= maxWidth
+      // pad = (maxWidth - 14 - count * 6) / (count * 2)
+      const double dotSize = 6;
+      const double activeDotWidth = 20;
+      final maxWidth = constraints.maxWidth;
+      final extraActive = activeDotWidth - dotSize;
+      final available = maxWidth - extraActive - count * dotSize;
+      final hPad = (available / (count * 2)).clamp(1.5, 8.0);
+
+      return ListenableBuilder(
+        listenable: controller,
+        builder: (_, __) {
+          final page = controller.hasClients ? (controller.page ?? 0).round() : 0;
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(count, (i) {
+              final active = i == page;
+              return GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => controller.animateToPage(i,
+                  duration: const Duration(milliseconds: 400),
+                  curve: Curves.easeOutCubic),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 12),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeOutCubic,
+                    width: active ? activeDotWidth : dotSize,
+                    height: dotSize,
+                    decoration: BoxDecoration(
+                      color: active ? cs.onSurface.withValues(alpha: 0.54) : cs.onSurface.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(3),
+                    ),
                   ),
                 ),
-              ),
-            );
-          }),
-        );
-      },
-    );
+              );
+            }),
+          );
+        },
+      );
+    });
   }
 }
 
