@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1870,16 +1870,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             : 'Off - other audio pauses when Absorb plays',
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                       value: _disableAudioFocus,
-                      onChanged: _loaded ? (v) {
+                      onChanged: _loaded ? (v) async {
                         setState(() => _disableAudioFocus = v);
-                        PlayerSettings.setDisableAudioFocus(v);
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                          content: Text(v
-                              ? 'Audio focus disabled - restart app to apply'
-                              : 'Audio focus enabled - restart app to apply'),
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ));
+                        await PlayerSettings.setDisableAudioFocus(v);
+                        if (!context.mounted) return;
+                        final restart = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: const Text('Restart Required'),
+                            content: Text(
+                              'Audio focus change requires a full restart to take effect. '
+                              'Close the app now?',
+                            ),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Later')),
+                              FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Close App')),
+                            ],
+                          ),
+                        );
+                        if (restart == true) {
+                          SystemChannels.platform.invokeMethod('SystemNavigator.pop', true);
+                        }
                       } : null,
                     ),
                   ],
