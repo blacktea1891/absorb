@@ -736,7 +736,13 @@ class LibraryProvider extends ChangeNotifier {
   }
 
   void _softReconnectSocket() {
-    if (!_socketSoftDisconnected || _manualOffline) return;
+    if (_manualOffline) return;
+    // If socket died on its own (reconnection exhausted), reset the flag
+    // so we can attempt a fresh connection.
+    if (!_socketSoftDisconnected && !SocketService().hasSocket) {
+      _socketSoftDisconnected = true;
+    }
+    if (!_socketSoftDisconnected) return;
     _socketSoftDisconnected = false;
     SocketService().softReconnect();
   }
