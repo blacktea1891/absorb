@@ -244,9 +244,12 @@ class _LoginScreenState extends State<LoginScreen>
         setState(() {
           _loginError = auth.errorMessage ?? 'Login failed';
         });
-      } else if (Navigator.of(context).canPop()) {
-        // If pushed as a route (e.g. Add Account), pop back
-        Navigator.of(context).pop();
+      } else {
+        FocusManager.instance.primaryFocus?.unfocus();
+        if (Navigator.of(context).canPop()) {
+          // If pushed as a route (e.g. Add Account), pop back
+          Navigator.of(context).pop();
+        }
       }
     }
   }
@@ -275,6 +278,7 @@ class _LoginScreenState extends State<LoginScreen>
 
     final result = await oidc.handleCallback(callbackUri);
     if (result != null && mounted) {
+      FocusManager.instance.primaryFocus?.unfocus();
       final auth = context.read<AuthProvider>();
       final success = await auth.loginWithOidc(
         serverUrl: fullUrl,
@@ -887,12 +891,15 @@ class _LoginScreenState extends State<LoginScreen>
     void Function(String)? onFieldSubmitted,
     String? Function(String?)? validator,
   }) {
+    final isUrl = keyboardType == TextInputType.url;
     return TextFormField(
       controller: controller,
       focusNode: focusNode,
       keyboardType: keyboardType,
       textInputAction: textInputAction,
       obscureText: obscureText,
+      autocorrect: !isUrl,
+      enableSuggestions: !isUrl,
       onFieldSubmitted: onFieldSubmitted,
       validator: validator,
       style: TextStyle(color: cs.onSurface),

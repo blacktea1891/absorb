@@ -454,11 +454,13 @@ class _AuthGateState extends State<AuthGate> {
       debugPrint('[Init] Permission request failed: $e');
     }
 
-    // Initialize Chromecast
-    try {
-      await ChromecastService().init();
-    } catch (e) {
-      debugPrint('[Init] Chromecast init failed: $e');
+    // Initialize Chromecast (Android only)
+    if (Platform.isAndroid) {
+      try {
+        await ChromecastService().init();
+      } catch (e) {
+        debugPrint('[Init] Chromecast init failed: $e');
+      }
     }
 
     // Initialize download tracker and progress sync
@@ -467,10 +469,12 @@ class _AuthGateState extends State<AuthGate> {
       await ProgressSyncService().init();
       await EqualizerService().init();
       await SleepTimerService().loadAutoSleepSettings();
-      // Pre-populate Android Auto browse tree in background.
-      Future.microtask(() => AndroidAutoService().refresh());
-      // Initialize homescreen widget
-      await HomeWidgetService().init();
+      if (Platform.isAndroid) {
+        // Pre-populate Android Auto browse tree in background.
+        Future.microtask(() => AndroidAutoService().refresh());
+        // Initialize homescreen widget
+        await HomeWidgetService().init();
+      }
     } catch (e) {
       debugPrint('[Init] Service init failed: $e');
     }

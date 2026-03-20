@@ -314,7 +314,10 @@ class PlayerSettings {
 
   static Future<List<String>> getCardButtonOrder() async {
     final stored = await ScopedPrefs.getStringList('card_button_order');
-    if (stored.isEmpty) return List.from(defaultButtonOrder);
+    if (stored.isEmpty) {
+      final knownIds = allCardButtons.map((b) => b.id).toSet();
+      return defaultButtonOrder.where((id) => knownIds.contains(id)).toList();
+    }
     // Append any new buttons that were added since the user last saved their order
     final knownIds = allCardButtons.map((b) => b.id).toSet();
     final result = stored.where((id) => knownIds.contains(id)).toList();

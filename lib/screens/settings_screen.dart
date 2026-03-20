@@ -1613,6 +1613,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         }
                       },
                     ),
+                    if (Platform.isAndroid) ...[
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     ListTile(
                       leading: const Icon(Icons.battery_saver_outlined),
@@ -1621,24 +1622,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                       trailing: Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
                       onTap: () async {
-                        if (Platform.isAndroid) {
-                          final status = await Permission.ignoreBatteryOptimizations.status;
-                          if (status.isGranted) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                                duration: const Duration(seconds: 2),
-                                content: const Text('Battery already unrestricted'),
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                              ));
-                            }
-                          } else {
-                            final result = await Permission.ignoreBatteryOptimizations.request();
-                            if (result.isPermanentlyDenied && mounted) await openAppSettings();
+                        final status = await Permission.ignoreBatteryOptimizations.status;
+                        if (status.isGranted) {
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                              duration: const Duration(seconds: 2),
+                              content: const Text('Battery already unrestricted'),
+                              behavior: SnackBarBehavior.floating,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ));
                           }
+                        } else {
+                          final result = await Permission.ignoreBatteryOptimizations.request();
+                          if (result.isPermanentlyDenied && mounted) await openAppSettings();
                         }
                       },
                     ),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 16),
