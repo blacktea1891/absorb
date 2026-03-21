@@ -39,6 +39,19 @@ class AbsorbingScreen extends StatefulWidget {
 class _AbsorbingScreenState extends State<AbsorbingScreen> {
   final _player = AudioPlayerService();
   final _pageController = PageController(viewportFraction: 0.92);
+  final _cardKeys = <String, GlobalKey<AbsorbingCardState>>{};
+
+  GlobalKey<AbsorbingCardState> _cardKey(String absorbingKey) {
+    return _cardKeys.putIfAbsent(absorbingKey, () => GlobalKey<AbsorbingCardState>());
+  }
+
+  void _expandCurrentCard() {
+    final books = _getAbsorbingBooks(context.read<LibraryProvider>());
+    if (books.isEmpty) return;
+    final idx = books.length == 1 ? 0 : (_pageController.hasClients ? (_pageController.page ?? 0).round().clamp(0, books.length - 1) : 0);
+    final key = _absorbingKey(books[idx]);
+    _cardKeys[key]?.currentState?.expandCard(context);
+  }
 
   final _cast = ChromecastService();
 
@@ -465,7 +478,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
             // ── Header ──
             AbsorbPageHeader(
               title: 'Absorbing',
-              padding: const EdgeInsets.fromLTRB(20, 12, 12, 0),
+              padding: const EdgeInsets.fromLTRB(20, 4, 12, 0),
               trailing: GestureDetector(
                 onTap: () {
                   final newVal = !lib.isManualOffline;
@@ -549,8 +562,22 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
             // ── Page Dots ──
             if (books.length > 1)
               Padding(
-                padding: const EdgeInsets.only(top: 8, bottom: 4),
+                padding: const EdgeInsets.only(top: 4, bottom: 2),
                 child: _PageDots(count: books.length, controller: _pageController),
+              ),
+            // ── Expand button ──
+            if (books.isNotEmpty)
+              Align(
+                alignment: Alignment.centerRight,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _expandCurrentCard,
+                  child: Padding(
+                    padding: const EdgeInsets.only(right: 28),
+                    child: Icon(Icons.open_in_full_rounded, size: 15,
+                      color: cs.onSurface.withValues(alpha: 0.4)),
+                  ),
+                ),
               ),
             // ── Cards (refreshable) ──
             Expanded(
@@ -561,10 +588,10 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                       : books.length == 1
                           ? LayoutBuilder(
                               builder: (context, constraints) {
-                                final vPad = (constraints.maxHeight * 0.02).clamp(6.0, 24.0);
+                                final vPad = (constraints.maxHeight * 0.01).clamp(2.0, 16.0);
                                 return Padding(
                                   padding: EdgeInsets.symmetric(horizontal: 4, vertical: vPad),
-                                  child: RepaintBoundary(child: AbsorbingCard(key: ValueKey(_absorbingKey(books[0])), item: books[0], player: _player)),
+                                  child: RepaintBoundary(child: AbsorbingCard(key: _cardKey(_absorbingKey(books[0])), item: books[0], player: _player)),
                                 );
                               },
                             )
@@ -577,7 +604,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                           itemBuilder: (_, i) => LayoutBuilder(
                             builder: (context, constraints) {
                               final cardWidth = constraints.maxWidth;
-                              final vPad = (constraints.maxHeight * 0.02).clamp(6.0, 24.0);
+                              final vPad = (constraints.maxHeight * 0.01).clamp(2.0, 16.0);
                               return AnimatedBuilder(
                                 animation: _pageController,
                                 builder: (context, child) {
@@ -614,7 +641,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                                     ),
                                   );
                                 },
-                                child: RepaintBoundary(child: AbsorbingCard(key: ValueKey(_absorbingKey(books[i])), item: books[i], player: _player)),
+                                child: RepaintBoundary(child: AbsorbingCard(key: _cardKey(_absorbingKey(books[i])), item: books[i], player: _player)),
                               );
                             },
                           ),
