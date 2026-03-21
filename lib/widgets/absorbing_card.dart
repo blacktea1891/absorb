@@ -13,6 +13,7 @@ import '../services/playback_history_service.dart';
 import 'book_detail_sheet.dart';
 import 'episode_list_sheet.dart';
 import 'equalizer_sheet.dart';
+import 'card_edge_progress_bar.dart';
 import 'card_progress_bar.dart';
 import 'card_playback_controls.dart';
 import 'card_buttons.dart';
@@ -46,6 +47,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   String _buttonLayout = PlayerSettings.defaultButtonLayout;
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
+  bool _speedAdjustedTime = true;
+  final ValueNotifier<bool> _edgeBarExpanded = ValueNotifier(false);
 
   @override
   bool get wantKeepAlive => true;
@@ -134,6 +137,9 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     });
     PlayerSettings.getCoverPlayButton().then((v) {
       if (mounted && v != _coverPlayButton) setState(() => _coverPlayButton = v);
+    });
+    PlayerSettings.getSpeedAdjustedTime().then((v) {
+      if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
     });
   }
 
@@ -259,6 +265,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     DownloadService().removeListener(_onDownloadChanged);
     _chapterTrackSub?.cancel();
     _blurredCover?.dispose();
+    _edgeBarExpanded.dispose();
     super.dispose();
   }
 
@@ -374,6 +381,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       _blurredCover = null;
     }
 
+    final showBookBar = (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty);
     return Container(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
@@ -451,49 +459,52 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
           final compact = cardConstraints.maxHeight < 600 * textScale;
           return Column(
             children: [
-              // ── Stats row ──
-              Padding(
-                padding: EdgeInsets.fromLTRB(24, compact ? 6 : 10, 24, 0),
-                child: Row(
-                  children: [
-                    Text('${(bookProgress * 100).clamp(0, 100).toStringAsFixed(1)}%',
-                      style: tt.labelMedium?.copyWith(
-                        color: isDark ? Colors.white.withValues(alpha: 0.95) : Colors.black.withValues(alpha: 0.85),
-                        fontWeight: FontWeight.w800, fontSize: compact ? 12 : 15,
+              // ── Stats row (fades when edge bar expands) ──
+              ValueListenableBuilder<bool>(
+                valueListenable: _edgeBarExpanded,
+                builder: (_, expanded, child) => AnimatedOpacity(
+                  opacity: expanded ? 0.0 : 1.0,
+                  duration: const Duration(milliseconds: 200),
+                  child: child,
+                ),
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(24, compact ? 6 : 10, 24, 0),
+                  child: StreamBuilder<Duration>(
+                    stream: widget.player.absolutePositionStream,
+                    builder: (_, snap) {
+                      final pos = _isActive
+                          ? (snap.data?.inMilliseconds ?? 0) / 1000.0
+                          : bookProgress * _effectiveDuration;
+                      final speed = _speedAdjustedTime && _isActive ? widget.player.speed : 1.0;
+                      final elapsed = pos / speed;
+                      final remaining = (_effectiveDuration - pos) / speed;
+                      final timeStyle = tt.labelSmall?.copyWith(
+                        color: isDark ? Colors.white.withValues(alpha: 0.55) : Colors.black.withValues(alpha: 0.45),
+                        fontWeight: FontWeight.w500, fontSize: compact ? 10 : 11,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                         shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
-                      )),
-                    const Spacer(),
-                    if (totalChapters > 0 && (!_isPodcastEpisode || _chapters.isNotEmpty))
-                      Text('Ch ${(chapterIdx + 1).clamp(1, totalChapters)} / $totalChapters',
-                        style: tt.labelMedium?.copyWith(
-                          color: isDark ? Colors.white.withValues(alpha: 0.85) : Colors.black.withValues(alpha: 0.75),
-                          fontWeight: FontWeight.w700, fontSize: compact ? 11 : 14,
-                          shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
-                        )),
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _expandCard(context),
-                      child: Padding(
-                        padding: const EdgeInsets.all(8),
-                        child: Icon(Icons.open_in_full_rounded, size: compact ? 14 : 17,
-                          color: isDark ? Colors.white.withValues(alpha: 0.6) : Colors.black.withValues(alpha: 0.5)),
-                      ),
-                    ),
-                  ],
+                      );
+                      return Row(
+                        children: [
+                          if (_effectiveDuration > 0)
+                            Text(_fmtTime(elapsed), style: timeStyle),
+                          const Spacer(),
+                          Text('${(bookProgress * 100).clamp(0, 100).toStringAsFixed(1)}%',
+                            style: timeStyle),
+                          const Spacer(),
+                          if (_effectiveDuration > 0)
+                            Text('-${_fmtTime(remaining)}', style: timeStyle),
+                        ],
+                      );
+                    },
+                  ),
                 ),
               ),
-              // ── Book progress bar ──
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20),
-                child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty), showChapterBar: false, itemId: _itemId, compact: compact),
-              ),
-                SizedBox(height: compact ? 2 : 6),
                 // ── Cover with title/author/chapter overlaid + download badge ──
-                const Spacer(),
-                Padding(
+                Expanded(child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: ListenableBuilder(
-                    listenable: ChromecastService(),
+                    listenable: Listenable.merge([ChromecastService(), widget.player]),
                     builder: (context, _) => LayoutBuilder(
                     builder: (context, constraints) {
                       final maxW = constraints.maxWidth * 0.75;
@@ -513,8 +524,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final castService = ChromecastService();
                       final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
                       final coverPlaying = isCastingThis ? castService.isPlaying : (_isActive && widget.player.isPlaying);
-                      final coverLoading = _isStarting || (_isActive && widget.player.isLoadingOrBuffering);
-                      return GestureDetector(
+                      final coverLoading = _isStarting || (_isActive && widget.player.isLoadingOrBuffering && !widget.player.isPlaying);
+                      return Center(child: GestureDetector(
                         onTap: _coverPlayButton ? () {
                           if (isCastingThis) {
                             castService.togglePlayPause();
@@ -523,7 +534,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                           } else {
                             _startPlayback();
                           }
-                        } : () => _expandCard(context),
+                        } : null,
                         child: Container(
                           width: coverW,
                           height: coverH,
@@ -645,21 +656,22 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                           ),
                         ),
                       ),
-                      );
+                      ));
                     },
                   ),
                   ),
                 ),
-                const Spacer(),
+                ),
                 // ── Chapter pill-scrubber ──
+                SizedBox(height: compact ? 6 : 10),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId, compact: compact),
                 ),
                 // ── Controls ──
-                const Spacer(),
+                SizedBox(height: compact ? 6 : 10),
                 Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
                   child: CardPlaybackControls(
                     player: widget.player,
                     accent: accent,
@@ -670,9 +682,13 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     showPlayButton: !_coverPlayButton,
                   ),
                 ),
-                const Spacer(),
+                SizedBox(height: compact ? 6 : 12),
                 // ── Button grid + more menu ──
-                Padding(
+                MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    textScaler: TextScaler.noScaling,
+                  ),
+                  child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
@@ -722,9 +738,27 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     ),
                   ),
                 ),
+                ),
               ],
-            );
+          );
           }),
+          // Edge progress bar (thin strip at top of card)
+          if (showBookBar)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: CardEdgeProgressBar(
+                player: widget.player,
+                accent: accent,
+                isActive: _isActive,
+                staticProgress: progress,
+                staticDuration: _effectiveDuration,
+                chapters: _chapters,
+                itemId: _itemId,
+                expandedNotifier: _edgeBarExpanded,
+              ),
+            ),
         ],
       ),
       ),
@@ -794,7 +828,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     );
   }
 
-  void _expandCard(BuildContext context) {
+  void expandCard(BuildContext context) {
     AppShell.setExpandedOpen(true);
     Navigator.of(context, rootNavigator: true).push(
       ExpandedCardRoute(
@@ -1191,7 +1225,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
           child: Column(children: [
             Padding(padding: const EdgeInsets.symmetric(vertical: 12),
               child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
-            Text('Chapters', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Text('Chapters (${chapters.length})', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Expanded(child: ListView.builder(
               controller: sc, itemCount: chapters.length,

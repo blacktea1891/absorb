@@ -532,11 +532,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
                 ),
                 // Layer 3: Content
                 SafeArea(
-                  child: Column(
+                  child: LayoutBuilder(
+                    builder: (context, outerConstraints) {
+                    final compact = outerConstraints.maxHeight < 600;
+                    return Column(
                     children: [
                       // ── Stats row ──
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                        padding: EdgeInsets.fromLTRB(24, compact ? 4 : 12, 24, 0),
                         child: Row(
                           children: [
                             Text('${(bookProgress * 100).clamp(0, 100).toStringAsFixed(1)}%',
@@ -546,13 +549,6 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                 shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                               )),
                             const Spacer(),
-                            if (totalChapters > 0 && (!_isPodcastEpisode || _chapters.isNotEmpty))
-                              Text('Ch ${(chapterIdx + 1).clamp(1, totalChapters)} / $totalChapters',
-                                style: tt.labelMedium?.copyWith(
-                                  color: isDark ? Colors.white.withValues(alpha: 0.85) : Colors.black.withValues(alpha: 0.75),
-                                  fontWeight: FontWeight.w700, fontSize: 15,
-                                  shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
-                                )),
                             GestureDetector(
                               behavior: HitTestBehavior.opaque,
                               onTap: _dismissExpanded,
@@ -570,9 +566,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty), showChapterBar: false, itemId: _itemId),
                       ),
-                      const SizedBox(height: 16),
+                      SizedBox(height: compact ? 4 : 16),
                       // ── Cover art (larger — 90% width) ──
-                      Flexible(
+                      Expanded(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 4),
                           child: ListenableBuilder(
@@ -606,7 +602,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                     } else {
                                       _startPlayback();
                                     }
-                                  } : _dismissExpanded,
+                                  } : null,
                                   child: Container(
                                   width: coverW,
                                   height: coverH,
@@ -734,20 +730,23 @@ class _ExpandedCardState extends State<ExpandedCard> {
                           ),
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      SizedBox(height: compact ? 6 : 24),
                       // ── Chapter scrubber ──
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                       ),
                       // ── Controls + buttons ──
-                      Expanded(
+                      MediaQuery(
+                        data: MediaQuery.of(context).copyWith(
+                          textScaler: TextScaler.noScaling,
+                        ),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 28),
                           child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const SizedBox(height: 18),
+                                    SizedBox(height: compact ? 4 : 18),
                                     CardPlaybackControls(
                                       player: widget.player,
                                       accent: accent,
@@ -757,10 +756,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                       itemId: _itemId,
                                       showPlayButton: !_coverPlayButton,
                                     ),
-                                    const SizedBox(height: 24),
+                                    SizedBox(height: compact ? 8 : 24),
                                     // ── Button grid ──
                                     ..._buildButtonGrid(accent, tt),
-                                    const SizedBox(height: 14),
+                                    SizedBox(height: compact ? 4 : 14),
                                     // More menu / Cast controls
                                     Center(
                                       child: ListenableBuilder(
@@ -795,13 +794,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                         },
                                       ),
                                     ),
-                                    const SizedBox(height: 12),
+                                    SizedBox(height: compact ? 4 : 12),
                                   ],
                                 ),
                         ),
                       ),
                     ],
-                  ),
+                  );
+                  }),
                 ),
               ],
             ),
@@ -990,7 +990,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   }
 
   Widget _buildCardButton(String id, Color accent, TextTheme tt, {bool compact = false, bool short = false}) {
-    const large = true;
+    final large = MediaQuery.sizeOf(context).height > 700;
     switch (id) {
       case 'chapters':
         return CardWideButton(
@@ -1302,7 +1302,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
           child: Column(children: [
             Padding(padding: const EdgeInsets.symmetric(vertical: 12),
               child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
-            Text('Chapters', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Text('Chapters (${chapters.length})', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
             Expanded(child: ListView.builder(
               controller: sc, itemCount: chapters.length,
