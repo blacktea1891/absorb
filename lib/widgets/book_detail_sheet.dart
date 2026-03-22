@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:ui';
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -205,6 +205,14 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     return auth.apiService?.getCoverUrl(widget.itemId, width: 800);
   }
 
+  /// Full-res cover for the viewer and sharing.
+  String? get _fullResCoverUrl {
+    final localCover = _item?['_localCoverUrl'] as String?;
+    if (localCover != null && localCover.isNotEmpty) return localCover;
+    final auth = context.read<AuthProvider>();
+    return auth.apiService?.getCoverUrl(widget.itemId, width: 4000);
+  }
+
   /// Low-res cover for the blurred background - saves GPU work.
   String? get _blurCoverUrl {
     final localCover = _item?['_localCoverUrl'] as String?;
@@ -230,7 +238,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                   imageUrl: _blurCoverUrl!, fit: BoxFit.cover,
                   httpHeaders: context.read<LibraryProvider>().mediaHeaders,
                   imageBuilder: (_, p) => ImageFiltered(
-                    imageFilter: ImageFilter.blur(sigmaX: 25, sigmaY: 25, tileMode: TileMode.decal),
+                    imageFilter: ui.ImageFilter.blur(sigmaX: 25, sigmaY: 25, tileMode: TileMode.decal),
                     child: Image(image: p, fit: BoxFit.cover)),
                   placeholder: (_, __) => const SizedBox(),
                   errorWidget: (_, __, ___) => const SizedBox(),
@@ -283,7 +291,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
       if (_coverUrl != null) ...[
         Center(child: GestureDetector(
-          onTap: () => _showFullCover(context, _coverUrl!, lib.mediaHeaders, title),
+          onTap: () => _showFullCover(context, _fullResCoverUrl ?? _coverUrl!, lib.mediaHeaders, title),
           child: Container(
             height: 240,
             decoration: BoxDecoration(
@@ -591,6 +599,8 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
               if (_hasLocalOverride)
                 _moreItem(cs, Icons.layers_clear_rounded, 'Clear Local Metadata',
                   onTap: () { Navigator.pop(ctx); _clearOverride(context); }),
+              _moreItem(cs, Icons.recommend_rounded, 'Recommend Book',
+                onTap: () { Navigator.pop(ctx); _recommendBook(context, title, authorName); }),
               if (_showGoodreads)
                 _moreItem(cs, Icons.local_library_rounded, 'Search on Goodreads',
                   onTap: () { Navigator.pop(ctx); _openGoodreads(title, authorName); }),
@@ -692,7 +702,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
   }
 
   static String get _audibleDomain {
-    final code = (PlatformDispatcher.instance.locale.countryCode ?? 'US').toUpperCase();
+    final code = (ui.PlatformDispatcher.instance.locale.countryCode ?? 'US').toUpperCase();
     const domains = {
       'US': 'audible.com',
       'GB': 'audible.co.uk',
@@ -1201,6 +1211,149 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
           content: const Text('Local metadata cleared'),
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ));
+      }
+    }
+  }
+
+  /// Build an Audible URL for the book, using ASIN if available, otherwise search.
+  String _buildAudibleUrl(String title, String author) {
+    // Map device locale to Audible domain
+    final locale = ui.PlatformDispatcher.instance.locale;
+    final country = locale.countryCode?.toUpperCase() ?? '';
+    final lang = locale.languageCode;
+    String domain;
+    switch (country) {
+      case 'GB': domain = 'audible.co.uk'; break;
+      case 'AU': domain = 'audible.com.au'; break;
+      case 'DE': case 'AT': case 'CH': domain = 'audible.de'; break;
+      case 'FR': domain = 'audible.fr'; break;
+      case 'IT': domain = 'audible.it'; break;
+      case 'ES': domain = 'audible.es'; break;
+      case 'JP': domain = 'audible.co.jp'; break;
+      case 'IN': domain = 'audible.in'; break;
+      case 'CA': domain = 'audible.ca'; break;
+      case 'BR': domain = 'audible.com.br'; break;
+      default:
+        if (lang == 'de') { domain = 'audible.de'; }
+        else if (lang == 'fr') { domain = 'audible.fr'; }
+        else if (lang == 'ja') { domain = 'audible.co.jp'; }
+        else { domain = 'audible.com'; }
+    }
+
+    if (_asin != null && _asin!.isNotEmpty) {
+      return 'https://www.$domain/pd/$_asin';
+    }
+    final query = Uri.encodeComponent('$title $author'.trim());
+    return 'https://www.$domain/search?keywords=$query';
+  }
+
+  Future<void> _recommendBook(BuildContext context, String title, String author) async {
+    final lib = context.read<LibraryProvider>();
+    final coverUrl = _fullResCoverUrl ?? _coverUrl;
+    if (coverUrl == null) return;
+
+    // Show a loading indicator
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Center(child: CircularProgressIndicator()),
+    );
+
+    try {
+      // Download cover
+      final response = await http.get(Uri.parse(coverUrl), headers: lib.mediaHeaders);
+      if (response.statusCode != 200) throw Exception('Failed to download cover');
+      final coverBytes = response.bodyBytes;
+
+      // Decode the cover image
+      final codec = await ui.instantiateImageCodec(coverBytes);
+      final frame = await codec.getNextFrame();
+      final coverImage = frame.image;
+
+      // Build poster: cover image with a gradient bar at the bottom for title/author
+      final coverW = coverImage.width.toDouble();
+      final coverH = coverImage.height.toDouble();
+      final barHeight = coverH * 0.18;
+      final posterH = coverH + barHeight;
+
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, coverW, posterH));
+
+      // Dark background for the bar area
+      canvas.drawRect(Rect.fromLTWH(0, 0, coverW, posterH), Paint()..color = const Color(0xFF1A1A1A));
+
+      // Draw cover
+      canvas.drawImage(coverImage, Offset.zero, Paint());
+
+      // Title text
+      final titleFontSize = coverW * 0.045;
+      final authorFontSize = coverW * 0.035;
+      final padding = coverW * 0.04;
+
+      final titleBuilder = ui.ParagraphBuilder(ui.ParagraphStyle(
+        textAlign: TextAlign.left,
+        maxLines: 2,
+        ellipsis: '...',
+      ))
+        ..pushStyle(ui.TextStyle(
+          color: const Color(0xFFFFFFFF),
+          fontSize: titleFontSize,
+          fontWeight: FontWeight.w700,
+        ))
+        ..addText(title);
+      final titleParagraph = titleBuilder.build()..layout(ui.ParagraphConstraints(width: coverW - padding * 2));
+
+      canvas.drawParagraph(titleParagraph, Offset(padding, coverH + padding * 0.5));
+
+      // Author text
+      final authorBuilder = ui.ParagraphBuilder(ui.ParagraphStyle(
+        textAlign: TextAlign.left,
+        maxLines: 1,
+        ellipsis: '...',
+      ))
+        ..pushStyle(ui.TextStyle(
+          color: const Color(0xFFAAAAAA),
+          fontSize: authorFontSize,
+          fontWeight: FontWeight.w400,
+        ))
+        ..addText(author);
+      final authorParagraph = authorBuilder.build()..layout(ui.ParagraphConstraints(width: coverW - padding * 2));
+
+      canvas.drawParagraph(authorParagraph, Offset(padding, coverH + padding * 0.5 + titleParagraph.height + padding * 0.25));
+
+      // Convert to image
+      final picture = recorder.endRecording();
+      final posterImage = await picture.toImage(coverW.toInt(), posterH.toInt());
+      final byteData = await posterImage.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) throw Exception('Failed to encode poster');
+
+      // Save to temp file
+      final safeTitle = title.replaceAll(RegExp(r'[^\w\s-]'), '').trim();
+      final dir = await getTemporaryDirectory();
+      final file = File('${dir.path}/${safeTitle}_recommend.png');
+      await file.writeAsBytes(byteData.buffer.asUint8List());
+
+      // Build Audible link
+      final audibleUrl = _buildAudibleUrl(title, author);
+
+      if (!mounted) return;
+      Navigator.pop(context); // dismiss loading
+
+      final box = context.findRenderObject() as RenderBox?;
+      final origin = box != null ? box.localToGlobal(Offset.zero) & box.size : null;
+      await Share.shareXFiles(
+        [XFile(file.path)],
+        text: audibleUrl,
+        sharePositionOrigin: origin,
+      );
+    } catch (e) {
+      if (mounted) {
+        Navigator.pop(context); // dismiss loading
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Failed to create recommendation: $e'),
+          behavior: SnackBarBehavior.floating,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ));
       }
