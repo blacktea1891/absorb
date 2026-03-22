@@ -678,19 +678,31 @@ class LibraryProvider extends ChangeNotifier {
         setNetworkOffline(true);
         _auth?.clearLocalOverride();
       } else if (!_manualOffline) {
-        // Connectivity restored — optimistically go online; if server is still
-        // down the API call will fail and _goOfflineWithPing() will be called.
-        setNetworkOffline(false);
         if (result.contains(ConnectivityResult.wifi)) {
-          // WiFi available — check if local server is reachable
+          // WiFi available — optimistically go online and check local server
+          setNetworkOffline(false);
           _auth?.checkLocalServer();
           if (_rollingDownloadSeries.isNotEmpty) _catchUpRollingDownloads();
           _catchUpQueueAutoDownloads();
           catchUpSubscribedPodcasts();
         } else {
-          // WiFi dropped but still have connectivity (e.g. mobile data) —
-          // local server won't be reachable, revert to remote URL.
+          // Mobile data only — local server won't be reachable.
           _auth?.clearLocalOverride();
+          // If the remote server URL is a private/local address, it won't be
+          // reachable over mobile data either. Stay offline and ping instead
+          // of optimistically going online (which would flash green then fail).
+          final serverUrl = _auth?.serverUrl ?? '';
+          if (_isLocalUrl(serverUrl)) {
+            debugPrint('[Library] Mobile data only with local server URL — staying offline');
+            if (_networkOffline) {
+              _startServerPingTimer();
+            } else {
+              _goOffline();
+            }
+          } else {
+            // Remote server should be reachable over mobile — go online optimistically
+            setNetworkOffline(false);
+          }
         }
       }
     });
@@ -804,6 +816,27 @@ class LibraryProvider extends ChangeNotifier {
     if (!_socketSoftDisconnected) return;
     _socketSoftDisconnected = false;
     SocketService().softReconnect();
+  }
+
+  /// Returns true if the URL points to a private/local network address
+  /// that won't be reachable over mobile data.
+  static bool _isLocalUrl(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) return false;
+    final host = uri.host.toLowerCase();
+    if (host == 'localhost' || host == '127.0.0.1' || host == '::1') return true;
+    // Private IPv4 ranges
+    final parts = host.split('.');
+    if (parts.length == 4) {
+      final a = int.tryParse(parts[0]);
+      final b = int.tryParse(parts[1]);
+      if (a == 10) return true;                              // 10.0.0.0/8
+      if (a == 172 && b != null && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+      if (a == 192 && b == 168) return true;                 // 192.168.0.0/16
+    }
+    // .local mDNS hostnames (e.g. myserver.local)
+    if (host.endsWith('.local')) return true;
+    return false;
   }
 
   /// Returns true for exceptions that indicate a real network problem
