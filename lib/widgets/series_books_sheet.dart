@@ -73,12 +73,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
 
   bool _didAutoScroll = false;
 
-  // Pagination
-  int _currentPage = 0;
   int _totalBooks = 0;
-  bool _isLoadingMore = false;
-  bool _hasMore = true;
-  static const int _pageSize = 50;
 
   @override
   void initState() {
@@ -94,22 +89,12 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
     _fetchFromApi();
     _loadAutoDownloadState();
     context.read<LibraryProvider>().addListener(_onLibraryChanged);
-    widget.scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
-    widget.scrollController.removeListener(_onScroll);
     context.read<LibraryProvider>().removeListener(_onLibraryChanged);
     super.dispose();
-  }
-
-  void _onScroll() {
-    if (_isLoadingMore || !_hasMore) return;
-    final pos = widget.scrollController.position;
-    if (pos.pixels >= pos.maxScrollExtent - 300) {
-      _loadMoreBooks();
-    }
   }
 
   void _onLibraryChanged() {
@@ -237,7 +222,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
       return;
     }
     final lib = context.read<LibraryProvider>();
-    final data = await api.getSeries(seriesId, libraryId: widget.libraryId ?? lib.selectedLibraryId, page: 0, limit: _pageSize);
+    final data = await api.getSeries(seriesId, libraryId: widget.libraryId ?? lib.selectedLibraryId);
     if (data != null && mounted) {
       final rawBooks = data['books'] ?? data['libraryItems'] ?? [];
       final total = (data['total'] as num?)?.toInt() ?? 0;
@@ -247,9 +232,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
           _books = fetched;
           _sortBooks();
           _isLoading = false;
-          _currentPage = 0;
           _totalBooks = total;
-          _hasMore = _books.length < total;
         });
         _scrollToUpNext();
         return;
@@ -258,33 +241,6 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
     if (mounted) setState(() => _isLoading = false);
   }
 
-  Future<void> _loadMoreBooks() async {
-    if (_isLoadingMore || !_hasMore) return;
-    final seriesId = widget.seriesId;
-    if (seriesId == null || seriesId.isEmpty) return;
-    final auth = context.read<AuthProvider>();
-    final api = auth.apiService;
-    if (api == null) return;
-    setState(() => _isLoadingMore = true);
-    final nextPage = _currentPage + 1;
-    final lib = context.read<LibraryProvider>();
-    final data = await api.getSeries(seriesId, libraryId: widget.libraryId ?? lib.selectedLibraryId, page: nextPage, limit: _pageSize);
-    if (data != null && mounted) {
-      final rawBooks = data['books'] ?? data['libraryItems'] ?? [];
-      if (rawBooks is List && rawBooks.isNotEmpty) {
-        final fetched = _unwrapBooks(rawBooks);
-        setState(() {
-          _books.addAll(fetched);
-          _sortBooks();
-          _currentPage = nextPage;
-          _hasMore = _books.length < _totalBooks;
-          _isLoadingMore = false;
-        });
-        return;
-      }
-    }
-    if (mounted) setState(() { _isLoadingMore = false; _hasMore = false; });
-  }
 
   bool get _allFinished {
     final lib = context.read<LibraryProvider>();
@@ -617,15 +573,8 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
               builder: (context, _) => ListView.builder(
               controller: widget.scrollController,
               padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.of(context).viewPadding.bottom),
-              itemCount: _books.length + (_hasMore ? 1 : 0),
+              itemCount: _books.length,
               itemBuilder: (context, index) {
-                if (index >= _books.length) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Center(child: SizedBox(width: 24, height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary))),
-                  );
-                }
                 final book = _books[index];
                 final bookId = book['id'] as String? ?? '';
                 final media = book['media'] as Map<String, dynamic>? ?? {};
