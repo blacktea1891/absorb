@@ -180,9 +180,22 @@ class LibraryProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('manual_offline_mode', value);
     if (!value) {
-      // Going back online — clear any stale network-offline flag too
-      _networkOffline = false;
+      // Going back online — verify the server is actually reachable first
       _stopServerPingTimer();
+      final serverUrl = _auth?.activeServerUrl ?? _auth?.serverUrl ?? '';
+      final reachable = serverUrl.isNotEmpty
+          ? await ApiService.pingServer(serverUrl, customHeaders: _auth?.customHeaders ?? {})
+              .timeout(const Duration(seconds: 5), onTimeout: () => false)
+          : false;
+      if (!reachable) {
+        debugPrint('[Library] Manual offline off but server unreachable — staying offline');
+        _networkOffline = true;
+        _buildOfflineSections();
+        notifyListeners();
+        if (_deviceHasConnectivity) _startServerPingTimer();
+        return;
+      }
+      _networkOffline = false;
       if (_api != null) {
         debugPrint('[Library] Manual offline off — flushing pending syncs');
         ProgressSyncService().flushPendingSync(api: _api!);
@@ -670,7 +683,7 @@ class LibraryProvider extends ChangeNotifier {
       }
     });
     // Then listen for changes
-    _connectivitySub = Connectivity().onConnectivityChanged.listen((result) {
+    _connectivitySub = Connectivity().onConnectivityChanged.listen((result) async {
       final hasConnectivity = !result.contains(ConnectivityResult.none);
       _deviceHasConnectivity = hasConnectivity;
       if (!hasConnectivity) {
@@ -700,8 +713,21 @@ class LibraryProvider extends ChangeNotifier {
               _goOffline();
             }
           } else {
-            // Remote server should be reachable over mobile — go online optimistically
-            setNetworkOffline(false);
+            // Remote server should be reachable over mobile — verify first
+            // instead of going online optimistically (which can leave the UI
+            // empty if the connection isn't ready yet).
+            final reachable = await ApiService.pingServer(serverUrl, customHeaders: _auth?.customHeaders ?? {})
+                .timeout(const Duration(seconds: 5), onTimeout: () => false);
+            if (reachable) {
+              setNetworkOffline(false);
+            } else {
+              debugPrint('[Library] Mobile data but remote unreachable — starting ping timer');
+              if (_networkOffline) {
+                _startServerPingTimer();
+              } else {
+                _goOffline();
+              }
+            }
           }
         }
       }
@@ -836,6 +862,8 @@ class LibraryProvider extends ChangeNotifier {
     }
     // .local mDNS hostnames (e.g. myserver.local)
     if (host.endsWith('.local')) return true;
+    // Tailscale hostnames (e.g. myserver.tail12345.ts.net)
+    if (host.endsWith('.ts.net')) return true;
     return false;
   }
 
