@@ -109,6 +109,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
     if (_fetchedChapters != null && _fetchedChapters!.isNotEmpty) return _fetchedChapters!;
     final inline = _media['chapters'] as List<dynamic>? ?? [];
     if (inline.isNotEmpty) return inline;
+    // For podcast episodes, chapters live on the episode object
+    final epChapters = _recentEpisode?['chapters'] as List<dynamic>? ?? [];
+    if (epChapters.isNotEmpty) return epChapters;
     // For active podcast episodes, chapters come from the playback session
     if (_isActive && widget.player.chapters.isNotEmpty) return widget.player.chapters;
     return [];
@@ -128,6 +131,35 @@ class _ExpandedCardState extends State<ExpandedCard> {
   bool get _isPodcastEpisode => _isActive && widget.player.currentEpisodeId != null;
 
   Map<String, dynamic>? get _recentEpisode => _item['recentEpisode'] as Map<String, dynamic>?;
+
+  /// Resolve full episode data for the current episode.
+  /// Prefers full episode data from media.episodes or API over the
+  /// stripped-down recentEpisode from continue-listening.
+  Future<Map<String, dynamic>> _resolveEpisode() async {
+    final epId = _episodeId ?? widget.player.currentEpisodeId;
+    final episodes = _media['episodes'] as List<dynamic>? ?? [];
+    for (final ep in episodes) {
+      if (ep is Map<String, dynamic> && ep['id'] == epId) return ep;
+    }
+    final api = context.read<AuthProvider>().apiService;
+    if (api != null) {
+      final fullItem = await api.getLibraryItem(_itemId);
+      if (fullItem != null) {
+        final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+        final eps = media['episodes'] as List<dynamic>? ?? [];
+        for (final ep in eps) {
+          if (ep is Map<String, dynamic> && ep['id'] == epId) return ep;
+        }
+      }
+    }
+    if (_recentEpisode != null) return _recentEpisode!;
+    return {
+      'id': epId,
+      'title': widget.player.currentEpisodeTitle,
+      'duration': widget.player.totalDuration,
+    };
+  }
+
   // Episode ID: prefer recentEpisode, fall back to compound absorbing key
   String? get _episodeId {
     final re = _recentEpisode;
@@ -364,8 +396,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   }
 
   Future<void> _fetchChaptersIfNeeded() async {
-    final inline = _media['chapters'] as List<dynamic>? ?? [];
-    if (inline.isNotEmpty) return;
+    if (_chapters.isNotEmpty) return;
     final auth = context.read<AuthProvider>();
     final api = auth.apiService;
     if (api == null) return;
@@ -373,7 +404,18 @@ class _ExpandedCardState extends State<ExpandedCard> {
       final fullItem = await api.getLibraryItem(_itemId);
       if (fullItem != null && mounted) {
         final media = fullItem['media'] as Map<String, dynamic>? ?? {};
-        final chapters = media['chapters'] as List<dynamic>? ?? [];
+        // Books: chapters at media level
+        var chapters = media['chapters'] as List<dynamic>? ?? [];
+        // Podcasts: chapters on the specific episode
+        if (chapters.isEmpty && _episodeId != null) {
+          final episodes = media['episodes'] as List<dynamic>? ?? [];
+          for (final ep in episodes) {
+            if (ep is Map<String, dynamic> && ep['id'] == _episodeId) {
+              chapters = ep['chapters'] as List<dynamic>? ?? [];
+              break;
+            }
+          }
+        }
         if (chapters.isNotEmpty) {
           setState(() => _fetchedChapters = chapters);
           if (_isActive && widget.player.chapters.isEmpty) {
@@ -1024,14 +1066,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
           icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
           label: short ? 'Details' : ((_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details'),
           accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
-          onTap: () {
+          onTap: () async {
             if (_episodeId != null || _isPodcastEpisode) {
-              final episode = _recentEpisode ?? {
-                'id': widget.player.currentEpisodeId,
-                'title': widget.player.currentEpisodeTitle,
-                'duration': widget.player.totalDuration,
-              };
-              EpisodeDetailSheet.show(context, _item, episode);
+              final episode = await _resolveEpisode();
+              if (mounted) EpisodeDetailSheet.show(context, _item, episode);
             } else {
               showBookDetailSheet(context, _itemId);
             }
@@ -1140,15 +1178,11 @@ class _ExpandedCardState extends State<ExpandedCard> {
           icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
           label: (_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details',
           accent: accent,
-          onTap: () {
+          onTap: () async {
             Navigator.pop(ctx);
             if (_episodeId != null || _isPodcastEpisode) {
-              final episode = _recentEpisode ?? {
-                'id': widget.player.currentEpisodeId,
-                'title': widget.player.currentEpisodeTitle,
-                'duration': widget.player.totalDuration,
-              };
-              EpisodeDetailSheet.show(context, _item, episode);
+              final episode = await _resolveEpisode();
+              if (mounted) EpisodeDetailSheet.show(context, _item, episode);
             } else {
               showBookDetailSheet(context, _itemId);
             }
