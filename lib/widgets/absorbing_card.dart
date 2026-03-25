@@ -61,10 +61,13 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   String get _author => _metadata['authorName'] as String? ?? '';
   double get _duration => (_media['duration'] as num?)?.toDouble() ?? 0;
   List<dynamic> get _chapters {
-    // Prefer fetched chapters (from full item), fall back to inline data
+    // Prefer fetched chapters (from full item or episode), fall back to inline data
     if (_fetchedChapters != null && _fetchedChapters!.isNotEmpty) return _fetchedChapters!;
     final inline = _media['chapters'] as List<dynamic>? ?? [];
     if (inline.isNotEmpty) return inline;
+    // For podcast episodes, chapters live on the episode object
+    final epChapters = _recentEpisode?['chapters'] as List<dynamic>? ?? [];
+    if (epChapters.isNotEmpty) return epChapters;
     // For active podcast episodes, chapters come from the playback session
     if (_isActive && widget.player.chapters.isNotEmpty) return widget.player.chapters;
     return [];
@@ -86,6 +89,38 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
 
   // For inactive podcast show cards: recentEpisode is embedded in the continue-listening entity
   Map<String, dynamic>? get _recentEpisode => widget.item['recentEpisode'] as Map<String, dynamic>?;
+
+  /// Resolve full episode data for the current episode.
+  /// Prefers full episode data from media.episodes or API over the
+  /// stripped-down recentEpisode from continue-listening.
+  Future<Map<String, dynamic>> _resolveEpisode() async {
+    final epId = _episodeId ?? widget.player.currentEpisodeId;
+    // Check episodes embedded in the podcast item (full data)
+    final episodes = _media['episodes'] as List<dynamic>? ?? [];
+    for (final ep in episodes) {
+      if (ep is Map<String, dynamic> && ep['id'] == epId) return ep;
+    }
+    // Fetch full item from API
+    final api = context.read<AuthProvider>().apiService;
+    if (api != null) {
+      final fullItem = await api.getLibraryItem(_itemId);
+      if (fullItem != null) {
+        final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+        final eps = media['episodes'] as List<dynamic>? ?? [];
+        for (final ep in eps) {
+          if (ep is Map<String, dynamic> && ep['id'] == epId) return ep;
+        }
+      }
+    }
+    // Fall back to recentEpisode (may be missing description/chapters/etc.)
+    if (_recentEpisode != null) return _recentEpisode!;
+    // Last resort: minimal data from player
+    return {
+      'id': epId,
+      'title': widget.player.currentEpisodeTitle,
+      'duration': widget.player.totalDuration,
+    };
+  }
   // Episode ID: prefer recentEpisode, fall back to compound absorbing key
   String? get _episodeId {
     final re = _recentEpisode;
@@ -161,9 +196,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   Future<void> _fetchChaptersIfNeeded() async {
-    // If chapters are already in the item data, skip
-    final inline = _media['chapters'] as List<dynamic>? ?? [];
-    if (inline.isNotEmpty) return;
+    // If chapters are already available, skip
+    if (_chapters.isNotEmpty) return;
     // Fetch full item to get chapters
     final auth = context.read<AuthProvider>();
     final api = auth.apiService;
@@ -172,10 +206,21 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       final fullItem = await api.getLibraryItem(_itemId);
       if (fullItem != null && mounted) {
         final media = fullItem['media'] as Map<String, dynamic>? ?? {};
-        final chapters = media['chapters'] as List<dynamic>? ?? [];
+        // Books: chapters at media level
+        var chapters = media['chapters'] as List<dynamic>? ?? [];
+        // Podcasts: chapters on the specific episode
+        if (chapters.isEmpty && _episodeId != null) {
+          final episodes = media['episodes'] as List<dynamic>? ?? [];
+          for (final ep in episodes) {
+            if (ep is Map<String, dynamic> && ep['id'] == _episodeId) {
+              chapters = ep['chapters'] as List<dynamic>? ?? [];
+              break;
+            }
+          }
+        }
         if (chapters.isNotEmpty) {
           setState(() => _fetchedChapters = chapters);
-          // If this is the active book and player has no chapters, update them
+          // If this is the active item and player has no chapters, update them
           if (_isActive && widget.player.chapters.isEmpty) {
             widget.player.updateChapters(chapters);
           }
@@ -514,10 +559,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                         children: [
                           Row(
                             children: [
-                              if (_effectiveDuration > 0)
+                              if (_effectiveDuration > 0 && showBookBar)
                                 Text(_fmtTime(elapsed), style: timeStyle),
                               const Spacer(),
-                              if (_effectiveDuration > 0)
+                              if (_effectiveDuration > 0 && showBookBar)
                                 Text('-${_fmtTime(remaining)}', style: timeStyle),
                             ],
                           ),
@@ -979,14 +1024,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
           icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
           label: short ? 'Details' : ((_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details'),
           accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
-          onTap: () {
+          onTap: () async {
             if (_episodeId != null || _isPodcastEpisode) {
-              final episode = _recentEpisode ?? {
-                'id': widget.player.currentEpisodeId,
-                'title': widget.player.currentEpisodeTitle,
-                'duration': widget.player.totalDuration,
-              };
-              EpisodeDetailSheet.show(context, widget.item, episode);
+              final episode = await _resolveEpisode();
+              if (mounted) EpisodeDetailSheet.show(context, widget.item, episode);
             } else {
               showBookDetailSheet(context, _itemId);
             }
@@ -1095,15 +1136,11 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
           icon: (_episodeId != null || _isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
           label: (_episodeId != null || _isPodcastEpisode) ? 'Episode Details' : 'Book Details',
           accent: accent,
-          onTap: () {
+          onTap: () async {
             Navigator.pop(ctx);
             if (_episodeId != null || _isPodcastEpisode) {
-              final episode = _recentEpisode ?? {
-                'id': widget.player.currentEpisodeId,
-                'title': widget.player.currentEpisodeTitle,
-                'duration': widget.player.totalDuration,
-              };
-              EpisodeDetailSheet.show(context, widget.item, episode);
+              final episode = await _resolveEpisode();
+              if (mounted) EpisodeDetailSheet.show(context, widget.item, episode);
             } else {
               showBookDetailSheet(context, _itemId);
             }
