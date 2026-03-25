@@ -465,16 +465,14 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
 
 
   void _openSeriesSheet(_BookSection section) {
-    if (section.seriesId != null) {
-      showSeriesBooksSheet(context,
-        seriesName: section.label,
-        seriesId: section.seriesId,
-        books: section.books,
-        serverUrl: widget.serverUrl,
-        token: widget.token,
-        libraryId: widget.libraryId,
-      );
-    }
+    showSeriesBooksSheet(context,
+      seriesName: section.label,
+      seriesId: section.seriesId,
+      books: section.books,
+      serverUrl: widget.serverUrl,
+      token: widget.token,
+      libraryId: widget.libraryId,
+    );
   }
 
   Widget _sectionDivider(ColorScheme cs, TextTheme tt, String label) {
