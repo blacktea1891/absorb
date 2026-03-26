@@ -1,2 +1,2 @@
 #!/bin/bash
-flutter build appbundle --release "$@" && cd build/app/outputs/bundle/release
+flutter build appbundle --release "$@" && explorer "build\\app\\outputs\\bundle\\release"
