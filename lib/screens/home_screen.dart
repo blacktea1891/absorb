@@ -773,7 +773,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                             TextSpan(
                                 text: '  ${_fmtTime(currentTime)} / ${_fmtTime(totalDuration)}',
                                 style: tt.labelSmall?.copyWith(
-                                    color: cs.onSurfaceVariant.withValues(alpha: 0.6), fontSize: 10)),
+                                    color: cs.onSurfaceVariant, fontSize: 10)),
                         ])),
                       ],
                     ),
