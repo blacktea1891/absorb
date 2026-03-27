@@ -90,7 +90,10 @@ class ApiService {
   /// Returns true if successful. Uses a lock so concurrent 401s only
   /// trigger one refresh.
   Future<bool> _refreshAccessToken() async {
-    if (_isLegacyToken || _refreshToken == null) return false;
+    if (_isLegacyToken || _refreshToken == null) {
+      debugPrint('[API] Cannot refresh: isLegacy=$_isLegacyToken, hasRefreshToken=${_refreshToken != null}');
+      return false;
+    }
 
     // If a refresh is already in progress, wait for it
     if (_refreshCompleter != null) return _refreshCompleter!.future;
@@ -135,6 +138,9 @@ class ApiService {
   Future<http.Response> _authGet(Uri url, {Map<String, String>? headers, Duration timeout = const Duration(seconds: 15)}) async {
     final h = headers ?? _headers;
     var response = await http.get(url, headers: h).timeout(timeout);
+    if (response.statusCode == 401) {
+      debugPrint('[API] 401 on GET ${url.path} - isLegacy=$_isLegacyToken, hasRefresh=${_refreshToken != null}, tokenLen=${_accessToken.length}');
+    }
     if (response.statusCode == 401 && !_isLegacyToken) {
       if (await _refreshAccessToken()) {
         final refreshedHeaders = Map<String, String>.from(h)

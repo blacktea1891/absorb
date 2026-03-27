@@ -67,6 +67,7 @@ class OidcService {
       try {
         final request = await client.getUrl(Uri.parse(authUrl));
         request.followRedirects = false;
+        request.headers.set('x-return-tokens', 'true');
         final response = await request.close();
 
         // Capture cookies for the callback request

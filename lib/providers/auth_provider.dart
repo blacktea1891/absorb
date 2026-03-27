@@ -126,6 +126,7 @@ class AuthProvider extends ChangeNotifier {
         _accessToken = savedToken;
         _refreshToken = savedRefreshToken;
         _isLegacyToken = savedRefreshToken == null;
+        debugPrint('[Auth] Restored token: ${savedToken.substring(0, savedToken.length.clamp(0, 20))}... (${savedToken.length} chars, isLegacy=$_isLegacyToken)');
         _username = savedUsername;
         _userId = prefs.getString('user_id');
         _defaultLibraryId = savedLibraryId;
@@ -255,6 +256,10 @@ class AuthProvider extends ChangeNotifier {
     _isLegacyToken = newAccessToken == null;
     _accessToken = newAccessToken ?? user['token'] as String?;
     _refreshToken = newRefreshToken;
+    debugPrint('[Auth] Login response keys: ${result.keys.toList()}');
+    debugPrint('[Auth] Login user keys: ${user.keys.toList()}');
+    debugPrint('[Auth] accessToken=${newAccessToken != null}, refreshToken=${newRefreshToken != null}, legacyToken=${user['token'] != null}, isLegacy=$_isLegacyToken');
+    debugPrint('[Auth] Token being used: ${_accessToken != null ? '${_accessToken!.substring(0, _accessToken!.length.clamp(0, 20))}... (${_accessToken!.length} chars)' : 'null'}');
     _username = user['username'] as String?;
     _userId = user['id'] as String?;
     _defaultLibraryId = result['userDefaultLibraryId'] as String?;
@@ -330,6 +335,10 @@ class AuthProvider extends ChangeNotifier {
     _isLegacyToken = newAccessToken == null;
     _accessToken = newAccessToken ?? user['token'] as String?;
     _refreshToken = newRefreshToken;
+    debugPrint('[Auth] OIDC response keys: ${result.keys.toList()}');
+    debugPrint('[Auth] OIDC user keys: ${user.keys.toList()}');
+    debugPrint('[Auth] accessToken=${newAccessToken != null}, refreshToken=${newRefreshToken != null}, legacyToken=${user['token'] != null}, isLegacy=$_isLegacyToken');
+    debugPrint('[Auth] Token being used: ${_accessToken != null ? '${_accessToken!.substring(0, _accessToken!.length.clamp(0, 20))}... (${_accessToken!.length} chars)' : 'null'}');
     _username = user['username'] as String?;
     _userId = user['id'] as String?;
     _defaultLibraryId = result['userDefaultLibraryId'] as String?;
