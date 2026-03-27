@@ -79,6 +79,7 @@ class HomeWidgetService {
 
     final serverUrl = prefs.getString('server_url');
     final token = prefs.getString('token');
+    final refreshToken = prefs.getString('refresh_token');
     debugPrint('[HomeWidget] play_pause: server=${serverUrl != null}, token=${token != null}');
     if (serverUrl == null || token == null) return;
 
@@ -94,6 +95,8 @@ class HomeWidgetService {
     final api = ApiService(
       baseUrl: serverUrl,
       token: token,
+      refreshToken: refreshToken,
+      isLegacyToken: refreshToken == null,
       customHeaders: customHeaders ?? const {},
     );
 
