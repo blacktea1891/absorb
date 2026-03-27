@@ -199,8 +199,9 @@ class AndroidAutoService {
     final prefs = await SharedPreferences.getInstance();
     final url = prefs.getString('server_url');
     final token = prefs.getString('token');
+    final refreshToken = prefs.getString('refresh_token');
     if (url == null || token == null) return null;
-    return ApiService(baseUrl: url, token: token);
+    return ApiService(baseUrl: url, token: token, refreshToken: refreshToken, isLegacyToken: refreshToken == null);
   }
 
   Future<String?> getDefaultLibraryId() async {

@@ -11,7 +11,7 @@ class LogService {
   factory LogService() => _instance;
   LogService._();
 
-  static const supportEmail = 'barnabas.absorb@gmail.com';
+  static const supportEmail = 'absorb@barnabashq.com';
 
   // Keep 1MB max, trim to 512KB.
   static const _maxSize = 1 * 1024 * 1024; // 1 MB

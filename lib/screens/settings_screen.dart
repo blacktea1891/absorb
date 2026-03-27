@@ -33,6 +33,7 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  static const _isPlayStoreBuild = bool.fromEnvironment('PLAYSTORE_BUILD');
   AutoRewindSettings _rewindSettings = const AutoRewindSettings();
   double _defaultSpeed = 1.0;
   bool _wifiOnlyDownloads = false;
@@ -82,6 +83,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _trustAllCerts = false;
   bool _loaded = false;
   String _downloadLocationLabel = 'App Internal Storage (Default)';
+  bool _canPickDownloadLocation = false;
   int _totalDownloadSizeBytes = 0;
   int _deviceTotalBytes = 0;
   int _deviceAvailableBytes = 0;
@@ -273,6 +275,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _skipChapterBarrier = skipBarrier;
       _trustAllCerts = trustCerts;
       _showExplicitBadge = showExplicit;
+      _canPickDownloadLocation = !_isPlayStoreBuild;
 
       _loaded = true;
     });
@@ -1518,7 +1521,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       } : null,
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
-                    if (!Platform.isIOS)
+                    if (!Platform.isIOS && _canPickDownloadLocation)
                     ListTile(
                       leading: Icon(Icons.folder_outlined, color: cs.primary),
                       title: const Text('Download location'),

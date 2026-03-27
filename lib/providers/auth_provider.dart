@@ -10,7 +10,9 @@ import '../services/user_account_service.dart';
 import '../main.dart' show scaffoldMessengerKey;
 
 class AuthProvider extends ChangeNotifier {
-  String? _token;
+  String? _accessToken;
+  String? _refreshToken;
+  bool _isLegacyToken = false;
   String? _serverUrl;
   String? _username;
   String? _userId;
@@ -30,10 +32,11 @@ class AuthProvider extends ChangeNotifier {
   String? _errorMessage;
 
   // Getters
-  bool get isAuthenticated => _token != null && _serverUrl != null;
+  bool get isAuthenticated => _accessToken != null && _serverUrl != null;
   bool get isLoading => _isLoading;
   bool get serverReachable => _serverReachable;
-  String? get token => _token;
+  /// Current access token (or legacy token for old servers).
+  String? get token => _accessToken;
   String? get serverUrl => _serverUrl;
   String? get activeServerUrl => (_useLocalServer && _localServerUrl.isNotEmpty) ? _localServerUrl : _serverUrl;
   bool get useLocalServer => _useLocalServer;
@@ -56,10 +59,44 @@ class AuthProvider extends ChangeNotifier {
 
   ApiService? get apiService {
     final url = activeServerUrl;
-    if (url != null && _token != null) {
-      return ApiService(baseUrl: url, token: _token!, customHeaders: _customHeaders);
+    if (url != null && _accessToken != null) {
+      return ApiService(
+        baseUrl: url,
+        token: _accessToken!,
+        refreshToken: _refreshToken,
+        isLegacyToken: _isLegacyToken,
+        customHeaders: _customHeaders,
+        onTokensRefreshed: _onTokensRefreshed,
+        onAuthExpired: _onAuthExpired,
+      );
     }
     return null;
+  }
+
+  void _onTokensRefreshed(String newAccessToken, String? newRefreshToken) {
+    _accessToken = newAccessToken;
+    if (newRefreshToken != null) _refreshToken = newRefreshToken;
+    // Persist updated tokens
+    SharedPreferences.getInstance().then((prefs) {
+      prefs.setString('token', _accessToken!);
+      if (_refreshToken != null) prefs.setString('refresh_token', _refreshToken!);
+    });
+    // Update saved account
+    if (_serverUrl != null && _username != null) {
+      UserAccountService().updateTokens(_serverUrl!, _username!, _accessToken!, refreshToken: _refreshToken);
+    }
+    // Push new token to socket
+    SocketService().updateToken(_accessToken!);
+    notifyListeners();
+  }
+
+  void _onAuthExpired() {
+    debugPrint('[Auth] Token refresh failed, forcing re-login');
+    // Show a message to the user
+    scaffoldMessengerKey.currentState?.showSnackBar(
+      const SnackBar(content: Text('Session expired. Please log in again.')),
+    );
+    logout();
   }
 
   /// Try to restore a saved session from SharedPreferences.
@@ -77,15 +114,18 @@ class AuthProvider extends ChangeNotifier {
       debugPrint('[Auth] SharedPreferences loaded (${sw.elapsedMilliseconds}ms)');
       final savedUrl = prefs.getString('server_url');
       final savedToken = prefs.getString('token');
+      final savedRefreshToken = prefs.getString('refresh_token');
       final savedUsername = prefs.getString('username');
       final savedLibraryId = prefs.getString('default_library_id');
 
-      debugPrint('[Auth] saved credentials: url=${savedUrl != null}, token=${savedToken != null}');
+      debugPrint('[Auth] saved credentials: url=${savedUrl != null}, token=${savedToken != null}, refreshToken=${savedRefreshToken != null}');
 
       if (savedUrl != null && savedToken != null) {
         // Always restore credentials so we can at least go offline
         _serverUrl = savedUrl;
-        _token = savedToken;
+        _accessToken = savedToken;
+        _refreshToken = savedRefreshToken;
+        _isLegacyToken = savedRefreshToken == null;
         _username = savedUsername;
         _userId = prefs.getString('user_id');
         _defaultLibraryId = savedLibraryId;
@@ -129,7 +169,15 @@ class AuthProvider extends ChangeNotifier {
         if (reachable) {
           try {
             debugPrint('[Auth] fetching /me... (${sw.elapsedMilliseconds}ms)');
-            final api = ApiService(baseUrl: activeServerUrl!, token: savedToken, customHeaders: _customHeaders);
+            final api = ApiService(
+              baseUrl: activeServerUrl!,
+              token: savedToken,
+              refreshToken: savedRefreshToken,
+              isLegacyToken: _isLegacyToken,
+              customHeaders: _customHeaders,
+              onTokensRefreshed: _onTokensRefreshed,
+              onAuthExpired: _onAuthExpired,
+            );
             final me = await api.getMe();
             if (me != null) {
               _userJson = me;
@@ -201,7 +249,12 @@ class AuthProvider extends ChangeNotifier {
     }
 
     _serverUrl = url;
-    _token = user['token'] as String?;
+    // Prefer new JWT accessToken, fall back to legacy user.token for old servers
+    final newAccessToken = result['accessToken'] as String?;
+    final newRefreshToken = result['refreshToken'] as String?;
+    _isLegacyToken = newAccessToken == null;
+    _accessToken = newAccessToken ?? user['token'] as String?;
+    _refreshToken = newRefreshToken;
     _username = user['username'] as String?;
     _userId = user['id'] as String?;
     _defaultLibraryId = result['userDefaultLibraryId'] as String?;
@@ -222,13 +275,13 @@ class AuthProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('server_url', _serverUrl!);
-      if (_token != null) await prefs.setString('token', _token!);
+      if (_accessToken != null) await prefs.setString('token', _accessToken!);
+      if (_refreshToken != null) await prefs.setString('refresh_token', _refreshToken!);
       if (_username != null) await prefs.setString('username', _username!);
       if (_userId != null) await prefs.setString('user_id', _userId!);
       if (_defaultLibraryId != null) {
         await prefs.setString('default_library_id', _defaultLibraryId!);
       }
-      // Persist custom headers as JSON
       if (customHeaders.isNotEmpty) {
         await prefs.setString('custom_headers', jsonEncode(customHeaders));
       } else {
@@ -241,8 +294,10 @@ class AuthProvider extends ChangeNotifier {
       await UserAccountService().saveAccount(SavedAccount(
         serverUrl: _serverUrl!,
         username: _username ?? '',
-        token: _token ?? '',
+        token: _accessToken ?? '',
+        refreshToken: _refreshToken,
         userId: _userId,
+        isLegacyToken: _isLegacyToken,
       ));
     } catch (_) {}
 
@@ -270,7 +325,11 @@ class AuthProvider extends ChangeNotifier {
     }
 
     _serverUrl = url;
-    _token = user['token'] as String?;
+    final newAccessToken = result['accessToken'] as String?;
+    final newRefreshToken = result['refreshToken'] as String?;
+    _isLegacyToken = newAccessToken == null;
+    _accessToken = newAccessToken ?? user['token'] as String?;
+    _refreshToken = newRefreshToken;
     _username = user['username'] as String?;
     _userId = user['id'] as String?;
     _defaultLibraryId = result['userDefaultLibraryId'] as String?;
@@ -291,7 +350,8 @@ class AuthProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('server_url', _serverUrl!);
-      if (_token != null) await prefs.setString('token', _token!);
+      if (_accessToken != null) await prefs.setString('token', _accessToken!);
+      if (_refreshToken != null) await prefs.setString('refresh_token', _refreshToken!);
       if (_username != null) await prefs.setString('username', _username!);
       if (_userId != null) await prefs.setString('user_id', _userId!);
       if (_defaultLibraryId != null) {
@@ -304,8 +364,10 @@ class AuthProvider extends ChangeNotifier {
       await UserAccountService().saveAccount(SavedAccount(
         serverUrl: _serverUrl!,
         username: _username ?? '',
-        token: _token ?? '',
+        token: _accessToken ?? '',
+        refreshToken: _refreshToken,
         userId: _userId,
+        isLegacyToken: _isLegacyToken,
       ));
     } catch (_) {}
 
@@ -408,7 +470,9 @@ class AuthProvider extends ChangeNotifier {
     final logoutServer = _serverUrl;
     final logoutUser = _username;
 
-    _token = null;
+    _accessToken = null;
+    _refreshToken = null;
+    _isLegacyToken = false;
     _serverUrl = null;
     _username = null;
     _userId = null;
@@ -425,6 +489,7 @@ class AuthProvider extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove('server_url');
       await prefs.remove('token');
+      await prefs.remove('refresh_token');
       await prefs.remove('username');
       await prefs.remove('user_id');
       await prefs.remove('default_library_id');
@@ -454,7 +519,9 @@ class AuthProvider extends ChangeNotifier {
 
     // Set credentials
     _serverUrl = account.serverUrl;
-    _token = account.token;
+    _accessToken = account.token;
+    _refreshToken = account.refreshToken;
+    _isLegacyToken = account.isLegacyToken;
     _username = account.username;
     _userId = account.userId;
     _defaultLibraryId = null;
@@ -468,7 +535,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('server_url', _serverUrl!);
-      if (_token != null) await prefs.setString('token', _token!);
+      if (_accessToken != null) await prefs.setString('token', _accessToken!);
       if (_username != null) await prefs.setString('username', _username!);
       if (_userId != null) await prefs.setString('user_id', _userId!);
     } catch (_) {}
@@ -492,7 +559,15 @@ class AuthProvider extends ChangeNotifier {
 
     // Verify the token still works and get user info
     try {
-      final api = ApiService(baseUrl: _serverUrl!, token: _token!, customHeaders: _customHeaders);
+      final api = ApiService(
+        baseUrl: _serverUrl!,
+        token: _accessToken!,
+        refreshToken: _refreshToken,
+        isLegacyToken: _isLegacyToken,
+        customHeaders: _customHeaders,
+        onTokensRefreshed: _onTokensRefreshed,
+        onAuthExpired: _onAuthExpired,
+      );
       final me = await api.getMe();
       if (me != null) {
         _userJson = me;

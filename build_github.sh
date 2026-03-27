@@ -1,2 +1,2 @@
 #!/bin/bash
-flutter build apk --release --dart-define=GITHUB_BUILD=true "$@" && cd build/app/outputs/apk/release
+flutter build apk --release --flavor github --dart-define=GITHUB_BUILD=true "$@" && explorer "build\\app\\outputs\\apk\\github\\release"

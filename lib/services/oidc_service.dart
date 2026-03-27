@@ -168,6 +168,7 @@ class OidcService {
       try {
         final request = await client.getUrl(Uri.parse(callbackUrl));
         request.followRedirects = false;
+        request.headers.set('x-return-tokens', 'true');
 
         if (_rawCookies.isNotEmpty) {
           request.headers.set(HttpHeaders.cookieHeader, _cookieHeader);

@@ -45,6 +45,15 @@ class SocketService {
   /// Called when socket.io exhausts all reconnection attempts.
   VoidCallback? onReconnectFailed;
 
+  /// Update the stored token (e.g. after a JWT refresh) and re-auth if connected.
+  void updateToken(String newToken) {
+    _token = newToken;
+    if (_socket?.connected == true) {
+      debugPrint('[Socket] Re-authenticating with refreshed token');
+      _socket!.emit('auth', _token);
+    }
+  }
+
   void connect(String serverUrl, String token) {
     if (_socket != null) disconnect();
 
