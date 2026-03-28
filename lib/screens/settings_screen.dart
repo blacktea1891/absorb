@@ -18,6 +18,7 @@ import '../services/backup_service.dart';
 import '../services/log_service.dart';
 import '../screens/login_screen.dart';
 import '../screens/app_shell.dart';
+import '../services/update_checker_service.dart';
 import '../screens/admin_screen.dart';
 import '../screens/downloads_screen.dart';
 import '../screens/bookmarks_screen.dart';
@@ -2017,23 +2018,65 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            auth.serverVersion != null
-                                ? 'Absorb v$_appVersion  ·  Server ${auth.serverVersion}'
-                                : 'Absorb v$_appVersion',
+                            'Absorb v$_appVersion',
                             style: tt.bodySmall?.copyWith(
                                 color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: 4),
                           Icon(
                             _isGithubBuild ? Icons.code_rounded : Icons.store_rounded,
                             size: 14,
                             color: cs.onSurfaceVariant.withValues(alpha: 0.3),
                           ),
+                          if (auth.serverVersion != null)
+                            Text(
+                              '  ·  Server ${auth.serverVersion}',
+                              style: tt.bodySmall?.copyWith(
+                                  color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
+                            ),
                         ],
                       ),
                     ],
                   ),
                 ),
+
+                if (_isGithubBuild) ...[
+                  const SizedBox(height: 8),
+                  TextButton.icon(
+                    onPressed: () async {
+                      final info = await UpdateCheckerService.check(force: true);
+                      if (!mounted) return;
+                      if (info == null || !info.hasUpdate) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('You\'re on the latest version')),
+                        );
+                        return;
+                      }
+                      showDialog(
+                        context: context,
+                        builder: (ctx) => AlertDialog(
+                          title: const Text('Update available'),
+                          content: Text('A new version of Absorb is available: ${info.latestVersion}\n\nYou are on ${info.currentVersion}.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('Later'),
+                            ),
+                            FilledButton(
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                launchUrl(Uri.parse(info.downloadUrl), mode: LaunchMode.externalApplication);
+                              },
+                              child: const Text('Download'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.system_update_rounded, size: 16),
+                    label: const Text('Check for update'),
+                  ),
+                ],
 
                 const SizedBox(height: 16),
 

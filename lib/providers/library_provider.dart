@@ -2772,6 +2772,15 @@ class LibraryProvider extends ChangeNotifier {
 
   /// Extract series metadata from an item map (cache entry or session libraryItem).
   /// Returns (seriesId, sequence) for the first series found, or (null, null).
+  static final _leadingNumber = RegExp(r'^[\d.]+');
+
+  static double? _parseSequence(String? raw) {
+    if (raw == null || raw.isEmpty) return null;
+    final match = _leadingNumber.firstMatch(raw.trim());
+    if (match == null) return null;
+    return double.tryParse(match.group(0)!);
+  }
+
   static (String?, double?) _extractSeries(Map<String, dynamic> item) {
     final media = item['media'] as Map<String, dynamic>? ?? {};
     final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
@@ -2780,13 +2789,13 @@ class LibraryProvider extends ChangeNotifier {
       for (final s in seriesRaw) {
         if (s is Map<String, dynamic>) {
           final id = s['id'] as String?;
-          final seq = double.tryParse((s['sequence'] ?? '').toString());
+          final seq = _parseSequence((s['sequence'] ?? '').toString());
           if (id != null && seq != null) return (id, seq);
         }
       }
     } else if (seriesRaw is Map<String, dynamic>) {
       final id = seriesRaw['id'] as String?;
-      final seq = double.tryParse((seriesRaw['sequence'] ?? '').toString());
+      final seq = _parseSequence((seriesRaw['sequence'] ?? '').toString());
       if (id != null && seq != null) return (id, seq);
     }
     return (null, null);
@@ -3321,11 +3330,11 @@ class LibraryProvider extends ChangeNotifier {
       final seriesRaw = metadata['series'];
       double? seq;
       if (seriesRaw is Map<String, dynamic> && seriesRaw['id'] == seriesId) {
-        seq = double.tryParse((seriesRaw['sequence'] ?? '').toString());
+        seq = _parseSequence((seriesRaw['sequence'] ?? '').toString());
       } else if (seriesRaw is List) {
         for (final s in seriesRaw) {
           if (s is Map<String, dynamic> && s['id'] == seriesId) {
-            seq = double.tryParse((s['sequence'] ?? '').toString());
+            seq = _parseSequence((s['sequence'] ?? '').toString());
             break;
           }
         }

@@ -349,6 +349,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
       _refreshDataForTab(_currentIndex);
       // Check auto sleep in case we resumed into the window
       SleepTimerService().checkAutoSleep();
+      _checkForUpdate();
     } else if (state == AppLifecycleState.paused) {
       context.read<LibraryProvider>().onAppBackgrounded();
     } else if (state == AppLifecycleState.detached) {
