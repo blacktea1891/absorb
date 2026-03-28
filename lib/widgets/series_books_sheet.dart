@@ -176,44 +176,48 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
     });
   }
 
-  double? _getSequence(Map<String, dynamic> book) {
-    // Top-level sequence (from unwrapping)
+  /// Extract the raw sequence string from the book data.
+  String? _getRawSequence(Map<String, dynamic> book) {
     final seq = book['sequence'];
-    if (seq != null) {
-      final v = double.tryParse(seq.toString());
-      if (v != null) return v;
-    }
-    // Nested in metadata.series
+    if (seq != null) return seq.toString();
     final media = book['media'] as Map<String, dynamic>? ?? {};
     final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
     final seriesRaw = metadata['series'];
     if (seriesRaw is List) {
       for (final s in seriesRaw) {
-        if (s is Map<String, dynamic>) {
-          final v = s['sequence'];
-          if (v != null) {
-            final d = double.tryParse(v.toString());
-            if (d != null) return d;
-          }
+        if (s is Map<String, dynamic> && s['sequence'] != null) {
+          return s['sequence'].toString();
         }
       }
-    } else if (seriesRaw is Map<String, dynamic>) {
-      final v = seriesRaw['sequence'];
-      if (v != null) {
-        final d = double.tryParse(v.toString());
-        if (d != null) return d;
-      }
+    } else if (seriesRaw is Map<String, dynamic> && seriesRaw['sequence'] != null) {
+      return seriesRaw['sequence'].toString();
     }
     final fallback = metadata['seriesSequence'];
-    if (fallback != null) return double.tryParse(fallback.toString());
-    return null;
+    return fallback?.toString();
+  }
+
+  /// Parse a sortable number from a sequence string.
+  /// Handles plain numbers ("3", "1.5") and ranges ("1-2", "8-10")
+  /// by extracting the first number.
+  static final _leadingNumber = RegExp(r'^[\d.]+');
+
+  double? _getSequence(Map<String, dynamic> book) {
+    final raw = _getRawSequence(book);
+    if (raw == null) return null;
+    final match = _leadingNumber.firstMatch(raw.trim());
+    if (match == null) return null;
+    return double.tryParse(match.group(0)!);
   }
 
   String? _getSequenceString(Map<String, dynamic> book) {
-    final v = _getSequence(book);
-    if (v == null) return null;
-    // Show as int if whole number, otherwise decimal
-    return v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+    final raw = _getRawSequence(book);
+    if (raw == null || raw.trim().isEmpty) return null;
+    final v = double.tryParse(raw.trim());
+    if (v != null) {
+      return v == v.roundToDouble() ? v.toInt().toString() : v.toString();
+    }
+    // Range or non-numeric sequence (e.g. "1-2") - show as-is
+    return raw.trim();
   }
 
   Future<void> _fetchFromApi() async {
