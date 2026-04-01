@@ -2339,6 +2339,10 @@ class AudioPlayerService extends ChangeNotifier {
         await _saveProgressLocal(pos);
       });
     }
+    // Restart stuck detection (stopped on pause to avoid background wakes)
+    if (_stuckCheckTimer == null || !_stuckCheckTimer!.isActive) {
+      _startStuckDetection();
+    }
     // Check auto sleep on every resume — catches window entry between pauses
     SleepTimerService().checkAutoSleep();
     notifyListeners();
@@ -2348,11 +2352,16 @@ class AudioPlayerService extends ChangeNotifier {
     debugPrint('[Service] pause() called');
     _wasPlayingBeforeInterrupt = false;
     _lastPauseTime = DateTime.now();
-    // Stop safety-net save timer to avoid background wakes while paused
+    // Stop timers to avoid background wakes while paused
     if (_bgSaveTimer != null) {
       debugPrint('[Battery] bgSaveTimer STOPPED (pause)');
       _bgSaveTimer!.cancel();
       _bgSaveTimer = null;
+    }
+    if (_stuckCheckTimer != null) {
+      debugPrint('[Battery] stuckCheckTimer STOPPED (pause)');
+      _stuckCheckTimer!.cancel();
+      _stuckCheckTimer = null;
     }
     await _player?.pause();
     _logEvent(PlaybackEventType.pause);
