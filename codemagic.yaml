@@ -17,12 +17,21 @@ workflows:
         script: flutter build appbundle --release --flavor playstore --dart-define=PLAYSTORE_BUILD=true
       - name: Publish to GitHub Draft Release
         script: |
-          gh release create "v$(grep 'version:' pubspec.yaml | head -1 | sed 's/version: //' | cut -d'+' -f1)" \
-            build/app/outputs/apk/github/release/*.apk \
-            build/app/outputs/bundle/playstoreRelease/*.aab \
-            --draft \
-            --title "v$(grep 'version:' pubspec.yaml | head -1 | sed 's/version: //' | cut -d'+' -f1)" \
-            --repo "$CM_REPO_SLUG"
+          VERSION="v$(grep 'version:' pubspec.yaml | head -1 | sed 's/version: //' | cut -d'+' -f1)"
+          if gh release view "$VERSION" --repo "$CM_REPO_SLUG" &>/dev/null; then
+            gh release upload "$VERSION" \
+              build/app/outputs/apk/github/release/*.apk \
+              build/app/outputs/bundle/playstoreRelease/*.aab \
+              --clobber \
+              --repo "$CM_REPO_SLUG"
+          else
+            gh release create "$VERSION" \
+              build/app/outputs/apk/github/release/*.apk \
+              build/app/outputs/bundle/playstoreRelease/*.aab \
+              --draft \
+              --title "$VERSION" \
+              --repo "$CM_REPO_SLUG"
+          fi
     artifacts:
       - build/app/outputs/apk/github/release/*.apk
       - build/app/outputs/bundle/playstoreRelease/*.aab
