@@ -613,16 +613,16 @@ class ApiService {
     return url;
   }
 
-  /// Sync playback progress.
+  /// Sync playback progress. Returns true if sync succeeded.
   /// POST /api/session/:id/sync
-  Future<void> syncPlaybackSession(
+  Future<bool> syncPlaybackSession(
     String sessionId, {
     required double currentTime,
     required double duration,
     int timeListened = 60,
   }) async {
     try {
-      await _authPost(
+      final response = await _authPost(
         Uri.parse('$_cleanBaseUrl/api/session/$sessionId/sync'),
         body: jsonEncode({
           'currentTime': currentTime,
@@ -631,7 +631,10 @@ class ApiService {
           'progress': duration > 0 ? currentTime / duration : 0,
         }),
         timeout: const Duration(seconds: 10));
-    } catch (_) {}
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Close a playback session.
@@ -783,10 +786,10 @@ class ApiService {
   /// Start a playback session for a podcast episode.
   /// POST /api/items/:itemId/play/:episodeId
   Future<Map<String, dynamic>?> startEpisodePlaybackSession(
-      String itemId, String episodeId) async {
+      String itemId, String episodeId, {bool forceTranscode = false}) async {
     try {
       final url = '$_cleanBaseUrl/api/items/$itemId/play/$episodeId';
-      debugPrint('[ABS] Starting episode session: POST $url');
+      debugPrint('[ABS] Starting episode session: POST $url (forceTranscode: $forceTranscode)');
       final response = await _authPost(
         Uri.parse(url),
         body: jsonEncode({
@@ -798,8 +801,8 @@ class ApiService {
             'manufacturer': deviceManufacturer,
             'model': deviceModel,
           },
-          'forceDirectPlay': true,
-          'forceTranscode': false,
+          'forceDirectPlay': !forceTranscode,
+          'forceTranscode': forceTranscode,
           'mediaPlayer': 'unknown',
           'supportedMimeTypes': [
             'audio/flac',

@@ -84,6 +84,8 @@ class BookmarkService {
   static const _keyPrefix = 'bookmarks_';
   // Track bookmarks not yet pushed to server (created offline)
   final Set<String> _unpushed = {}; // "itemId::position" keys
+  // Track bookmarks deleted offline that need to be deleted on server
+  final Map<String, Set<double>> _pendingDeletes = {}; // itemId -> positions
 
   /// Get all bookmarks for a book.
   Future<List<Bookmark>> getBookmarks(String itemId, {String sort = 'newest'}) async {
@@ -212,8 +214,15 @@ class BookmarkService {
     debugPrint('[Bookmarks] Deleted bookmark $bookmarkId');
 
     // Delete on server
-    if (api != null && time != null) {
-      await api.deleteBookmark(itemId, time: time);
+    if (time != null) {
+      if (api != null) {
+        final ok = await api.deleteBookmark(itemId, time: time);
+        if (!ok) {
+          _pendingDeletes.putIfAbsent(itemId, () => {}).add(time);
+        }
+      } else {
+        _pendingDeletes.putIfAbsent(itemId, () => {}).add(time);
+      }
     }
   }
 
@@ -222,6 +231,15 @@ class BookmarkService {
   /// If [preloadedServerBookmarks] is provided, uses that instead of fetching.
   Future<void> syncBookmarks(String itemId, ApiService api, {List<Map<String, dynamic>>? preloadedServerBookmarks}) async {
     try {
+      // Flush any pending deletes first
+      final pendingDels = _pendingDeletes.remove(itemId);
+      if (pendingDels != null) {
+        for (final time in pendingDels) {
+          await api.deleteBookmark(itemId, time: time);
+          debugPrint('[Bookmarks] Flushed pending delete at ${time}s');
+        }
+      }
+
       final serverBookmarks = preloadedServerBookmarks ?? await api.getServerBookmarks(itemId);
       if (serverBookmarks == null) return; // offline or error
 

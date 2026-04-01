@@ -150,13 +150,17 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
   List<dynamic> _sessions = [];
   bool _loadingSessions = false;
   bool _sessionsExpanded = false;
+  int _visibleCount = 25;
+  bool _fetchingMore = false;
+
+  static const _pageSize = 25;
 
   @override
   void initState() { super.initState(); _load(); }
 
   Future<void> _load() async {
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
-    setState(() => _loading = true);
+    setState(() { _loading = true; _visibleCount = _pageSize; });
 
     final userId = widget.user['id'] as String? ?? '';
     final userData = await api.getUser(userId);
@@ -166,25 +170,8 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
       final progress = (userData['mediaProgress'] as List<dynamic>?) ?? [];
 
       final items = <Map<String, dynamic>>[];
-      final fetchFutures = <Future>[];
-
       for (final p in progress) {
-        if (p is Map<String, dynamic>) {
-          items.add(p);
-          final itemId = p['libraryItemId'] as String? ?? '';
-          if (itemId.isNotEmpty && !_itemCache.containsKey(itemId)) {
-            fetchFutures.add(
-              api.getLibraryItem(itemId).then((item) {
-                if (item != null) _itemCache[itemId] = item;
-              }),
-            );
-          }
-        }
-      }
-
-      // Fetch items in batches of 15
-      for (var i = 0; i < fetchFutures.length; i += 15) {
-        await Future.wait(fetchFutures.skip(i).take(15));
+        if (p is Map<String, dynamic>) items.add(p);
       }
 
       // Sort: in-progress first (by last update), then finished
@@ -198,9 +185,42 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
       });
 
       _progressItems = items;
+      _itemCache.clear();
+
+      // Only fetch item details for the first visible page
+      await _fetchItemDetails(api, items.take(_pageSize).toList());
     }
 
     if (mounted) setState(() => _loading = false);
+  }
+
+  Future<void> _fetchItemDetails(dynamic api, List<Map<String, dynamic>> items) async {
+    final futures = <Future>[];
+    for (final p in items) {
+      final itemId = p['libraryItemId'] as String? ?? '';
+      if (itemId.isNotEmpty && !_itemCache.containsKey(itemId)) {
+        futures.add(
+          api.getLibraryItem(itemId).then((item) {
+            if (item != null) _itemCache[itemId] = item;
+          }),
+        );
+      }
+    }
+    for (var i = 0; i < futures.length; i += 15) {
+      await Future.wait(futures.skip(i).take(15));
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_fetchingMore) return;
+    final api = context.read<AuthProvider>().apiService; if (api == null) return;
+    setState(() => _fetchingMore = true);
+    final nextItems = _progressItems.skip(_visibleCount).take(_pageSize).toList();
+    await _fetchItemDetails(api, nextItems);
+    if (mounted) setState(() {
+      _visibleCount = (_visibleCount + _pageSize).clamp(0, _progressItems.length);
+      _fetchingMore = false;
+    });
   }
 
   Future<void> _loadSessions() async {
@@ -373,7 +393,33 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
                                   child: Text('Library Progress', style: tt.titleSmall?.copyWith(
                                     color: cs.onSurface.withValues(alpha: 0.5), fontWeight: FontWeight.w600, letterSpacing: 0.5)),
                                 ),
-                                ..._progressItems.map((p) => _progressTile(cs, tt, p)),
+                                ..._progressItems.take(_visibleCount).map((p) => _progressTile(cs, tt, p)),
+                                if (_visibleCount < _progressItems.length)
+                                  Padding(
+                                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                                    child: GestureDetector(
+                                      onTap: _fetchingMore ? null : _loadMore,
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(vertical: 12),
+                                        decoration: BoxDecoration(
+                                          color: cs.surfaceContainerHigh,
+                                          borderRadius: BorderRadius.circular(14),
+                                        ),
+                                        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                          if (_fetchingMore)
+                                            SizedBox(width: 14, height: 14,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: cs.onSurface.withValues(alpha: 0.3)))
+                                          else
+                                            Icon(Icons.expand_more_rounded, size: 16, color: cs.onSurface.withValues(alpha: 0.4)),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            _fetchingMore ? 'Loading...' : 'Load More (${_progressItems.length - _visibleCount} remaining)',
+                                            style: tt.bodySmall?.copyWith(
+                                              color: cs.onSurface.withValues(alpha: 0.5), fontWeight: FontWeight.w600)),
+                                        ]),
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ],
                           ),
