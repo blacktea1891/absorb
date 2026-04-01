@@ -389,6 +389,9 @@ class AuthProvider extends ChangeNotifier {
   Future<void> _loadLocalServerSettings() async {
     _localServerEnabled = await PlayerSettings.getLocalServerEnabled();
     _localServerUrl = await PlayerSettings.getLocalServerUrl();
+    if (_localServerEnabled) {
+      debugPrint('[Auth] Local server config loaded: enabled=$_localServerEnabled, url=${_localServerUrl.isNotEmpty ? "(set)" : "(empty)"}');
+    }
   }
 
   /// Check if the configured local server is reachable.

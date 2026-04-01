@@ -1645,6 +1645,82 @@ class AudioPlayerService extends ChangeNotifier {
       return null;
     } catch (e, stack) {
       debugPrint('[Player] Stream error: $e\n$stack');
+
+      // If this looks like a codec/renderer error, retry with server-side
+      // transcoding.  Common with Dolby Atmos, EAC-3, multi-channel audio, etc.
+      final errStr = e.toString();
+      if (!forceStartTime && // avoid infinite retry loops (forceStartTime is reused as retry guard)
+          (errStr.contains('MediaCodecAudioRenderer') ||
+           errStr.contains('AudioTrack') ||
+           errStr.contains('Decoder') ||
+           errStr.contains('format_supported'))) {
+        debugPrint('[Player] Codec error detected - retrying with server transcoding');
+        _clearState();
+        // Close the failed session
+        if (_playbackSessionId != null) {
+          try { await api.closePlaybackSession(_playbackSessionId!); } catch (_) {}
+          _playbackSessionId = null;
+        }
+        // Retry with transcode
+        final retrySession = _currentEpisodeId != null
+            ? await api.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!, forceTranscode: true)
+            : await api.startPlaybackSession(itemId, forceTranscode: true);
+        if (retrySession != null) {
+          _playbackSessionId = retrySession['id'] as String?;
+          _lastServerSync = DateTime.now();
+          final retryTracks = retrySession['audioTracks'] as List<dynamic>?;
+          if (retryTracks != null && retryTracks.isNotEmpty) {
+            try {
+              _currentTrackIndex = 0;
+              _buildTrackOffsets(retryTracks);
+              AudioSource retrySource;
+              final audioHeaders = api.mediaHeaders;
+              if (retryTracks.length == 1) {
+                final track = retryTracks.first as Map<String, dynamic>;
+                final contentUrl = track['contentUrl'] as String? ?? '';
+                final fullUrl = api.buildTrackUrl(contentUrl);
+                retrySource = AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders);
+              } else {
+                final sources = <AudioSource>[];
+                for (final t in retryTracks) {
+                  final track = t as Map<String, dynamic>;
+                  final contentUrl = track['contentUrl'] as String? ?? '';
+                  final fullUrl = api.buildTrackUrl(contentUrl);
+                  sources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
+                }
+                retrySource = ConcatenatingAudioSource(children: sources);
+              }
+              await _player!.setAudioSource(retrySource);
+              if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
+              if (startTime > 0) await _seekAbsolute(startTime);
+              clearSeekTarget();
+              _subscribeTrackIndex();
+              final initChapter = _initChapterInfo(startTime);
+              _pushMediaItem(itemId, title, author, coverUrl, totalDuration, chapter: initChapter);
+              final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
+              final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+              await _player!.setSpeed(speed);
+              debugPrint('[Player] Transcoded playback starting at ${speed}x');
+              if (!_audioFocusDisabled) {
+                try { (await AudioSession.instance).setActive(true); } catch (_) {}
+              }
+              _player!.play();
+              notifyListeners();
+              _setupSync();
+              Future.delayed(const Duration(milliseconds: 500), () {
+                _handler?.refreshPlaybackState();
+              });
+              final sleepTimer = SleepTimerService();
+              sleepTimer.resetDismiss();
+              sleepTimer.checkAutoSleep();
+              return null;
+            } catch (retryError) {
+              debugPrint('[Player] Transcoded playback also failed: $retryError');
+            }
+          }
+        }
+      }
+
       _clearState();
       return 'Playback failed: ${e.toString().split('\n').first}';
     }
@@ -1864,6 +1940,7 @@ class AudioPlayerService extends ChangeNotifier {
     _lastSyncSecond = -1;
     _lastChapterCheckSec = -1;
     _lastKnownPositionSec = 0;
+    _lastServerSync = DateTime.now();
 
     // Safety-net timer for position persistence when Android throttles the
     // Dart position stream in the background. The primary positionStream
@@ -2222,6 +2299,7 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   DateTime _lastServerSync = DateTime.now();
+  bool _syncRecoveryInProgress = false;
 
   Future<void> _syncToServer(Duration pos) async {
     if (_api == null || _playbackSessionId == null) return;
@@ -2229,15 +2307,50 @@ class AudioPlayerService extends ChangeNotifier {
     final now = DateTime.now();
     final elapsed = now.difference(_lastServerSync).inSeconds.clamp(0, 300);
     _lastServerSync = now;
+    debugPrint('[Player] Sync session ${_playbackSessionId!.substring(0, 8)}... | currentTime=${ct.toStringAsFixed(1)}s, timeListened=${elapsed}s');
+    final ok = await _api!.syncPlaybackSession(
+      _playbackSessionId!,
+      currentTime: ct,
+      duration: _totalDuration,
+      timeListened: elapsed,
+    );
+    if (!ok && !_syncRecoveryInProgress) {
+      debugPrint('[Player] Session sync failed - attempting recovery');
+      _syncRecoveryInProgress = true;
+      try {
+        await _recoverSession(ct, elapsed);
+      } finally {
+        _syncRecoveryInProgress = false;
+      }
+    }
+  }
+
+  /// Try to start a new server session when the current one becomes invalid.
+  Future<void> _recoverSession(double currentTime, int lostTimeListened) async {
+    if (_api == null || _currentItemId == null) return;
     try {
-      debugPrint('[Player] Sync session ${_playbackSessionId!.substring(0, 8)}... | currentTime=${ct.toStringAsFixed(1)}s, timeListened=${elapsed}s');
-      await _api!.syncPlaybackSession(
-        _playbackSessionId!,
-        currentTime: ct,
-        duration: _totalDuration,
-        timeListened: elapsed,
-      );
-    } catch (_) {}
+      final sessionData = _currentEpisodeId != null
+          ? await _api!.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!)
+          : await _api!.startPlaybackSession(_currentItemId!);
+      if (sessionData != null) {
+        _playbackSessionId = sessionData['id'] as String?;
+        debugPrint('[Player] Recovered session: $_playbackSessionId');
+        // Re-sync the lost time to the new session
+        if (_playbackSessionId != null && lostTimeListened > 0) {
+          await _api!.syncPlaybackSession(
+            _playbackSessionId!,
+            currentTime: currentTime,
+            duration: _totalDuration,
+            timeListened: lostTimeListened,
+          );
+        }
+      } else {
+        debugPrint('[Player] Session recovery failed - no session returned');
+        _playbackSessionId = null;
+      }
+    } catch (e) {
+      debugPrint('[Player] Session recovery error: $e');
+    }
   }
 
   DateTime? _lastPauseTime;
@@ -2300,6 +2413,27 @@ class AudioPlayerService extends ChangeNotifier {
       }
     }
     _lastPauseTime = null;
+    // Reset server sync clock so the first sync after resume doesn't
+    // include pause duration as timeListened
+    _lastServerSync = DateTime.now();
+    // Re-create server session if it was closed (e.g. pause timeout)
+    if (_playbackSessionId == null && _api != null && _currentItemId != null) {
+      final prefs = await SharedPreferences.getInstance();
+      final manualOffline = prefs.getBool('manual_offline_mode') ?? false;
+      if (!manualOffline && !_isOfflineMode) {
+        try {
+          final sessionData = _currentEpisodeId != null
+              ? await _api!.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!)
+              : await _api!.startPlaybackSession(_currentItemId!);
+          if (sessionData != null) {
+            _playbackSessionId = sessionData['id'] as String?;
+            debugPrint('[Player] Re-created session on resume: $_playbackSessionId');
+          }
+        } catch (e) {
+          debugPrint('[Player] Failed to re-create session on resume: $e');
+        }
+      }
+    }
     // Re-activate audio session (needed after stop() releases it)
     if (!_audioFocusDisabled) {
       try { (await AudioSession.instance).setActive(true); } catch (_) {}
