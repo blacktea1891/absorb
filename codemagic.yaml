@@ -37,8 +37,6 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.barnabas.absorb
-      groups:
-        - app_store_credentials
       flutter: stable
       xcode: latest
     scripts:
