@@ -680,6 +680,8 @@ class AudioPlayerService extends ChangeNotifier {
   int _stuckConsecutiveCount = 0; // consecutive checks with no advancement
   int _stuckReseekAttempts = 0; // how many re-seeks we've tried
   static const _maxStuckReseekAttempts = 2;
+  // ── Play verification (iOS USAC can silently fail to start after seek) ──
+  Timer? _playVerifyTimer;
   // ── Multi-file track offset tracking ──
   // For ConcatenatingAudioSource, _player.position is track-relative.
   // We store cumulative start offsets so we can compute absolute book position.
@@ -1187,11 +1189,16 @@ class AudioPlayerService extends ChangeNotifier {
     // Notify rolling download listener that a new item is playing
     _onPlayStartedCallback?.call(progressKey);
 
-    // Check for local saved position (skip if startTime was forced)
+    // Check for local saved position (skip if startTime was forced).
+    // Always prefer the local position when it's further ahead - the
+    // caller's startTime may be stale (e.g. Android Auto browse tree
+    // entry cached before the user listened further).
     final localPos = await _progressSync.getSavedPosition(progressKey);
-    if (localPos > 0 && startTime == 0 && !forceStartTime) {
-      startTime = localPos;
-      debugPrint('[Player] Resuming from local position: ${startTime}s');
+    if (localPos > 0 && !forceStartTime) {
+      if (startTime == 0 || localPos > startTime + 1.0) {
+        debugPrint('[Player] Resuming from local position: ${localPos}s (caller startTime was ${startTime}s)');
+        startTime = localPos;
+      }
     }
 
     // Set seek target early so the UI doesn't flash chapter 1 while loading
@@ -1830,6 +1837,8 @@ class AudioPlayerService extends ChangeNotifier {
 
     _stuckCheckTimer?.cancel();
     _stuckCheckTimer = null;
+    _playVerifyTimer?.cancel();
+    _playVerifyTimer = null;
     _resetStuckDetection();
     _noisyPause = false;
     notifyListeners();
@@ -2118,6 +2127,32 @@ class AudioPlayerService extends ChangeNotifier {
     _stuckConsecutiveCount = 0;
     _stuckReseekAttempts = 0;
     _stuckCheckLastPosition = -1;
+  }
+
+  /// Verify that playback actually started after calling play().
+  /// iOS USAC/xHE-AAC decoder can silently fail after a seek, leaving the
+  /// player in a non-playing state with no error events. If after 3 seconds
+  /// the player isn't playing and isn't loading, re-seek and retry.
+  void _schedulePlayVerify() {
+    _playVerifyTimer?.cancel();
+    if (!Platform.isIOS) return; // only needed on iOS
+    final posAtPlay = _lastKnownPositionSec;
+    _playVerifyTimer = Timer(const Duration(seconds: 3), () async {
+      if (_player == null || _currentItemId == null) return;
+      // If playing or actively loading/buffering, all is well
+      if (_player!.playing) return;
+      final state = _player!.processingState;
+      if (state == ProcessingState.loading || state == ProcessingState.buffering) return;
+      // Player is idle/ready but not playing — silent failure
+      final currentPos = position.inMilliseconds / 1000.0;
+      debugPrint('[Player] Play verify failed: not playing after 3s '
+          '(state=${state.name}, pos=${currentPos.toStringAsFixed(1)}s, '
+          'posAtPlay=${posAtPlay.toStringAsFixed(1)}s)');
+      // Re-seek to current position to kick the decoder, then retry play
+      await _seekAbsolute(currentPos > 0 ? currentPos : posAtPlay);
+      _player?.play();
+      notifyListeners();
+    });
   }
 
   /// Start a periodic timer that checks if playback position is advancing.
@@ -2459,6 +2494,9 @@ class AudioPlayerService extends ChangeNotifier {
     if (_stuckCheckTimer == null || !_stuckCheckTimer!.isActive) {
       _startStuckDetection();
     }
+    // Verify playback actually started — iOS USAC decoder can silently fail
+    // after a seek, leaving the player in a non-playing state with no errors.
+    _schedulePlayVerify();
     // Check auto sleep on every resume — catches window entry between pauses
     SleepTimerService().checkAutoSleep();
     notifyListeners();
@@ -2466,6 +2504,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> pause() async {
     debugPrint('[Service] pause() called');
+    _playVerifyTimer?.cancel();
     _wasPlayingBeforeInterrupt = false;
     _lastPauseTime = DateTime.now();
     // Stop timers to avoid background wakes while paused
@@ -2733,6 +2772,7 @@ class AudioPlayerService extends ChangeNotifier {
     _bgSaveTimer?.cancel();
     _pauseStopTimer?.cancel();
     _stuckCheckTimer?.cancel();
+    _playVerifyTimer?.cancel();
     _indexSub?.cancel();
     _player?.dispose();
     super.dispose();
