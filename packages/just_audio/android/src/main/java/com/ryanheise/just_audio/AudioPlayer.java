@@ -55,6 +55,7 @@ import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.datasource.cache.Cache;
 import androidx.media3.datasource.cache.CacheDataSink;
 import androidx.media3.datasource.cache.CacheDataSource;
+
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor;
 import androidx.media3.datasource.cache.SimpleCache;
 import androidx.media3.database.StandaloneDatabaseProvider;
@@ -179,13 +180,13 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             }
             switch (player.getPlaybackState()) {
             case Player.STATE_BUFFERING:
-                handler.postDelayed(this, 200);
+                handler.postDelayed(this, 500);
                 break;
             case Player.STATE_READY:
                 if (player.getPlayWhenReady()) {
-                    handler.postDelayed(this, 500);
+                    handler.postDelayed(this, 2000);
                 } else {
-                    handler.postDelayed(this, 1000);
+                    handler.postDelayed(this, 5000);
                 }
                 break;
             default:
@@ -223,7 +224,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
                     .setPrioritizeTimeOverSizeThresholds((Boolean)loadControlMap.get("prioritizeTimeOverSizeThresholds"))
                     .setBackBuffer((int)((getLong(loadControlMap.get("backBufferDuration")))/1000), false);
                 if (loadControlMap.get("targetBufferBytes") != null) {
-                    builder.setTargetBufferBytes((Integer)loadControlMap.get("targetBufferBytes"));
+                    builder.setTargetBufferBytes((int)(long)(getLong(loadControlMap.get("targetBufferBytes"))));
                 }
                 loadControl = builder.build();
             }
@@ -532,6 +533,7 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
             case "setPreferredPeakBitRate":
                 result.success(new HashMap<String, Object>());
                 break;
+
             case "seek":
                 Long position = getLong(call.argument("position"));
                 Integer index = call.argument("index");

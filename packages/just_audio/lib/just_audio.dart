@@ -640,8 +640,8 @@ class AudioPlayer {
       if (!_disposed) {
         _positionSubject!.addStream(createPositionStream(
             steps: 800,
-            minPeriod: const Duration(milliseconds: 16),
-            maxPeriod: const Duration(milliseconds: 200)));
+            minPeriod: const Duration(milliseconds: 500),
+            maxPeriod: const Duration(milliseconds: 1000)));
       }
     }
     return _positionSubject!.stream;

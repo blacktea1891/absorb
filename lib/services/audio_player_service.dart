@@ -26,11 +26,9 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     handleInterruptions: false,
     audioLoadConfiguration: const AudioLoadConfiguration(
       androidLoadControl: AndroidLoadControl(
-        minBufferDuration: Duration(minutes: 5),
-        maxBufferDuration: Duration(minutes: 5),
         bufferForPlaybackDuration: Duration(milliseconds: 500),
-        bufferForPlaybackAfterRebufferDuration: Duration(milliseconds: 2000),
-        backBufferDuration: Duration(minutes: 5),
+        bufferForPlaybackAfterRebufferDuration: Duration(seconds: 2),
+        targetBufferBytes: 1 * 1024 * 1024, // 1 MB hard cap
       ),
     ),
   );
@@ -1822,14 +1820,14 @@ class AudioPlayerService extends ChangeNotifier {
     _completionSub?.cancel();
     _completionSub = null;
     _lastKnownPositionSec = 0;
-    if (_bgSaveTimer != null) debugPrint('[Battery] bgSaveTimer CANCELLED (clearState)');
+
     _bgSaveTimer?.cancel();
     _bgSaveTimer = null;
     _eqSessionSub?.cancel();
     _eqSessionSub = null;
     _streamRetryCount = 0;
     _retryInProgress = false;
-    if (_stuckCheckTimer != null) debugPrint('[Battery] stuckCheckTimer CANCELLED (clearState)');
+
     _stuckCheckTimer?.cancel();
     _stuckCheckTimer = null;
     _resetStuckDetection();
@@ -1945,7 +1943,7 @@ class AudioPlayerService extends ChangeNotifier {
     // Safety-net timer for position persistence when Android throttles the
     // Dart position stream in the background. The primary positionStream
     // listener saves every 5s; this only matters when that stream goes silent.
-    debugPrint('[Battery] bgSaveTimer STARTED (60s interval)');
+
     _bgSaveTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
       if (_currentItemId == null || _player == null || !_player!.playing) return;
       final pos = position;
@@ -2129,7 +2127,11 @@ class AudioPlayerService extends ChangeNotifier {
     _stuckCheckTimer?.cancel();
     _resetStuckDetection();
 
-    debugPrint('[Battery] stuckCheckTimer STARTED (10s interval)');
+    // Stuck detection is only needed on iOS (xHE-AAC/USAC decoder freeze).
+    // Skip on Android to reduce background CPU wakeups.
+    if (!Platform.isIOS) return;
+
+
     _stuckCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
       // Only check while actively playing
       if (_player == null || !_player!.playing) {
@@ -2444,7 +2446,6 @@ class AudioPlayerService extends ChangeNotifier {
     _updateWakeLock(true);
     // Restart safety-net save timer (stopped on pause to avoid background wakes)
     if (_bgSaveTimer == null || !_bgSaveTimer!.isActive) {
-      debugPrint('[Battery] bgSaveTimer RESTARTED (play)');
       _bgSaveTimer?.cancel();
       _bgSaveTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
         if (_currentItemId == null || _player == null || !_player!.playing) return;
@@ -2469,12 +2470,10 @@ class AudioPlayerService extends ChangeNotifier {
     _lastPauseTime = DateTime.now();
     // Stop timers to avoid background wakes while paused
     if (_bgSaveTimer != null) {
-      debugPrint('[Battery] bgSaveTimer STOPPED (pause)');
       _bgSaveTimer!.cancel();
       _bgSaveTimer = null;
     }
     if (_stuckCheckTimer != null) {
-      debugPrint('[Battery] stuckCheckTimer STOPPED (pause)');
       _stuckCheckTimer!.cancel();
       _stuckCheckTimer = null;
     }
