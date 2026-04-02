@@ -357,7 +357,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
           'name': collapsed['name'] as String? ?? '',
           'id': collapsed['id'] as String? ?? '',
           'books': matchingBooks,
-          'numBooks': collapsed['numBooks'] as int? ?? itemIds.length,
+          'numBooks': (collapsed['numBooks'] as int? ?? 0) > 0 ? collapsed['numBooks'] as int : itemIds.length,
         });
         _assignedBookIds.addAll(itemIds);
       }

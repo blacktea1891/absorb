@@ -12,6 +12,7 @@ import android.media.audiofx.Virtualizer
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
+
 import android.util.Log
 import com.ryanheise.audioservice.AudioServiceActivity
 import com.ryanheise.just_audio.MonoController
@@ -46,6 +47,7 @@ class MainActivity : AudioServiceActivity() {
                         moveTaskToBack(true)
                         result.success(true)
                     }
+
                     "isBluetoothAudioConnected" -> {
                         result.success(isBluetoothAudioConnected())
                     }

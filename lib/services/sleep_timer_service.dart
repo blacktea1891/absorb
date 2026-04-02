@@ -165,62 +165,81 @@ class SleepTimerService extends ChangeNotifier {
     debugPrint('[SleepTimer] Set time sleep: ${duration.inMinutes}m');
   }
 
+  int _tickIntervalSeconds = 5;
+
   void _startTimeCountdown() {
     _timer?.cancel();
     _wasPlaying = _isPlaybackActive;
-    _timer = Timer.periodic(const Duration(seconds: 1), (_) async {
-      if (_timeRemaining.inSeconds <= 0) {
-        _triggerSleep();
-        return;
+    _scheduleNextTick();
+  }
+
+  void _scheduleNextTick() {
+    _timer?.cancel();
+    // Tick every 1s during fade period (last 35s), every 5s otherwise
+    final nearFade = _timeRemaining <= _warningThreshold + const Duration(seconds: 5);
+    _tickIntervalSeconds = nearFade ? 1 : 5;
+    _timer = Timer.periodic(Duration(seconds: _tickIntervalSeconds), _onTimerTick);
+  }
+
+  void _onTimerTick(Timer timer) async {
+    if (_timeRemaining.inSeconds <= 0) {
+      _triggerSleep();
+      return;
+    }
+    final isPlaying = _isPlaybackActive;
+
+    // Detect pause->play transition and reset if setting is on
+    if (isPlaying && !_wasPlaying) {
+      final resetOnPause = await PlayerSettings.getResetSleepOnPause();
+      if (resetOnPause) {
+        _timeRemaining = _initialDuration;
+        _warningSent = false;
+        if (_isFadingOut) {
+          _isFadingOut = false;
+          _player.setVolume(_fadeStartVolume);
+        }
+        debugPrint('[SleepTimer] Reset to ${_initialDuration.inMinutes}m on resume');
+        onToast?.call('Sleep timer reset: ${_initialDuration.inMinutes}m');
+        _scheduleNextTick();
       }
-      final isPlaying = _isPlaybackActive;
+    }
+    _wasPlaying = isPlaying;
 
-      // Detect pause->play transition and reset if setting is on
-      if (isPlaying && !_wasPlaying) {
-        final resetOnPause = await PlayerSettings.getResetSleepOnPause();
-        if (resetOnPause) {
-          _timeRemaining = _initialDuration;
-          _warningSent = false;
-          if (_isFadingOut) {
-            _isFadingOut = false;
-            _player.setVolume(_fadeStartVolume);
-          }
-          debugPrint('[SleepTimer] Reset to ${_initialDuration.inMinutes}m on resume');
-          onToast?.call('Sleep timer reset: ${_initialDuration.inMinutes}m');
+    // Only count down when playing
+    if (isPlaying) {
+      _timeRemaining -= Duration(seconds: _tickIntervalSeconds);
+      if (_timeRemaining.inSeconds % 30 == 0) {
+
+      }
+
+      // Switch to fast ticks when approaching warning threshold
+      if (_tickIntervalSeconds > 1 &&
+          _timeRemaining <= _warningThreshold + const Duration(seconds: 5)) {
+        _scheduleNextTick();
+      }
+
+      // Wind-down warning at 30 seconds: vibration + optional fade
+      if (!_warningSent && _timeRemaining <= _warningThreshold && _timeRemaining.inSeconds > 0) {
+        _warningSent = true;
+        onToast?.call('Sleep timer ending soon...');
+        final fadeEnabled = await PlayerSettings.getSleepFadeOut();
+        if (fadeEnabled && !_cast.isCasting) {
+          _isFadingOut = true;
+          _fadeStartVolume = _player.volume;
+          debugPrint('[SleepTimer] Warning: ${_timeRemaining.inSeconds}s remaining - starting fade');
+        } else {
+          debugPrint('[SleepTimer] Warning: ${_timeRemaining.inSeconds}s remaining');
         }
       }
-      _wasPlaying = isPlaying;
 
-      // Only count down when playing
-      if (isPlaying) {
-        _timeRemaining -= const Duration(seconds: 1);
-        if (_timeRemaining.inSeconds % 30 == 0) {
-          debugPrint('[Battery] SleepTimer TICK: ${_timeRemaining.inMinutes}m${_timeRemaining.inSeconds % 60}s remaining');
-        }
-
-        // Wind-down warning at 30 seconds: vibration + optional fade
-        if (!_warningSent && _timeRemaining <= _warningThreshold && _timeRemaining.inSeconds > 0) {
-          _warningSent = true;
-          onToast?.call('Sleep timer ending soon...');
-          final fadeEnabled = await PlayerSettings.getSleepFadeOut();
-          if (fadeEnabled && !_cast.isCasting) {
-            _isFadingOut = true;
-            _fadeStartVolume = _player.volume;
-            debugPrint('[SleepTimer] Warning: ${_timeRemaining.inSeconds}s remaining - starting fade');
-          } else {
-            debugPrint('[SleepTimer] Warning: ${_timeRemaining.inSeconds}s remaining');
-          }
-        }
-
-        // Gradually lower volume during the last 30 seconds
-        if (_isFadingOut && _timeRemaining.inSeconds > 0 && !_cast.isCasting) {
-          final fraction = _timeRemaining.inSeconds / _warningThreshold.inSeconds;
-          _player.setVolume((_fadeStartVolume * fraction).clamp(0.0, 1.0));
-        }
-
-        notifyListeners(); // fires every 1s while playing - drives UI countdown
+      // Gradually lower volume during the last 30 seconds
+      if (_isFadingOut && _timeRemaining.inSeconds > 0 && !_cast.isCasting) {
+        final fraction = _timeRemaining.inSeconds / _warningThreshold.inSeconds;
+        _player.setVolume((_fadeStartVolume * fraction).clamp(0.0, 1.0));
       }
-    });
+
+      notifyListeners();
+    }
   }
 
   /// Add time (used by shake reset in time mode, or manual add)
@@ -235,6 +254,8 @@ class SleepTimerService extends ChangeNotifier {
         _player.setVolume(_fadeStartVolume);
       }
     }
+    // Reschedule in case we jumped between slow/fast tick zones
+    if (_timer?.isActive == true) _scheduleNextTick();
     notifyListeners();
     debugPrint('[SleepTimer] Added ${extra.inMinutes}m — now ${_timeRemaining.inMinutes}m');
   }
@@ -380,7 +401,9 @@ class SleepTimerService extends ChangeNotifier {
     
     _accelSub?.cancel();
     debugPrint('[Battery] Accelerometer stream STARTED (shakeMode=$_shakeMode)');
-    _accelSub = userAccelerometerEventStream().listen((event) {
+    _accelSub = userAccelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 100),
+    ).listen((event) {
       final magnitude = sqrt(
         event.x * event.x + event.y * event.y + event.z * event.z);
       if (magnitude > _shakeThreshold) {

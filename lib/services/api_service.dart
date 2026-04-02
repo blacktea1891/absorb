@@ -136,6 +136,7 @@ class ApiService {
 
   /// Make an authenticated GET request, retrying once on 401 with a refreshed token.
   Future<http.Response> _authGet(Uri url, {Map<String, String>? headers, Duration timeout = const Duration(seconds: 15)}) async {
+
     final h = headers ?? _headers;
     var response = await http.get(url, headers: h).timeout(timeout);
     if (response.statusCode == 401) {
@@ -154,6 +155,7 @@ class ApiService {
 
   /// Make an authenticated POST request, retrying once on 401 with a refreshed token.
   Future<http.Response> _authPost(Uri url, {Map<String, String>? headers, Object? body, Duration timeout = const Duration(seconds: 15)}) async {
+
     final h = headers ?? _headers;
     var response = await http.post(url, headers: h, body: body).timeout(timeout);
     if (response.statusCode == 401 && !_isLegacyToken) {
@@ -568,7 +570,7 @@ class ApiService {
           'manufacturer': deviceManufacturer,
           'model': deviceModel,
         },
-        'forceDirectPlay': forceDirectPlay,
+        'forceDirectPlay': !forceTranscode,
         'forceTranscode': forceTranscode,
         'mediaPlayer': 'unknown',
         'supportedMimeTypes': [
@@ -577,6 +579,14 @@ class ApiService {
           'audio/mp4',
           'audio/ogg',
           'audio/aac',
+          'audio/x-m4a',
+          'audio/x-m4b',
+          'audio/opus',
+          'audio/webm',
+          'audio/wav',
+          'audio/x-wav',
+          'audio/x-matroska',
+          'audio/x-ms-wma',
         ],
       };
       if (startOffset != null && startOffset > 0) body['startOffset'] = startOffset;
@@ -810,6 +820,14 @@ class ApiService {
             'audio/mp4',
             'audio/ogg',
             'audio/aac',
+            'audio/x-m4a',
+            'audio/x-m4b',
+            'audio/opus',
+            'audio/webm',
+            'audio/wav',
+            'audio/x-wav',
+            'audio/x-matroska',
+            'audio/x-ms-wma',
           ],
         }),
         timeout: const Duration(seconds: 20));

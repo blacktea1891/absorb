@@ -236,51 +236,41 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
         final bookProgress = totalDur > 0 ? (posS / totalDur).clamp(0.0, 1.0) : 0.0;
 
         double chapterStart = 0, chapterEnd = totalDur;
+        String? resolvedChapterName;
+        int resolvedChapterIdx = -1;
+
+        // Always resolve chapter from posS so boundaries, fill, and name
+        // all use the same position. Using player.currentChapter can
+        // disagree with _smoothPos in multi-track books (track index race).
+        List<dynamic> chapterSource;
         if (_isCastMode) {
-          final chapter = cast.currentChapter;
-          if (chapter != null) {
-            chapterStart = (chapter['start'] as num?)?.toDouble() ?? 0;
-            chapterEnd = (chapter['end'] as num?)?.toDouble() ?? totalDur;
-          } else if (cast.castingChapters.isNotEmpty) {
-            for (final ch in cast.castingChapters) {
-              final m = ch as Map<String, dynamic>;
-              final s = (m['start'] as num?)?.toDouble() ?? 0;
-              final e = (m['end'] as num?)?.toDouble() ?? 0;
-              if (posS >= s && posS < e) {
-                chapterStart = s;
-                chapterEnd = e;
-                break;
-              }
-            }
-          }
+          chapterSource = cast.castingChapters;
         } else if (widget.isActive) {
-          final chapter = player.activeSeekTarget == null ? player.currentChapter : null;
-          if (chapter != null) {
-            chapterStart = (chapter['start'] as num?)?.toDouble() ?? 0;
-            chapterEnd = (chapter['end'] as num?)?.toDouble() ?? totalDur;
-          } else if (player.chapters.isNotEmpty) {
-            for (final ch in player.chapters) {
-              final m = ch as Map<String, dynamic>;
-              final s = (m['start'] as num?)?.toDouble() ?? 0;
-              final e = (m['end'] as num?)?.toDouble() ?? 0;
-              if (posS >= s && posS < e) {
-                chapterStart = s;
-                chapterEnd = e;
-                break;
-              }
-            }
-          }
-        } else if (widget.chapters.isNotEmpty) {
-          // Inactive card: find chapter from stored chapters list using static position
-          for (final ch in widget.chapters) {
-            final m = ch as Map<String, dynamic>;
+          chapterSource = player.chapters.isNotEmpty ? player.chapters : widget.chapters;
+        } else {
+          chapterSource = widget.chapters;
+        }
+
+        if (chapterSource.isNotEmpty) {
+          for (int ci = 0; ci < chapterSource.length; ci++) {
+            final m = chapterSource[ci] as Map<String, dynamic>;
             final s = (m['start'] as num?)?.toDouble() ?? 0;
             final e = (m['end'] as num?)?.toDouble() ?? 0;
             if (posS >= s && posS < e) {
               chapterStart = s;
               chapterEnd = e;
+              resolvedChapterName = m['title'] as String?;
+              resolvedChapterIdx = ci;
               break;
             }
+          }
+          // Past last chapter end - use last chapter
+          if (resolvedChapterIdx < 0 && posS > 0) {
+            final last = chapterSource.last as Map<String, dynamic>;
+            chapterStart = (last['start'] as num?)?.toDouble() ?? 0;
+            chapterEnd = (last['end'] as num?)?.toDouble() ?? totalDur;
+            resolvedChapterName = last['title'] as String?;
+            resolvedChapterIdx = chapterSource.length - 1;
           }
         }
         final chapterDur = chapterEnd - chapterStart;
@@ -337,8 +327,13 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
               final w = cons.maxWidth;
               final p = _chapterDragValue ?? chapterProgress;
               final isDragging = _chapterDragValue != null;
-              final chName = widget.chapterName != null
-                  ? _smartChapterName(widget.chapterName!, widget.chapterIndex, widget.totalChapters)
+              // Prefer the chapter name resolved from posS (consistent with
+              // the fill position) over the externally-passed name which
+              // may come from player.currentChapter (different position source).
+              final rawName = resolvedChapterName ?? widget.chapterName;
+              final chIdx = resolvedChapterIdx >= 0 ? resolvedChapterIdx : widget.chapterIndex;
+              final chName = rawName != null
+                  ? _smartChapterName(rawName, chIdx, widget.totalChapters)
                   : null;
 
               return GestureDetector(

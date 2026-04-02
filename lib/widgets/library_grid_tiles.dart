@@ -462,7 +462,8 @@ class GridSeriesTile extends StatelessWidget {
     final itemIds = (collapsedSeries['libraryItemIds'] as List<dynamic>?)
         ?.map((e) => e as String)
         .toList() ?? [item['id'] as String? ?? ''];
-    final numBooks = collapsedSeries['numBooks'] as int? ?? itemIds.length;
+    final rawNumBooks = collapsedSeries['numBooks'] as int? ?? 0;
+    final numBooks = rawNumBooks > 0 ? rawNumBooks : itemIds.length;
     final coverUrls = itemIds
         .take(4)
         .map((id) => lib.getCoverUrl(id))
