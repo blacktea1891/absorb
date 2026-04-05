@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/library_provider.dart';
 import '../services/download_service.dart';
+import 'absorbing_shared.dart';
 import 'book_card.dart';
 import 'author_card.dart';
 import 'series_card.dart';
@@ -287,17 +288,24 @@ class _EpisodeCard extends StatelessWidget {
                 children: [
                   if (coverUrl != null)
                     coverUrl.startsWith('/')
-                        ? Image.file(File(coverUrl), fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: cs.surfaceContainerHigh,
-                              child: Icon(Icons.podcasts_rounded, size: 32,
-                                color: cs.onSurfaceVariant.withValues(alpha: 0.3))))
-                        : Image.network(coverUrl, fit: BoxFit.cover,
-                            headers: lib.mediaHeaders,
-                            errorBuilder: (_, __, ___) => Container(
-                              color: cs.surfaceContainerHigh,
-                              child: Icon(Icons.podcasts_rounded, size: 32,
-                                color: cs.onSurfaceVariant.withValues(alpha: 0.3))))
+                        ? BlurPaddedCover(
+                            child: Image.file(File(coverUrl), fit: BoxFit.contain,
+                                errorBuilder: (_, __, ___) => Container(
+                                  color: cs.surfaceContainerHigh,
+                                  child: Icon(Icons.podcasts_rounded, size: 32,
+                                    color: cs.onSurfaceVariant.withValues(alpha: 0.3)))),
+                            blurChild: Image.file(File(coverUrl), fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const SizedBox.shrink()))
+                        : BlurPaddedCover(
+                            child: Image.network(coverUrl, fit: BoxFit.contain,
+                                headers: lib.mediaHeaders,
+                                errorBuilder: (_, __, ___) => Container(
+                                  color: cs.surfaceContainerHigh,
+                                  child: Icon(Icons.podcasts_rounded, size: 32,
+                                    color: cs.onSurfaceVariant.withValues(alpha: 0.3)))),
+                            blurChild: Image.network(coverUrl, fit: BoxFit.cover,
+                                headers: lib.mediaHeaders,
+                                errorBuilder: (_, __, ___) => const SizedBox.shrink()))
                   else
                     Container(
                       color: cs.surfaceContainerHigh,

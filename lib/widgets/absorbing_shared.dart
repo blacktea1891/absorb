@@ -1,9 +1,30 @@
 import 'dart:math' as math;
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/download_service.dart';
 import '../services/playback_history_service.dart';
+
+String dateLabel(DateTime dt) {
+  final now = DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final date = DateTime(dt.year, dt.month, dt.day);
+  if (date == today) return 'Today';
+  if (date == today.subtract(const Duration(days: 1))) return 'Yesterday';
+  if (now.difference(dt).inDays < 7) {
+    const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    return days[dt.weekday - 1];
+  }
+  return '${dt.month}/${dt.day}/${dt.year}';
+}
+
+String timeOfDay(DateTime dt) {
+  final h = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+  final m = dt.minute.toString().padLeft(2, '0');
+  final ampm = dt.hour < 12 ? 'AM' : 'PM';
+  return '$h:$m $ampm';
+}
 
 String fmtTime(double s) {
   if (s < 0) s = 0;
@@ -41,6 +62,35 @@ class CoverPlaceholder extends StatelessWidget {
     return Container(
       color: cs.onSurface.withValues(alpha: 0.05),
       child: Center(child: Icon(Icons.headphones_rounded, size: 48, color: cs.onSurface.withValues(alpha: 0.15))),
+    );
+  }
+}
+
+/// Shows [child] with BoxFit.contain; when the image doesn't fill the square,
+/// a blurred copy of the cover is drawn behind it to fill the empty sides.
+/// Set [enabled] to false to skip the blur and just render [child] directly.
+class BlurPaddedCover extends StatelessWidget {
+  final Widget child;
+  final Widget blurChild;
+  final bool enabled;
+  const BlurPaddedCover({super.key, required this.child, required this.blurChild, this.enabled = true});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        // Blurred background fill
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24, tileMode: TileMode.decal),
+          child: blurChild,
+        ),
+        // Darkening scrim so the foreground cover pops
+        Container(color: Colors.black.withValues(alpha: 0.15)),
+        // Actual cover, contained (no crop)
+        child,
+      ],
     );
   }
 }

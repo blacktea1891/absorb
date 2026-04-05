@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import '../widgets/absorbing_shared.dart';
 import '../widgets/home_section.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/shimmer.dart';
@@ -772,23 +773,31 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                     Positioned.fill(
                       child: coverUrl != null
                           ? coverUrl.startsWith('/')
-                              ? Image.file(File(coverUrl), fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) => Container(
-                                      color: cs.surfaceContainerHighest,
-                                      child: Icon(Icons.headphones_rounded,
-                                          size: 22, color: cs.onSurfaceVariant)))
-                              : CachedNetworkImage(
-                                  imageUrl: coverUrl, fit: BoxFit.cover,
-                                  httpHeaders: lib.mediaHeaders,
-                                  fadeInDuration: const Duration(milliseconds: 300),
-                                  placeholder: (_, __) => Container(
-                                      color: cs.surfaceContainerHighest,
-                                      child: Icon(Icons.headphones_rounded,
-                                          size: 22, color: cs.onSurfaceVariant)),
-                                  errorWidget: (_, __, ___) => Container(
-                                      color: cs.surfaceContainerHighest,
-                                      child: Icon(Icons.headphones_rounded,
-                                          size: 22, color: cs.onSurfaceVariant)))
+                              ? BlurPaddedCover(
+                                  child: Image.file(File(coverUrl), fit: BoxFit.contain,
+                                      errorBuilder: (_, __, ___) => Container(
+                                          color: cs.surfaceContainerHighest,
+                                          child: Icon(Icons.headphones_rounded,
+                                              size: 22, color: cs.onSurfaceVariant))),
+                                  blurChild: Image.file(File(coverUrl), fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const SizedBox.shrink()))
+                              : BlurPaddedCover(
+                                  child: CachedNetworkImage(
+                                      imageUrl: coverUrl, fit: BoxFit.contain,
+                                      httpHeaders: lib.mediaHeaders,
+                                      fadeInDuration: const Duration(milliseconds: 300),
+                                      placeholder: (_, __) => Container(
+                                          color: cs.surfaceContainerHighest,
+                                          child: Icon(Icons.headphones_rounded,
+                                              size: 22, color: cs.onSurfaceVariant)),
+                                      errorWidget: (_, __, ___) => Container(
+                                          color: cs.surfaceContainerHighest,
+                                          child: Icon(Icons.headphones_rounded,
+                                              size: 22, color: cs.onSurfaceVariant))),
+                                  blurChild: CachedNetworkImage(
+                                      imageUrl: coverUrl, fit: BoxFit.cover,
+                                      httpHeaders: lib.mediaHeaders,
+                                      errorWidget: (_, __, ___) => const SizedBox.shrink()))
                           : Container(
                               color: cs.surfaceContainerHighest,
                               child: Icon(Icons.headphones_rounded,

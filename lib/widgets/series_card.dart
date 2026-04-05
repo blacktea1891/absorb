@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
+import 'absorbing_shared.dart';
 import 'series_books_sheet.dart';
 
 class SeriesCard extends StatelessWidget {
@@ -76,6 +77,7 @@ class SeriesCard extends StatelessWidget {
               cs: cs,
               seriesProgress: seriesProgress,
               booksFinished: finished,
+              coverAspectRatio: coverAspectRatio,
             ),
           ),
           const SizedBox(height: 5),
@@ -116,6 +118,7 @@ class _StackedCovers extends StatelessWidget {
   final ColorScheme cs;
   final double seriesProgress;
   final int booksFinished;
+  final double coverAspectRatio;
 
   const _StackedCovers({
     required this.coverUrls,
@@ -124,6 +127,7 @@ class _StackedCovers extends StatelessWidget {
     required this.cs,
     this.seriesProgress = 0,
     this.booksFinished = 0,
+    this.coverAspectRatio = 1.0,
   });
 
   @override
@@ -250,16 +254,23 @@ class _StackedCovers extends StatelessWidget {
 
   Widget _coverImage(String? url) {
     if (url == null) return _placeholder();
+    final isSquare = (coverAspectRatio - 1.0).abs() < 0.01;
     if (url.startsWith('/')) {
-      return Image.file(File(url), fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _placeholder());
+      return BlurPaddedCover(
+        enabled: isSquare,
+        child: Image.file(File(url), fit: isSquare ? BoxFit.contain : BoxFit.cover,
+            errorBuilder: (_, __, ___) => _placeholder()),
+        blurChild: Image.file(File(url), fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+      );
     }
-    return CachedNetworkImage(
-      imageUrl: url,
-      fit: BoxFit.cover,
-      httpHeaders: mediaHeaders,
-      placeholder: (_, __) => _placeholder(),
-      errorWidget: (_, __, ___) => _placeholder(),
+    return BlurPaddedCover(
+      enabled: isSquare,
+      child: CachedNetworkImage(imageUrl: url, fit: isSquare ? BoxFit.contain : BoxFit.cover,
+          httpHeaders: mediaHeaders, placeholder: (_, __) => _placeholder(),
+          errorWidget: (_, __, ___) => _placeholder()),
+      blurChild: CachedNetworkImage(imageUrl: url, fit: BoxFit.cover,
+          httpHeaders: mediaHeaders, errorWidget: (_, __, ___) => const SizedBox.shrink()),
     );
   }
 

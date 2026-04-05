@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import 'absorbing_shared.dart';
 import 'book_detail_sheet.dart';
 import 'episode_list_sheet.dart';
 import 'series_books_sheet.dart';
@@ -85,16 +86,7 @@ class _GridBookTileState extends State<GridBookTile> {
                 children: [
                   // Cover image
                   coverUrl != null
-                      ? coverUrl.startsWith('/')
-                          ? Image.file(File(coverUrl), fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _placeholder(cs))
-                          : CachedNetworkImage(
-                              imageUrl: coverUrl,
-                              fit: BoxFit.cover,
-                              httpHeaders: lib.mediaHeaders,
-                              placeholder: (_, __) => _placeholder(cs),
-                              errorWidget: (_, __, ___) => _placeholder(cs),
-                            )
+                      ? _blurCover(coverUrl, lib.mediaHeaders, cs, widget.coverAspectRatio)
                       : _placeholder(cs),
 
                   // Progress bar at bottom of cover
@@ -235,6 +227,27 @@ class _GridBookTileState extends State<GridBookTile> {
             ),
         ],
       ),
+    );
+  }
+
+  Widget _blurCover(String coverUrl, Map<String, String> headers, ColorScheme cs, double aspectRatio) {
+    final isSquare = (aspectRatio - 1.0).abs() < 0.01;
+    if (coverUrl.startsWith('/')) {
+      return BlurPaddedCover(
+        enabled: isSquare,
+        child: Image.file(File(coverUrl), fit: isSquare ? BoxFit.contain : BoxFit.cover,
+            errorBuilder: (_, __, ___) => _placeholder(cs)),
+        blurChild: Image.file(File(coverUrl), fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+      );
+    }
+    return BlurPaddedCover(
+      enabled: isSquare,
+      child: CachedNetworkImage(imageUrl: coverUrl, fit: isSquare ? BoxFit.contain : BoxFit.cover,
+          httpHeaders: headers, placeholder: (_, __) => _placeholder(cs),
+          errorWidget: (_, __, ___) => _placeholder(cs)),
+      blurChild: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
+          httpHeaders: headers, errorWidget: (_, __, ___) => const SizedBox.shrink()),
     );
   }
 
@@ -412,16 +425,23 @@ class _StackedCovers extends StatelessWidget {
 
   Widget _coverImage(String? url) {
     if (url == null) return _placeholder();
+    final isSquare = (coverAspectRatio - 1.0).abs() < 0.01;
     if (url.startsWith('/')) {
-      return Image.file(File(url), fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => _placeholder());
+      return BlurPaddedCover(
+        enabled: isSquare,
+        child: Image.file(File(url), fit: isSquare ? BoxFit.contain : BoxFit.cover,
+            errorBuilder: (_, __, ___) => _placeholder()),
+        blurChild: Image.file(File(url), fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+      );
     }
-    return CachedNetworkImage(
-      imageUrl: url,
-      fit: BoxFit.cover,
-      httpHeaders: mediaHeaders,
-      placeholder: (_, __) => _placeholder(),
-      errorWidget: (_, __, ___) => _placeholder(),
+    return BlurPaddedCover(
+      enabled: isSquare,
+      child: CachedNetworkImage(imageUrl: url, fit: isSquare ? BoxFit.contain : BoxFit.cover,
+          httpHeaders: mediaHeaders, placeholder: (_, __) => _placeholder(),
+          errorWidget: (_, __, ___) => _placeholder()),
+      blurChild: CachedNetworkImage(imageUrl: url, fit: BoxFit.cover,
+          httpHeaders: mediaHeaders, errorWidget: (_, __, ___) => const SizedBox.shrink()),
     );
   }
 
