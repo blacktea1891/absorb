@@ -4,13 +4,23 @@ import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../screens/app_shell.dart';
+import '../screens/car_mode_screen.dart';
 import '../services/audio_player_service.dart';
 import '../services/bookmark_service.dart';
 import '../services/chromecast_service.dart';
+import '../services/playback_history_service.dart';
 import '../services/sleep_timer_service.dart';
 import 'absorb_slider.dart';
+import 'absorbing_shared.dart';
 import 'audio_output_sheet.dart';
+import 'book_detail_sheet.dart';
 import 'card_button_config.dart';
+import 'card_chapters_sheet.dart';
+import 'chromecast_button.dart';
+import 'episode_detail_sheet.dart';
+import 'episode_list_sheet.dart';
+import 'equalizer_sheet.dart';
+import 'notes_sheet.dart';
 import 'sleep_timer_sheet.dart';
 
 /// Wrapper that gives any child a press-down opacity+scale effect.
@@ -995,5 +1005,507 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
         ),
       ),
     );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Shared action delegate for absorbing card & expanded card
+// Eliminates duplicated button/sheet logic between the two.
+// ═══════════════════════════════════════════════════════════════
+
+class CardActionDelegate {
+  final BuildContext context;
+  final AudioPlayerService player;
+  final Map<String, dynamic> item;
+  final String itemId;
+  final String? episodeId;
+  final bool isPodcastEpisode;
+  final String title;
+  final String? author;
+  final String? coverUrl;
+  final double duration;
+  final double effectiveDuration;
+  final List<dynamic> chapters;
+  final Map<String, dynamic>? recentEpisode;
+  final bool isActive;
+  final bool isPlaybackActive;
+  final bool isCastingThis;
+  final bool speedAdjustedTime;
+  final double savedSpeed;
+  final String buttonLayout;
+  final List<String> buttonOrder;
+  final VoidCallback removeFromAbsorbing;
+  final VoidCallback? onRemoveExtra;
+  final void Function(List<String>) onReorder;
+
+  CardActionDelegate({
+    required this.context,
+    required this.player,
+    required this.item,
+    required this.itemId,
+    this.episodeId,
+    this.isPodcastEpisode = false,
+    required this.title,
+    this.author,
+    this.coverUrl,
+    required this.duration,
+    required this.effectiveDuration,
+    required this.chapters,
+    this.recentEpisode,
+    required this.isActive,
+    required this.isPlaybackActive,
+    required this.isCastingThis,
+    required this.speedAdjustedTime,
+    required this.savedSpeed,
+    required this.buttonLayout,
+    required this.buttonOrder,
+    required this.removeFromAbsorbing,
+    this.onRemoveExtra,
+    required this.onReorder,
+  });
+
+  Map<String, dynamic> get _media => item['media'] as Map<String, dynamic>? ?? {};
+
+  int get visibleButtonCount => PlayerSettings.buttonCountForLayout(buttonLayout);
+
+  List<Widget> buildButtonGrid(Color accent, TextTheme tt) {
+    final count = visibleButtonCount;
+    final ids = buttonOrder.take(count).toList();
+
+    int cols;
+    switch (buttonLayout) {
+      case 'compact': cols = 3; break;
+      case 'row': cols = 5; break;
+      case 'expanded': cols = 3; break;
+      case 'full': cols = 3; break;
+      default: cols = 2; break;
+    }
+
+    final compact = cols >= 5;
+    final short = cols >= 3;
+    final singleRow = count == ids.length && ids.length <= cols;
+    final rows = <Widget>[];
+    if (singleRow) rows.add(const SizedBox(height: 8));
+    for (int r = 0; r < ids.length; r += cols) {
+      if (r > 0) rows.add(const SizedBox(height: 6));
+      final end = (r + cols).clamp(0, ids.length);
+      final rowIds = ids.sublist(r, end);
+      rows.add(Row(children: [
+        for (int c = 0; c < rowIds.length; c++) ...[
+          if (c > 0) const SizedBox(width: 8),
+          Expanded(child: buildCardButton(rowIds[c], accent, tt, compact: compact, short: short)),
+        ],
+      ]));
+    }
+    if (singleRow) rows.add(const SizedBox(height: 6));
+    return rows;
+  }
+
+  Widget buildCardButton(String id, Color accent, TextTheme tt, {bool compact = false, bool short = false}) {
+    final large = MediaQuery.sizeOf(context).height > 700;
+    switch (id) {
+      case 'chapters':
+        return CardWideButton(
+          icon: Icons.list_rounded, label: 'Chapters',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          onTap: chapters.isNotEmpty ? () => showChapters(context, accent, tt) : null,
+        );
+      case 'speed':
+        return CardWideButton(
+          icon: Icons.speed_rounded, label: 'Speed',
+          accent: accent, isActive: isPlaybackActive, large: large, compact: compact,
+          child: CardSpeedButtonInline(player: player, accent: accent, isActive: isActive, large: large, compact: compact, itemId: itemId),
+        );
+      case 'sleep':
+        return CardWideButton(
+          icon: Icons.bedtime_outlined, label: short ? 'Sleep' : 'Sleep Timer',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          child: CardSleepButtonInline(accent: accent, isActive: isPlaybackActive, large: large, compact: compact),
+        );
+      case 'bookmarks':
+        return CardWideButton(
+          icon: Icons.bookmark_outline_rounded, label: 'Bookmarks',
+          accent: accent, isActive: isPlaybackActive, large: large, compact: compact,
+          child: CardBookmarkButtonInline(
+            player: player, accent: accent,
+            isActive: isActive, itemId: itemId, large: large, compact: compact, short: short,
+          ),
+        );
+      case 'details':
+        return CardWideButton(
+          icon: (episodeId != null || isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
+          label: short ? 'Details' : ((episodeId != null || isPodcastEpisode) ? 'Episode Details' : 'Book Details'),
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          onTap: () => _openDetails(),
+        );
+      case 'equalizer':
+        return CardWideButton(
+          icon: Icons.equalizer_rounded, label: compact ? 'EQ' : 'Equalizer',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          onTap: () => showEqualizerSheet(context, accent),
+        );
+      case 'cast':
+        return ListenableBuilder(
+          listenable: ChromecastService(),
+          builder: (_, __) {
+            final cast = ChromecastService();
+            final String castLabel;
+            if (compact || short) {
+              castLabel = cast.isConnected ? 'Casting' : 'Cast';
+            } else if (cast.isCasting && cast.castingItemId == itemId) {
+              castLabel = 'Casting to ${cast.connectedDeviceName ?? "device"}';
+            } else if (cast.isConnected) {
+              castLabel = 'Cast to ${cast.connectedDeviceName ?? "device"}';
+            } else {
+              castLabel = 'Cast to Device';
+            }
+            return CardWideButton(
+              icon: cast.isConnected ? Icons.cast_connected_rounded : Icons.cast_rounded,
+              label: castLabel, accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+              onTap: () => handleCastTap(context, accent),
+            );
+          },
+        );
+      case 'history':
+        return CardWideButton(
+          icon: Icons.history_rounded, label: (compact || short) ? 'History' : 'Playback History',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          onTap: () => showHistory(context, accent, tt),
+        );
+      case 'remove':
+        return CardWideButton(
+          icon: Icons.remove_circle_outline_rounded, label: (compact || short) ? 'Remove' : 'Remove from Absorbing',
+          accent: Colors.red.shade300, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          onTap: () { removeFromAbsorbing(); onRemoveExtra?.call(); },
+        );
+      case 'car':
+        return CardWideButton(
+          icon: Icons.directions_car_rounded, label: 'Car Mode',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          onTap: () => openCarMode(context),
+        );
+      case 'notes':
+        return CardWideButton(
+          icon: Icons.note_rounded, label: 'Notes',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
+          onTap: () => showNotes(context, accent),
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  Widget buildMoreMenuItem(String id, Color accent, TextTheme tt, BuildContext ctx) {
+    switch (id) {
+      case 'chapters':
+        return MoreMenuItem(
+          icon: Icons.list_rounded, label: 'Chapters', accent: accent,
+          enabled: chapters.isNotEmpty,
+          onTap: () { Navigator.pop(ctx); showChapters(context, accent, tt); },
+        );
+      case 'speed':
+        return MoreMenuItem(
+          icon: Icons.speed_rounded, label: 'Speed', accent: accent,
+          enabled: true,
+          onTap: () {
+            Navigator.pop(ctx);
+            showModalBottomSheet(context: context, backgroundColor: Colors.transparent, useSafeArea: true,
+              builder: (_) => CardSpeedSheet(player: player, accent: accent, itemId: itemId));
+          },
+        );
+      case 'sleep':
+        return MoreMenuItem(
+          icon: Icons.bedtime_outlined, label: 'Sleep Timer', accent: accent,
+          enabled: true,
+          onTap: () {
+            Navigator.pop(ctx);
+            showSleepTimerSheet(context, accent);
+          },
+        );
+      case 'bookmarks':
+        return MoreMenuItem(
+          icon: Icons.bookmark_outline_rounded, label: 'Bookmarks', accent: accent,
+          enabled: isPlaybackActive,
+          onTap: () {
+            Navigator.pop(ctx);
+            showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, useSafeArea: true,
+              builder: (_) => DraggableScrollableSheet(
+                initialChildSize: 0.6, minChildSize: 0.05, snap: true, maxChildSize: 0.9, expand: false,
+                builder: (_, sc) => SimpleBookmarkSheet(itemId: itemId, player: player, accent: accent, scrollController: sc, onChanged: () {}),
+              ),
+            );
+          },
+        );
+      case 'details':
+        return MoreMenuItem(
+          icon: (episodeId != null || isPodcastEpisode) ? Icons.podcasts_rounded : Icons.info_outline_rounded,
+          label: (episodeId != null || isPodcastEpisode) ? 'Episode Details' : 'Book Details',
+          accent: accent,
+          onTap: () { Navigator.pop(ctx); _openDetails(); },
+        );
+      case 'equalizer':
+        return MoreMenuItem(
+          icon: Icons.equalizer_rounded, label: 'Equalizer', accent: accent,
+          onTap: () { Navigator.pop(ctx); showEqualizerSheet(context, accent); },
+        );
+      case 'cast':
+        return ListenableBuilder(
+          listenable: ChromecastService(),
+          builder: (_, __) {
+            final cast = ChromecastService();
+            final String castLabel;
+            if (cast.isCasting && cast.castingItemId == itemId) {
+              castLabel = 'Casting to ${cast.connectedDeviceName ?? "device"}';
+            } else if (cast.isConnected) {
+              castLabel = 'Cast to ${cast.connectedDeviceName ?? "device"}';
+            } else {
+              castLabel = 'Cast to Device';
+            }
+            return MoreMenuItem(
+              icon: cast.isConnected ? Icons.cast_connected_rounded : Icons.cast_rounded,
+              label: castLabel, accent: accent,
+              onTap: () { Navigator.pop(ctx); handleCastTap(context, accent); },
+            );
+          },
+        );
+      case 'history':
+        return MoreMenuItem(
+          icon: Icons.history_rounded, label: 'Playback History', accent: accent,
+          enabled: true,
+          onTap: () { Navigator.pop(ctx); showHistory(context, accent, tt); },
+        );
+      case 'remove':
+        return MoreMenuItem(
+          icon: Icons.remove_circle_outline_rounded, label: 'Remove from Absorbing',
+          accent: Colors.red.shade300,
+          onTap: () { Navigator.pop(ctx); removeFromAbsorbing(); onRemoveExtra?.call(); },
+        );
+      case 'car':
+        return MoreMenuItem(
+          icon: Icons.directions_car_rounded, label: 'Car Mode', accent: accent,
+          onTap: () { Navigator.pop(ctx); openCarMode(context); },
+        );
+      case 'notes':
+        return MoreMenuItem(
+          icon: Icons.note_rounded, label: 'Notes', accent: accent,
+          onTap: () { Navigator.pop(ctx); showNotes(context, accent); },
+        );
+      default:
+        return const SizedBox.shrink();
+    }
+  }
+
+  void showMoreMenu(Color accent, TextTheme tt) {
+    final count = visibleButtonCount;
+    final overflowIds = buttonOrder.skip(count).toList();
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => MoreMenuSheet(
+        overflowIds: overflowIds,
+        allIds: buttonOrder,
+        visibleCount: count,
+        accent: accent,
+        buildItem: (id) => buildMoreMenuItem(id, accent, tt, ctx),
+        onReorder: onReorder,
+      ),
+    );
+  }
+
+  void showNotes(BuildContext ctx, Color accent) {
+    NotesSheet.show(ctx, itemId: itemId, itemTitle: title, accent: accent);
+  }
+
+  void openCarMode(BuildContext ctx) {
+    Navigator.of(ctx).push(MaterialPageRoute(
+      builder: (_) => CarModeScreen(
+        player: player,
+        itemId: itemId,
+        fallbackTitle: title,
+        fallbackAuthor: author,
+        fallbackCoverUrl: coverUrl,
+        fallbackDuration: effectiveDuration,
+        fallbackChapters: chapters,
+        episodeId: episodeId,
+        episodeTitle: recentEpisode?['title'] as String?,
+      ),
+    ));
+  }
+
+  void handleCastTap(BuildContext ctx, Color accent) {
+    final cast = ChromecastService();
+    final auth = ctx.read<AuthProvider>();
+    final api = auth.apiService;
+    if (cast.isCasting && cast.castingItemId == itemId) {
+      showModalBottomSheet(
+        context: ctx,
+        backgroundColor: Theme.of(ctx).bottomSheetTheme.backgroundColor,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (_) => CastControlSheet(),
+      );
+    } else if (cast.isConnected) {
+      if (api != null) {
+        cast.castItem(
+          api: api, itemId: itemId, title: title, author: author ?? '',
+          coverUrl: coverUrl, totalDuration: duration, chapters: chapters,
+          episodeId: episodeId ?? player.currentEpisodeId,
+        );
+      }
+    } else {
+      showCastDevicePicker(ctx,
+        api: api, itemId: itemId, title: title, author: author ?? '',
+        coverUrl: coverUrl, totalDuration: duration, chapters: chapters,
+        episodeId: episodeId ?? player.currentEpisodeId);
+    }
+  }
+
+  void showChapters(BuildContext ctx, Color accent, TextTheme tt) {
+    final cast = ChromecastService();
+    final chaps = isCastingThis ? cast.castingChapters : (isActive ? player.chapters : chapters);
+    if (chaps.isEmpty) return;
+    double pos = 0;
+    if (isCastingThis) {
+      pos = cast.castPosition.inMilliseconds / 1000.0;
+    } else if (isActive) {
+      pos = player.position.inMilliseconds / 1000.0;
+    } else {
+      final lib = ctx.read<LibraryProvider>();
+      final pd = episodeId != null
+          ? lib.getEpisodeProgressData(itemId, episodeId!)
+          : lib.getProgressData(itemId);
+      pos = (pd?['currentTime'] as num?)?.toDouble() ?? 0;
+    }
+    showChaptersSheet(
+      context: ctx, accent: accent, tt: tt,
+      chapters: chaps,
+      totalDuration: isCastingThis ? cast.castingDuration : (isActive ? player.totalDuration : duration),
+      currentPosition: pos,
+      isPlaybackActive: isPlaybackActive,
+      isCastingThis: isCastingThis,
+      displaySpeed: speedAdjustedTime ? (isActive ? player.speed : savedSpeed) : 1.0,
+      player: player,
+      itemId: itemId,
+    );
+  }
+
+  void showHistory(BuildContext ctx, Color accent, TextTheme tt) {
+    showModalBottomSheet(
+      context: ctx, isScrollControlled: true, useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetCtx) => DraggableScrollableSheet(
+        expand: false, initialChildSize: 0.6, minChildSize: 0.05, snap: true, maxChildSize: 0.9,
+        builder: (_, sc) => Container(
+          decoration: BoxDecoration(
+            color: Theme.of(ctx).bottomSheetTheme.backgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border(top: BorderSide(color: accent.withValues(alpha: 0.2), width: 1)),
+          ),
+          child: Column(children: [
+            Padding(padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(children: [
+                const Spacer(),
+                Text('Playback History', style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+                const Spacer(),
+                IconButton(
+                  icon: Icon(Icons.delete_outline_rounded, size: 20, color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+                  onPressed: () async {
+                    await PlaybackHistoryService().clearHistory(itemId);
+                    if (sheetCtx.mounted) Navigator.pop(sheetCtx);
+                  },
+                  tooltip: 'Clear history',
+                ),
+              ]),
+            ),
+            if (isActive)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                child: Text('Tap an event to jump to that position',
+                  style: tt.bodySmall?.copyWith(color: Theme.of(ctx).colorScheme.onSurfaceVariant.withValues(alpha: 0.6), fontStyle: FontStyle.italic)),
+              )
+            else
+              const SizedBox(height: 8),
+            Expanded(child: FutureBuilder<List<PlaybackEvent>>(
+              future: PlaybackHistoryService().getHistory(itemId),
+              builder: (futureCtx, snap) {
+                if (!snap.hasData) return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                final events = snap.data!;
+                if (events.isEmpty) return Center(child: Text('No history yet', style: tt.bodyMedium?.copyWith(color: Theme.of(ctx).colorScheme.onSurfaceVariant)));
+
+                final items = <Widget>[];
+                String? lastDate;
+                for (int i = 0; i < events.length; i++) {
+                  final e = events[i];
+                  final dl = dateLabel(e.timestamp);
+                  if (dl != lastDate) {
+                    lastDate = dl;
+                    items.add(Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      child: Text(dl, style: tt.labelSmall?.copyWith(
+                        color: accent.withValues(alpha: 0.6), fontWeight: FontWeight.w600, letterSpacing: 0.5)),
+                    ));
+                  }
+                  final posLabel = fmtTime(e.positionSeconds);
+                  final timeStr = timeOfDay(e.timestamp);
+                  items.add(ListTile(
+                    dense: true, visualDensity: const VisualDensity(vertical: -2),
+                    leading: Icon(historyIcon(e.type), size: 18, color: accent.withValues(alpha: 0.7)),
+                    title: Text(e.label, style: tt.bodySmall?.copyWith(color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.7))),
+                    subtitle: Text('at $posLabel', style: tt.labelSmall?.copyWith(color: Theme.of(ctx).colorScheme.onSurfaceVariant)),
+                    trailing: Text(timeStr, style: tt.labelSmall?.copyWith(color: Theme.of(ctx).colorScheme.onSurface.withValues(alpha: 0.3))),
+                    onTap: isActive ? () {
+                      player.seekTo(Duration(seconds: e.positionSeconds.round()));
+                      Navigator.pop(futureCtx);
+                      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(duration: const Duration(seconds: 3), content: Text('Jumped to $posLabel')));
+                    } : null,
+                  ));
+                }
+
+                return ListView(controller: sc, children: items);
+              },
+            )),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDetails() async {
+    if (episodeId != null || isPodcastEpisode) {
+      final episode = await _resolveEpisode();
+      if (context.mounted) EpisodeDetailSheet.show(context, item, episode);
+    } else {
+      showBookDetailSheet(context, itemId);
+    }
+  }
+
+  Future<Map<String, dynamic>> _resolveEpisode() async {
+    final epId = episodeId ?? player.currentEpisodeId;
+    final episodes = _media['episodes'] as List<dynamic>? ?? [];
+    for (final ep in episodes) {
+      if (ep is Map<String, dynamic> && ep['id'] == epId) return ep;
+    }
+    final api = context.read<AuthProvider>().apiService;
+    if (api != null) {
+      final fullItem = await api.getLibraryItem(itemId);
+      if (fullItem != null) {
+        final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+        final eps = media['episodes'] as List<dynamic>? ?? [];
+        for (final ep in eps) {
+          if (ep is Map<String, dynamic> && ep['id'] == epId) return ep;
+        }
+      }
+    }
+    if (recentEpisode != null) return recentEpisode!;
+    return {
+      'id': epId,
+      'title': player.currentEpisodeTitle,
+      'duration': player.totalDuration,
+    };
   }
 }

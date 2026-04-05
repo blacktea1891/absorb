@@ -21,7 +21,6 @@ import 'stats_screen.dart';
 import 'settings_screen.dart';
 import '../widgets/welcome_sheet.dart';
 import '../services/update_checker_service.dart';
-import '../services/player_settings.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class AppShell extends StatefulWidget {

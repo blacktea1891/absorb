@@ -5,6 +5,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import 'absorbing_shared.dart';
 import 'book_detail_sheet.dart';
 import 'episode_list_sheet.dart';
 
@@ -223,7 +224,7 @@ class BookCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _CoverImage(coverUrl: coverUrl, cs: cs, httpHeaders: headers),
+                  _CoverImage(coverUrl: coverUrl, cs: cs, httpHeaders: headers, coverAspectRatio: coverAspectRatio),
                   if (progress > 0 && !isFinished)
                     Positioned(
                       left: 0,
@@ -343,8 +344,9 @@ class _CoverImage extends StatelessWidget {
   final ColorScheme cs;
   final BoxFit fit;
   final Map<String, String> httpHeaders;
+  final double coverAspectRatio;
 
-  const _CoverImage({required this.coverUrl, required this.cs, this.fit = BoxFit.cover, this.httpHeaders = const {}});
+  const _CoverImage({required this.coverUrl, required this.cs, this.fit = BoxFit.cover, this.httpHeaders = const {}, this.coverAspectRatio = 1.0});
 
   @override
   Widget build(BuildContext context) {
@@ -352,21 +354,37 @@ class _CoverImage extends StatelessWidget {
       return _placeholder();
     }
 
+    final isSquare = (coverAspectRatio - 1.0).abs() < 0.01;
+    final effectiveFit = isSquare ? BoxFit.contain : fit;
+
     // Local file path (offline cached cover)
     if (coverUrl!.startsWith('/')) {
       final file = File(coverUrl!);
       if (file.existsSync()) {
-        return Image.file(file, fit: fit, errorBuilder: (_, __, ___) => _placeholder());
+        return BlurPaddedCover(
+          enabled: isSquare,
+          child: Image.file(file, fit: effectiveFit, errorBuilder: (_, __, ___) => _placeholder()),
+          blurChild: Image.file(file, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+        );
       }
       return _placeholder();
     }
 
-    return CachedNetworkImage(
-      imageUrl: coverUrl!,
-      fit: fit,
-      httpHeaders: httpHeaders,
-      placeholder: (_, __) => _placeholder(),
-      errorWidget: (_, __, ___) => _placeholder(),
+    return BlurPaddedCover(
+      enabled: isSquare,
+      child: CachedNetworkImage(
+        imageUrl: coverUrl!,
+        fit: effectiveFit,
+        httpHeaders: httpHeaders,
+        placeholder: (_, __) => _placeholder(),
+        errorWidget: (_, __, ___) => _placeholder(),
+      ),
+      blurChild: CachedNetworkImage(
+        imageUrl: coverUrl!,
+        fit: BoxFit.cover,
+        httpHeaders: httpHeaders,
+        errorWidget: (_, __, ___) => const SizedBox.shrink(),
+      ),
     );
   }
 
