@@ -254,6 +254,8 @@ class _AudibleSeriesSheetState extends State<AudibleSeriesSheet> {
     final coverUrl = book['coverUrl'] as String? ?? '';
     final releaseDate = book['releaseDate'] as String? ?? '';
     final runtime = _formatRuntime(book['runtimeMinutes']);
+    final bookFormat = (book['bookFormat'] as String? ?? '').toLowerCase();
+    final isAbridged = bookFormat.contains('abridg');
     final owned = _isOwned(book);
     final upcoming = _isUpcoming(book);
 
@@ -352,6 +354,21 @@ class _AudibleSeriesSheetState extends State<AudibleSeriesSheet> {
                             padding: const EdgeInsets.symmetric(horizontal: 6),
                             child: Text('·', style: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.3), fontSize: 10)),
                           ),
+                        if (isAbridged) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: cs.error.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text('Abridged', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: cs.error)),
+                          ),
+                          if (releaseDate.isNotEmpty || runtime.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 6),
+                              child: Text('·', style: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.3), fontSize: 10)),
+                            ),
+                        ],
                         if (runtime.isNotEmpty) ...[
                           Icon(Icons.schedule_rounded, size: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
                           const SizedBox(width: 3),

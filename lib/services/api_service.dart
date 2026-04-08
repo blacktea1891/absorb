@@ -1317,11 +1317,9 @@ class ApiService {
   /// releaseDate, runtimeMinutes, rating, coverUrl, sequence.
   /// Books are deduplicated by sequence (prefers user's region) and sorted.
   static Future<List<Map<String, dynamic>>> discoverAudibleSeries(String seriesAsin) async {
-    // Step 1: Get all book ASINs from relationships
     final relationships = await getAudibleSeriesBooks(seriesAsin);
     if (relationships.isEmpty) return [];
 
-    // Step 2: Deduplicate by sequence — group ASINs, pick one per sequence
     final bySequence = <String, List<Map<String, dynamic>>>{};
     for (final r in relationships) {
       final seq = r['sequence'] as String? ?? '';
@@ -1330,7 +1328,6 @@ class ApiService {
       bySequence.putIfAbsent(key, () => []).add(r);
     }
 
-    // Pick first ASIN per sequence (Audible returns regional ones for the user's TLD)
     final uniqueBooks = <Map<String, dynamic>>[];
     for (final entry in bySequence.entries) {
       uniqueBooks.add({
@@ -1339,11 +1336,9 @@ class ApiService {
       });
     }
 
-    // Step 3: Fetch details for each unique book (parallel, batched)
     final results = <Map<String, dynamic>>[];
-    // Fetch in batches of 5 to avoid overwhelming the API
-    for (var i = 0; i < uniqueBooks.length; i += 5) {
-      final batch = uniqueBooks.skip(i).take(5);
+    for (var i = 0; i < uniqueBooks.length; i += 10) {
+      final batch = uniqueBooks.skip(i).take(10);
       final futures = batch.map((book) async {
         final asin = book['asin'] as String;
         final details = await getAudibleBookDetails(asin);
@@ -1376,7 +1371,6 @@ class ApiService {
       results.addAll(batchResults.whereType<Map<String, dynamic>>());
     }
 
-    // Sort by sequence number
     results.sort((a, b) {
       final seqA = double.tryParse(a['sequence']?.toString() ?? '') ?? 999;
       final seqB = double.tryParse(b['sequence']?.toString() ?? '') ?? 999;
