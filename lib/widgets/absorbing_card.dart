@@ -540,7 +540,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                   ),
                 ),
               ),
-                // ── Cover with title/author/chapter overlaid + download badge ──
+                // ── Cover with title/author/chapter overlaid ──
                 Expanded(child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     child: ListenableBuilder(
@@ -565,7 +565,25 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
                       final coverPlaying = isCastingThis ? castService.isPlaying : (_isActive && widget.player.isPlaying);
                       final coverLoading = _isStarting || (_isActive && widget.player.isLoadingOrBuffering && !widget.player.isPlaying);
-                      return Center(child: GestureDetector(
+                      return Center(child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Opacity(
+                              opacity: isDownloaded ? 1.0 : 0.0,
+                              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                                Icon(Icons.download_done_rounded, size: 11,
+                                  color: isDark ? Colors.white.withValues(alpha: 0.35) : cs.onSurface.withValues(alpha: 0.35)),
+                                const SizedBox(width: 3),
+                                Text('Saved', style: TextStyle(
+                                  fontSize: 10, fontWeight: FontWeight.w500,
+                                  color: isDark ? Colors.white.withValues(alpha: 0.35) : cs.onSurface.withValues(alpha: 0.35),
+                                )),
+                              ]),
+                            ),
+                          ),
+                          GestureDetector(
                         onTap: _coverPlayButton ? () {
                           if (isCastingThis) {
                             castService.togglePlayPause();
@@ -608,27 +626,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                               errorWidget: (_, __, ___) => const SizedBox.shrink()),
                                             enabled: !_rectangleCovers)
                                     : const CoverPlaceholder(),
-                                // Downloaded badge (top-right)
-                                if (isDownloaded)
-                                  Positioned(
-                                    top: 8, right: 8,
-                                    child: Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                      decoration: BoxDecoration(
-                                        color: Colors.black.withValues(alpha: 0.6),
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(Icons.download_done_rounded, size: 13, color: accent.withValues(alpha: 0.9)),
-                                          const SizedBox(width: 4),
-                                          Text('Downloaded', style: TextStyle(color: accent.withValues(alpha: 0.9), fontSize: 10, fontWeight: FontWeight.w600)),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                // Casting overlay
+                                                // Casting overlay
                                 if (isCastingThis) ...[
                                   Positioned.fill(
                                     child: Container(
@@ -703,7 +701,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                           ),
                         ),
                       ),
-                      ));
+                      ),
+                      ]));
                     },
                   ),
                   ),
