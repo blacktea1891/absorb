@@ -132,7 +132,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
       notifier.addListener(_navBarListener!);
       _navBarListener!();
     } else {
-      _navBarAnimController.forward();
+      // Not a scroll-hide tab - force nav bar visible immediately.
+      // Use .value to snap instead of animate, avoiding races where
+      // the controller gets stuck mid-animation.
+      _navBarAnimController.value = 1.0;
     }
   }
 
@@ -141,6 +144,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
   void _detachNavBarListener() {
     if (_navBarListener != null && _activeBarNotifier != null) {
       _activeBarNotifier!.removeListener(_navBarListener!);
+      // Reset the notifier so bars are visible when the user returns to this tab
+      _activeBarNotifier!.value = true;
     }
     _navBarListener = null;
     _activeBarNotifier = null;
@@ -394,7 +399,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    debugPrint('[BG-AUDIT] AppShell lifecycle: $state');
     if (state == AppLifecycleState.resumed) {
       context.read<LibraryProvider>().onAppForegrounded();
       SleepTimerService().onAppForegrounded();

@@ -618,7 +618,6 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   // ── Battery-saving lifecycle ──
 
   void onAppBackgrounded() {
-    debugPrint('[BG-AUDIT] LibraryProvider.onAppBackgrounded() playing=${AudioPlayerService().isPlaying}');
     _isBackgrounded = true;
     _stopServerPingTimer();
     _idleDisconnectTimer?.cancel(); // No timers in background
@@ -627,7 +626,6 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void onAppForegrounded() {
-    debugPrint('[BG-AUDIT] LibraryProvider.onAppForegrounded()');
     _isBackgrounded = false;
     _softReconnectSocket();
     if (_networkOffline && _deviceHasConnectivity && !_manualOffline) {
@@ -640,25 +638,20 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     _idleDisconnectTimer?.cancel();
     _idleDisconnectTimer = Timer(_StateMixin._idleTimeout, () {
       if (!AudioPlayerService().isPlaying && !ChromecastService().isPlaying) {
-        debugPrint('[BG-AUDIT] idleTimer disconnecting socket');
         _softDisconnectSocket();
       }
     });
   }
 
   void onPlaybackStarted() {
-    debugPrint('[BG-AUDIT] LibraryProvider.onPlaybackStarted() bg=$_isBackgrounded');
     if (!_isBackgrounded) {
-      debugPrint('[BG-AUDIT] socket reconnect (foreground playback start)');
       _softReconnectSocket();
     } else {
-      debugPrint('[BG-AUDIT] socket reconnect SKIPPED (backgrounded)');
     }
     _idleDisconnectTimer?.cancel();
   }
 
   void onPlaybackStopped() {
-    debugPrint('[BG-AUDIT] LibraryProvider.onPlaybackStopped() bg=$_isBackgrounded');
     if (_isBackgrounded) {
       _softDisconnectSocket();
     } else {
@@ -667,7 +660,6 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void _softDisconnectSocket() {
-    debugPrint('[BG-AUDIT] _softDisconnectSocket() alreadyDisconnected=$_socketSoftDisconnected manualOffline=$_manualOffline');
     if (_socketSoftDisconnected || _manualOffline) return;
     _socketSoftDisconnected = true;
     SocketService().softDisconnect();
@@ -1624,9 +1616,7 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void _checkRollingDownloads(String playingKey) async {
-    debugPrint('[BG-AUDIT] _checkRollingDownloads key=$playingKey api=${_api != null} offline=$isOffline series=${_rollingDownloadSeries.length}');
     if (_api == null || isOffline || _rollingDownloadSeries.isEmpty) {
-      debugPrint('[BG-AUDIT] _checkRollingDownloads BAILED early');
       return;
     }
     final count = await PlayerSettings.getRollingDownloadCount();
@@ -1652,9 +1642,7 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void _checkQueueAutoDownloads(String playingKey) async {
-    debugPrint('[BG-AUDIT] _checkQueueAutoDownloads key=$playingKey');
     if (_api == null || isOffline) {
-      debugPrint('[BG-AUDIT] _checkQueueAutoDownloads BAILED (api/offline)');
       return;
     }
     final isPodcastKey = playingKey.length > 36;
@@ -1662,7 +1650,6 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
         ? await PlayerSettings.getPodcastQueueMode()
         : await PlayerSettings.getBookQueueMode();
     if (queueMode != 'manual') {
-      debugPrint('[BG-AUDIT] _checkQueueAutoDownloads BAILED (queueMode=$queueMode)');
       return;
     }
     final enabled = await PlayerSettings.getQueueAutoDownload();
@@ -1750,14 +1737,11 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void _checkAutoDownloadOnStream(String playingKey) async {
-    debugPrint('[BG-AUDIT] _checkAutoDownloadOnStream key=$playingKey');
     if (_api == null || isOffline) {
-      debugPrint('[BG-AUDIT] _checkAutoDownloadOnStream BAILED (api/offline)');
       return;
     }
     final enabled = await PlayerSettings.getAutoDownloadOnStream();
     if (!enabled) {
-      debugPrint('[BG-AUDIT] _checkAutoDownloadOnStream BAILED (disabled)');
       return;
     }
 
