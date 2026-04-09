@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart' as ja;
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:vibration/vibration.dart';
 import 'scoped_prefs.dart';
@@ -123,7 +125,7 @@ class SleepTimerService extends ChangeNotifier {
 
   // Wind-down warning & fade
   bool _warningSent = false;
-  static const _warningThreshold = Duration(seconds: 30);
+  Duration _fadeThreshold = const Duration(seconds: 30);
   double _fadeStartVolume = 1.0; // volume when fade begins
 
   // Reset on pause/play
@@ -153,16 +155,18 @@ class SleepTimerService extends ChangeNotifier {
 
   // ── Time-based sleep ──
   
-  void setTimeSleep(Duration duration) {
+  void setTimeSleep(Duration duration) async {
     cancel();
     _mode = SleepTimerMode.time;
     _timeRemaining = duration;
     _initialDuration = duration;
     _warningSent = false;
+    final fadeSecs = await PlayerSettings.getSleepFadeDuration();
+    _fadeThreshold = Duration(seconds: fadeSecs);
     _startTimeCountdown();
     _startShakeDetection();
     notifyListeners();
-    debugPrint('[SleepTimer] Set time sleep: ${duration.inMinutes}m');
+    debugPrint('[SleepTimer] Set time sleep: ${duration.inMinutes}m (fade: ${fadeSecs}s)');
   }
 
   int _tickIntervalSeconds = 5;
@@ -175,8 +179,8 @@ class SleepTimerService extends ChangeNotifier {
 
   void _scheduleNextTick() {
     _timer?.cancel();
-    // Tick every 1s during fade period (last 35s), every 5s otherwise
-    final nearFade = _timeRemaining <= _warningThreshold + const Duration(seconds: 5);
+    // Tick every 1s during fade period, every 5s otherwise
+    final nearFade = _timeRemaining <= _fadeThreshold + const Duration(seconds: 5);
     _tickIntervalSeconds = nearFade ? 1 : 5;
     _timer = Timer.periodic(Duration(seconds: _tickIntervalSeconds), _onTimerTick);
   }
@@ -212,29 +216,32 @@ class SleepTimerService extends ChangeNotifier {
 
       }
 
-      // Switch to fast ticks when approaching warning threshold
+      // Switch to fast ticks when approaching fade threshold
       if (_tickIntervalSeconds > 1 &&
-          _timeRemaining <= _warningThreshold + const Duration(seconds: 5)) {
+          _timeRemaining <= _fadeThreshold + const Duration(seconds: 5)) {
         _scheduleNextTick();
       }
 
-      // Wind-down warning at 30 seconds: vibration + optional fade
-      if (!_warningSent && _timeRemaining <= _warningThreshold && _timeRemaining.inSeconds > 0) {
+      // Wind-down: vibration + optional fade + optional chime
+      if (!_warningSent && _timeRemaining <= _fadeThreshold && _timeRemaining.inSeconds > 0) {
         _warningSent = true;
         onToast?.call('Sleep timer ending soon...');
         final fadeEnabled = await PlayerSettings.getSleepFadeOut();
         if (fadeEnabled && !_cast.isCasting) {
           _isFadingOut = true;
           _fadeStartVolume = _player.volume;
-          debugPrint('[SleepTimer] Warning: ${_timeRemaining.inSeconds}s remaining - starting fade');
+          debugPrint('[SleepTimer] Warning: ${_timeRemaining.inSeconds}s remaining - starting fade (${_fadeThreshold.inSeconds}s)');
         } else {
           debugPrint('[SleepTimer] Warning: ${_timeRemaining.inSeconds}s remaining');
         }
+        // Play chime sound if enabled
+        final chimeEnabled = await PlayerSettings.getSleepChime();
+        if (chimeEnabled) _playChime();
       }
 
-      // Gradually lower volume during the last 30 seconds
+      // Gradually lower volume during the fade period
       if (_isFadingOut && _timeRemaining.inSeconds > 0 && !_cast.isCasting) {
-        final fraction = _timeRemaining.inSeconds / _warningThreshold.inSeconds;
+        final fraction = _timeRemaining.inSeconds / _fadeThreshold.inSeconds;
         _player.setVolume((_fadeStartVolume * fraction).clamp(0.0, 1.0));
       }
 
@@ -247,7 +254,7 @@ class SleepTimerService extends ChangeNotifier {
     if (_mode != SleepTimerMode.time) return;
     _timeRemaining += extra;
     // Reset warning and restore volume if we're above threshold again
-    if (_timeRemaining > _warningThreshold) {
+    if (_timeRemaining > _fadeThreshold) {
       _warningSent = false;
       if (_isFadingOut) {
         _isFadingOut = false;
@@ -389,6 +396,27 @@ class SleepTimerService extends ChangeNotifier {
   void _vibrateSnooze() async {
     if (await Vibration.hasVibrator()) {
       Vibration.vibrate(pattern: [0, 150, 100, 150]);
+    }
+  }
+
+  /// Play a gentle bell chime to warn that sleep timer is ending soon.
+  ja.AudioPlayer? _chimePlayer;
+  void _playChime() async {
+    try {
+      final vol = await PlayerSettings.getSleepChimeVolume();
+      _chimePlayer?.dispose();
+      final chime = ja.AudioPlayer();
+      _chimePlayer = chime;
+      await chime.setVolume(vol);
+      await chime.setAsset('assets/audio/bell.mp3');
+      debugPrint('[SleepTimer] Chime: playing (vol=$vol)');
+      chime.play();
+      chime.playerStateStream.where((s) => s.processingState == ja.ProcessingState.completed).first.then((_) {
+        chime.dispose();
+        if (_chimePlayer == chime) _chimePlayer = null;
+      });
+    } catch (e) {
+      debugPrint('[SleepTimer] Chime error: $e');
     }
   }
 

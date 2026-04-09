@@ -14,7 +14,7 @@ final Set<String> _iosHiddenButtons = Platform.isIOS ? const {'cast', 'equalizer
 const _allCardButtons = [
   CardButtonDef('chapters', 'Chapters', Icons.list_rounded),
   CardButtonDef('speed', 'Speed', Icons.speed_rounded),
-  CardButtonDef('sleep', 'Sleep Timer', Icons.bedtime_outlined),
+  CardButtonDef('sleep', 'Timer', Icons.nightlight_round_outlined),
   CardButtonDef('bookmarks', 'Bookmarks', Icons.bookmark_outline_rounded),
   CardButtonDef('details', 'Book Details', Icons.info_outline_rounded),
   CardButtonDef('equalizer', 'Equalizer', Icons.equalizer_rounded),
