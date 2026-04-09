@@ -201,7 +201,7 @@ class CardSleepButtonInline extends StatelessWidget {
         } else if (active) {
           label = '${sleep.chaptersRemaining} ch left';
         } else {
-          label = compact ? 'Sleep' : 'Sleep Timer';
+          label = 'Timer';
         }
 
         final h = compact ? 30.0 : (large ? 48.0 : 36.0);
@@ -233,12 +233,12 @@ class CardSleepButtonInline extends StatelessWidget {
                   ),
                 ),
               Center(child: compact && !active
-                ? Icon(Icons.bedtime_outlined, size: iconSz,
+                ? Icon(Icons.nightlight_round_outlined, size: iconSz,
                     color: isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))
                 : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.bedtime_outlined, size: iconSz,
+                      Icon(Icons.nightlight_round_outlined, size: iconSz,
                         color: active ? accent : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))),
                       SizedBox(width: compact ? 4 : 8),
                       Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
@@ -1094,7 +1094,7 @@ class CardActionDelegate {
         );
       case 'sleep':
         return CardWideButton(
-          icon: Icons.bedtime_outlined, label: short ? 'Sleep' : 'Sleep Timer',
+          icon: Icons.nightlight_round_outlined, label: 'Timer',
           accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact,
           child: CardSleepButtonInline(accent: accent, isActive: isPlaybackActive, large: large, compact: compact),
         );
@@ -1191,7 +1191,7 @@ class CardActionDelegate {
         );
       case 'sleep':
         return MoreMenuItem(
-          icon: Icons.bedtime_outlined, label: 'Sleep Timer', accent: accent,
+          icon: Icons.nightlight_round_outlined, label: 'Timer', accent: accent,
           enabled: true,
           onTap: () {
             Navigator.pop(ctx);

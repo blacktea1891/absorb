@@ -206,6 +206,12 @@ class PlayerSettings {
 
   static Future<bool> getSleepFadeOut() => _get('sleepFadeOut', true);
   static Future<void> setSleepFadeOut(bool value) => _set('sleepFadeOut', value);
+  static Future<int> getSleepFadeDuration() => _get('sleepFadeDuration', 30);
+  static Future<void> setSleepFadeDuration(int seconds) => _set('sleepFadeDuration', seconds);
+  static Future<bool> getSleepChime() => _get('sleepChime', false);
+  static Future<void> setSleepChime(bool value) => _set('sleepChime', value);
+  static Future<double> getSleepChimeVolume() => _get('sleepChimeVolume', 2.0);
+  static Future<void> setSleepChimeVolume(double value) => _set('sleepChimeVolume', value);
 
   static Future<int> getSleepRewindSeconds() => _get('sleepRewindSeconds', 0);
   static Future<void> setSleepRewindSeconds(int seconds) => _set('sleepRewindSeconds', seconds);

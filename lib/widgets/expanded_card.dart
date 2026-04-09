@@ -585,7 +585,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                             builder: (context, _) => LayoutBuilder(
                               builder: (context, constraints) {
                                 final maxW = constraints.maxWidth * 0.90;
-                                final maxH = constraints.maxHeight;
+                                final maxH = constraints.maxHeight - 24;
                                 double coverW, coverH;
                                 if (_rectangleCovers) {
                                   coverW = maxW;

@@ -53,6 +53,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _shakeMode = 'addTime';
   bool _resetSleepOnPause = false;
   bool _sleepFadeOut = true;
+  int _sleepFadeDuration = 30;
+  bool _sleepChime = false;
+  double _sleepChimeVolume = 0.7;
   int _shakeAddMinutes = 5;
   String _bookQueueMode = 'off';
   String _podcastQueueMode = 'off';
@@ -188,6 +191,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getSkipChapterBarrier(),                            // 42
       PlayerSettings.getShowExplicitBadge(),                               // 43
       PlayerSettings.getIncludePreReleases(),                               // 44
+      PlayerSettings.getSleepFadeDuration(),                                  // 45
+      PlayerSettings.getSleepChime(),                                         // 46
+      PlayerSettings.getSleepChimeVolume(),                                   // 47
     ]);
     final s = results[0] as AutoRewindSettings;
     final speed = results[1] as double;
@@ -231,6 +237,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final skipBarrier = results[39] as bool;
     final showExplicit = results[40] as bool;
     final preReleases = results[41] as bool;
+    final fadeDur = results[42] as int;
+    final chime = results[43] as bool;
+    final chimeVol = results[44] as double;
     if (mounted) setState(() {
       _rewindSettings = s;
       _defaultSpeed = speed;
@@ -278,6 +287,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _trustAllCerts = trustCerts;
       _showExplicitBadge = showExplicit;
       _includePreReleases = preReleases;
+      _sleepFadeDuration = fadeDur;
+      _sleepChime = chime;
+      _sleepChimeVolume = chimeVol;
       _canPickDownloadLocation = !_isPlayStoreBuild;
 
       _loaded = true;
@@ -1134,7 +1146,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       title: const Text('Fade volume before sleep'),
                       subtitle: Text(
                         _sleepFadeOut
-                            ? 'Gradually lowers volume during the last 30 seconds'
+                            ? 'Gradually lowers volume over the last ${_sleepFadeDuration}s'
                             : 'Playback stops immediately when timer ends',
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                       value: _sleepFadeOut,
@@ -1143,6 +1155,62 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         PlayerSettings.setSleepFadeOut(v);
                       } : null,
                     ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    SwitchListTile(
+                      title: const Text('Chime before sleep'),
+                      subtitle: Text(
+                        _sleepChime
+                            ? 'Plays a gentle bell when the timer is about to end'
+                            : 'No sound warning before sleep',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _sleepChime,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _sleepChime = v);
+                        PlayerSettings.setSleepChime(v);
+                      } : null,
+                    ),
+                    if (_sleepChime) ...[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(children: [
+                          Icon(Icons.volume_down_rounded, size: 18, color: cs.onSurfaceVariant),
+                          Expanded(child: Slider(
+                            value: _sleepChimeVolume,
+                            min: 0.5, max: 3.0, divisions: 10,
+                            label: '${(_sleepChimeVolume * 100 / 3).round()}%',
+                            onChanged: _loaded ? (v) {
+                              setState(() => _sleepChimeVolume = v);
+                              PlayerSettings.setSleepChimeVolume(v);
+                            } : null,
+                          )),
+                          Icon(Icons.volume_up_rounded, size: 18, color: cs.onSurfaceVariant),
+                        ]),
+                      ),
+                    ],
+                    if (_sleepFadeOut || _sleepChime) ...[
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      ListTile(
+                        title: const Text('Wind-down duration'),
+                        subtitle: Text(
+                          'Fade and chime start ${_sleepFadeDuration}s before sleep',
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Row(children: [
+                          Text('${_sleepFadeDuration}s', style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                          Expanded(child: Slider(
+                            value: _sleepFadeDuration.toDouble(),
+                            min: 10, max: 60, divisions: 10,
+                            label: '${_sleepFadeDuration}s',
+                            onChanged: _loaded ? (v) {
+                              setState(() => _sleepFadeDuration = v.round());
+                              PlayerSettings.setSleepFadeDuration(v.round());
+                            } : null,
+                          )),
+                        ]),
+                      ),
+                    ],
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     // ── Auto Sleep Timer ──
                     SwitchListTile(

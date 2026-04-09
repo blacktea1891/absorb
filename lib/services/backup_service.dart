@@ -31,6 +31,9 @@ class BackupService {
       'shakeAddMinutes': await PlayerSettings.getShakeAddMinutes(),
       'resetSleepOnPause': await PlayerSettings.getResetSleepOnPause(),
       'sleepFadeOut': await PlayerSettings.getSleepFadeOut(),
+      'sleepFadeDuration': await PlayerSettings.getSleepFadeDuration(),
+      'sleepChime': await PlayerSettings.getSleepChime(),
+      'sleepChimeVolume': await PlayerSettings.getSleepChimeVolume(),
       'hideEbookOnly': await PlayerSettings.getHideEbookOnly(),
       'collapseSeries': await PlayerSettings.getCollapseSeries(),
       'librarySort': await PlayerSettings.getLibrarySort(),
@@ -231,6 +234,9 @@ class BackupService {
     if (s['shakeAddMinutes'] != null) PlayerSettings.setShakeAddMinutes(s['shakeAddMinutes'] as int);
     if (s['resetSleepOnPause'] != null) PlayerSettings.setResetSleepOnPause(s['resetSleepOnPause'] as bool);
     if (s['sleepFadeOut'] != null) PlayerSettings.setSleepFadeOut(s['sleepFadeOut'] as bool);
+    if (s['sleepFadeDuration'] != null) PlayerSettings.setSleepFadeDuration(s['sleepFadeDuration'] as int);
+    if (s['sleepChime'] != null) PlayerSettings.setSleepChime(s['sleepChime'] as bool);
+    if (s['sleepChimeVolume'] != null) PlayerSettings.setSleepChimeVolume((s['sleepChimeVolume'] as num).toDouble());
     if (s['hideEbookOnly'] != null) PlayerSettings.setHideEbookOnly(s['hideEbookOnly'] as bool);
     if (s['collapseSeries'] != null) PlayerSettings.setCollapseSeries(s['collapseSeries'] as bool);
     if (s['librarySort'] != null) PlayerSettings.setLibrarySort(s['librarySort'] as String);

@@ -548,7 +548,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     builder: (context, _) => LayoutBuilder(
                     builder: (context, constraints) {
                       final maxW = constraints.maxWidth * 0.75;
-                      final maxH = constraints.maxHeight.isFinite ? constraints.maxHeight : maxW;
+                      final rawH = constraints.maxHeight.isFinite ? constraints.maxHeight : maxW;
+                      final maxH = rawH - 24;
                       double coverW, coverH;
                       if (_rectangleCovers) {
                         coverW = maxW;
