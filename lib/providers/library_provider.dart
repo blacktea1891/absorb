@@ -72,11 +72,9 @@ class LibraryProvider extends ChangeNotifier
 
       AudioPlayerService.setOnBookFinishedCallback(markFinishedLocally);
       AudioPlayerService.setOnPlayStartedCallback((key) {
-        debugPrint('[BG-AUDIT] onPlayStarted key=$key - deferring download checks 30s');
         // Defer download checks to avoid a network burst at playback start.
         Future.delayed(const Duration(seconds: 30), () {
           final stillPlaying = AudioPlayerService().isPlaying;
-          debugPrint('[BG-AUDIT] deferred download checks firing: stillPlaying=$stillPlaying');
           if (!stillPlaying) return;
           _checkRollingDownloads(key);
           _checkQueueAutoDownloads(key);
@@ -84,7 +82,6 @@ class LibraryProvider extends ChangeNotifier
         });
       });
       AudioPlayerService.setOnPlaybackStateChangedCallback((playing) {
-        debugPrint('[BG-AUDIT] onPlaybackStateChanged playing=$playing');
         if (playing) {
           onPlaybackStarted();
         } else {
