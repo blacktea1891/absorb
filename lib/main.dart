@@ -444,6 +444,12 @@ class _AuthGateState extends State<AuthGate> {
     } catch (e) {
       debugPrint('[Init] AudioPlayerService.init timed out or failed: $e');
     }
+    // Route cold-start play() calls (headphones / lock screen tap before
+    // the UI has bootstrapped the current item) through the existing
+    // home-widget restore path. Registered as a static callback to avoid a
+    // circular import between AudioPlayerService and HomeWidgetService.
+    AudioPlayerService.onColdStartPlayRequested =
+        HomeWidgetService().resumeLastPlayedIfAvailable;
     debugPrint('[Init] AudioPlayerService done (${sw.elapsedMilliseconds}ms)');
 
     try {

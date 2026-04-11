@@ -15,7 +15,10 @@ import 'sleep_timer_service.dart';
 import 'equalizer_service.dart';
 import 'android_auto_service.dart';
 import 'chromecast_service.dart';
+import 'chapter_lookup.dart';
+import 'cold_start_play_policy.dart';
 import 'player_settings.dart';
+import 'session_cache.dart';
 export 'player_settings.dart';
 
 // ─── AudioHandler (runs in background, controls notification) ───
@@ -178,16 +181,13 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   /// highlights and scrolls to the active chapter in the queue view.
   int? _safeCurrentChapterIndex() {
     try {
-      if (_service == null || _service!.chapters.isEmpty) return null;
+      if (_service == null) return null;
       final posSec = _player.position.inMilliseconds / 1000.0;
-      final chapters = _service!.chapters;
-      for (int i = 0; i < chapters.length; i++) {
-        final ch = chapters[i] as Map<String, dynamic>;
-        final start = (ch['start'] as num?)?.toDouble() ?? 0;
-        final end = (ch['end'] as num?)?.toDouble() ?? _service!.totalDuration;
-        if (posSec >= start && posSec < end) return i;
-      }
-      return null;
+      return ChapterLookup.indexAt(
+        _service!.chapters,
+        posSec,
+        _service!.totalDuration,
+      );
     } catch (e) {
       debugPrint('[Handler] _safeCurrentChapterIndex error: $e');
       return null;
@@ -670,6 +670,13 @@ class AudioPlayerService extends ChangeNotifier {
   static void setOnPlaybackStateChangedCallback(void Function(bool isPlaying)? cb) {
     _onPlaybackStateChangedCallback = cb;
   }
+
+  /// Invoked when `play()` fires on a cold-started service that has no
+  /// current item loaded (typical headphone / lock-screen tap after the OS
+  /// killed the app). Registered by main.dart to delegate the restore to
+  /// HomeWidgetService (which has the item-fetch + ApiService construction
+  /// logic), avoiding a circular import.
+  static Future<void> Function()? onColdStartPlayRequested;
 
   static AudioPlayerHandler? _handler;
   static AudioPlayerHandler? get handler => _handler;
@@ -1250,7 +1257,7 @@ class AudioPlayerService extends ChangeNotifier {
     _isCompletingBook = false;
 
     // Check if downloaded — play locally
-    final String? result;
+    String? result;
     if (_downloadService.isDownloaded(progressKey)) {
       result = await _playFromLocal(progressKey, title, author, coverUrl,
           totalDuration, chapters, startTime, forceStartTime);
@@ -1263,9 +1270,25 @@ class AudioPlayerService extends ChangeNotifier {
         _clearState();
         return 'This item isn\'t downloaded and offline mode is on';
       }
-      // Stream from server
-      result = await _playFromServer(api, itemId, title, author, coverUrl,
-          totalDuration, chapters, startTime, forceStartTime);
+      // Try to play from cached session metadata first (instant start)
+      final cachedSession = await SessionCache.load(
+        itemId: itemId,
+        episodeId: episodeId,
+      );
+      if (cachedSession != null) {
+        result = await _playFromSessionCache(api, itemId, title, author,
+            coverUrl, totalDuration, chapters, startTime, cachedSession,
+            forceStartTime);
+        // Fall through to normal server path if cache was stale/invalid
+        if (result == 'cache-miss') {
+          result = await _playFromServer(api, itemId, title, author, coverUrl,
+              totalDuration, chapters, startTime, forceStartTime);
+        }
+      } else {
+        // No cache - stream from server
+        result = await _playFromServer(api, itemId, title, author, coverUrl,
+            totalDuration, chapters, startTime, forceStartTime);
+      }
     }
 
     _isLoadingNewItem = false;
@@ -1531,6 +1554,151 @@ class AudioPlayerService extends ChangeNotifier {
     }
   }
 
+  /// Play from cached session metadata. Starts playback instantly without
+  /// waiting for a server round-trip. Fires _refreshServerSession() in the
+  /// background to get a fresh session ID and cross-client progress check.
+  Future<String?> _playFromSessionCache(
+    ApiService api,
+    String itemId,
+    String title,
+    String author,
+    String? coverUrl,
+    double totalDuration,
+    List<dynamic> chapters,
+    double startTime,
+    Map<String, dynamic> cached, [
+    bool forceStartTime = false,
+  ]) async {
+    debugPrint('[Player] Playing from session cache: $title');
+    _isOfflineMode = false;
+    _playbackSessionId = null; // No server session yet; _refreshServerSession will set it
+
+    final audioTracks = cached['audioTracks'] as List<dynamic>?;
+    if (audioTracks == null || audioTracks.isEmpty) {
+      debugPrint('[Player] Cached session has no audio tracks - falling back');
+      return 'cache-miss';
+    }
+
+    // Pick up cached chapters if the caller didn't provide any
+    if (chapters.isEmpty) {
+      final cachedChapters = cached['chapters'] as List<dynamic>? ?? [];
+      if (cachedChapters.isNotEmpty) {
+        chapters = cachedChapters;
+        _chapters = cachedChapters;
+        _handler?.updateChaptersQueue(cachedChapters);
+      }
+    }
+
+    // Use cached duration if caller didn't have one
+    if (totalDuration <= 0) {
+      final cachedDur = (cached['totalDuration'] as num?)?.toDouble() ?? 0;
+      if (cachedDur > 0) {
+        totalDuration = cachedDur;
+        _totalDuration = cachedDur;
+      }
+    }
+
+    try {
+      _currentTrackIndex = 0;
+      final audioHeaders = api.mediaHeaders;
+      _buildTrackOffsets(audioTracks);
+      AudioSource source;
+      if (audioTracks.length == 1) {
+        final track = audioTracks.first as Map<String, dynamic>;
+        final contentUrl = track['contentUrl'] as String? ?? '';
+        final fullUrl = api.buildTrackUrl(contentUrl);
+        source = AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders);
+      } else {
+        final sources = <AudioSource>[];
+        for (final t in audioTracks) {
+          final track = t as Map<String, dynamic>;
+          final contentUrl = track['contentUrl'] as String? ?? '';
+          final fullUrl = api.buildTrackUrl(contentUrl);
+          sources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
+        }
+        source = ConcatenatingAudioSource(children: sources);
+      }
+
+      await _player!.setAudioSource(source);
+
+      if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
+      if (startTime > 0) {
+        await _seekAbsolute(startTime);
+      }
+      clearSeekTarget();
+
+      _subscribeTrackIndex();
+      final initChapter = _initChapterInfo(startTime);
+      _pushMediaItem(itemId, title, author, coverUrl, totalDuration, chapter: initChapter);
+      final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
+      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      await _player!.setSpeed(speed);
+      debugPrint('[Player] Starting cached session playback at ${speed}x');
+      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+      _player!.play();
+      notifyListeners();
+      _setupSync();
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _handler?.refreshPlaybackState();
+      });
+      final sleepTimer = SleepTimerService();
+      sleepTimer.resetDismiss();
+      sleepTimer.checkAutoSleep();
+      // Refresh server session in background - gets fresh session ID and
+      // handles cross-client progress sync without blocking playback start
+      _refreshServerSession(api, itemId);
+      return null;
+    } catch (e, stack) {
+      debugPrint('[Player] Cached session play error: $e\n$stack');
+      // Cache was stale or invalid - clear it and signal fallback
+      SessionCache.clear(itemId: itemId, episodeId: _currentEpisodeId);
+      return 'cache-miss';
+    }
+  }
+
+  /// Re-create the server playback session in the background after starting
+  /// playback from cache. Gets a fresh session ID so progress syncing works,
+  /// and handles cross-client progress (seek to server position if ahead).
+  void _refreshServerSession(ApiService api, String itemId) async {
+    if (_isOfflineMode) return;
+    try {
+      final sessionData = _currentEpisodeId != null
+          ? await api.startEpisodePlaybackSession(itemId, _currentEpisodeId!)
+          : await api.startPlaybackSession(itemId);
+      if (sessionData == null) {
+        debugPrint('[Player] Background session refresh returned null');
+        return;
+      }
+      _playbackSessionId = sessionData['id'] as String?;
+      _lastServerSync = DateTime.now();
+      debugPrint('[Player] Background session refreshed: $_playbackSessionId');
+
+      // Update cached session with fresh track data in case it changed
+      final audioTracks = sessionData['audioTracks'] as List<dynamic>?;
+      final sessionChapters = sessionData['chapters'] as List<dynamic>? ?? [];
+      final sessionDur = (sessionData['duration'] as num?)?.toDouble() ?? 0;
+      if (audioTracks != null && audioTracks.isNotEmpty) {
+        SessionCache.save(
+          itemId: itemId,
+          episodeId: _currentEpisodeId,
+          audioTracks: audioTracks,
+          chapters: sessionChapters.isNotEmpty ? sessionChapters : _chapters,
+          totalDuration: sessionDur > 0 ? sessionDur : _totalDuration,
+        );
+      }
+
+      // Check if server position is ahead (another client advanced)
+      final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
+      final localPos = position.inMilliseconds / 1000.0;
+      if (serverPos > localPos + 5.0) {
+        debugPrint('[Player] Server is ahead on cache-start: server=${serverPos}s vs local=${localPos}s - seeking');
+        await _seekAbsolute(serverPos);
+      }
+    } catch (e) {
+      debugPrint('[Player] Background session refresh failed: $e');
+    }
+  }
+
   Future<String?> _playFromServer(
     ApiService api,
     String itemId,
@@ -1671,6 +1839,14 @@ class AudioPlayerService extends ChangeNotifier {
       final sleepTimer = SleepTimerService();
       sleepTimer.resetDismiss();
       sleepTimer.checkAutoSleep();
+      // Cache session metadata so next play can start instantly
+      SessionCache.save(
+        itemId: itemId,
+        episodeId: _currentEpisodeId,
+        audioTracks: audioTracks,
+        chapters: chapters,
+        totalDuration: totalDuration,
+      );
       return null;
     } catch (e, stack) {
       debugPrint('[Player] Stream error: $e\n$stack');
@@ -2439,6 +2615,34 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> play() async {
     debugPrint('[Service] play() called — lastPause=${_lastPauseTime != null}');
+
+    // Cold-start play guard. If the OS killed absorb during a long pause
+    // and the user tapped play via headphones / lock screen / Android Auto,
+    // the handler routes play() into this service before any UI code has
+    // had a chance to restore the last-played item. _currentItemId is null
+    // here, so falling through to _player.play() fires on an empty player
+    // and nothing happens. Route through the cold-start callback instead.
+    final prefs = _prefs ?? await SharedPreferences.getInstance();
+    _prefs ??= prefs;
+    final decision = ColdStartPlayPolicy.decide(
+      currentItemId: _currentItemId,
+      lastPlayedItemId: prefs.getString('widget_item_id'),
+    );
+    if (decision == ColdStartPlayDecision.restoreLastPlayed) {
+      debugPrint('[Service] play() on cold-started service - routing to cold-start restore');
+      final restore = AudioPlayerService.onColdStartPlayRequested;
+      if (restore != null) {
+        unawaited(restore());
+      } else {
+        debugPrint('[Service] No cold-start restore handler registered - ignoring play');
+      }
+      return;
+    }
+    if (decision == ColdStartPlayDecision.nothing) {
+      debugPrint('[Service] play() called with no current item and no history - ignoring');
+      return;
+    }
+
     _pauseStopTimer?.cancel();
     _pauseStopTimer = null;
     _noisyPause = false; // User explicitly resumed — allow interrupt-resume again
