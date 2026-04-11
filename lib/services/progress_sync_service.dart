@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'api_service.dart';
 import 'scoped_prefs.dart';
+import 'sync_logic.dart';
 
 /// Manages local progress storage and server sync.
 /// Progress is ALWAYS saved locally first, then synced to server when online.
@@ -18,7 +19,6 @@ class ProgressSyncService {
   bool _isFlushing = false;
   bool _flushAgain = false;
   int _consecutiveFailures = 0;
-  static const _maxRetryDelay = Duration(minutes: 5);
   static const _maxConsecutiveFailures = 10;
 
   /// Initialize — start listening for connectivity changes.
@@ -225,8 +225,13 @@ class ProgressSyncService {
             final hasOfflineListening =
                 (await ScopedPrefs.getInt('offline_listening_$itemId') ?? 0) > 0;
 
-            if (serverTimestamp > localTimestamp &&
-                (serverTime >= localTime || !hasOfflineListening)) {
+            if (SyncLogic.shouldPullServer(
+              serverTimestamp: serverTimestamp,
+              serverTime: serverTime,
+              localTimestamp: localTimestamp,
+              localTime: localTime,
+              hasOfflineListening: hasOfflineListening,
+            )) {
               debugPrint('[Sync] Server is newer for $itemId: server=$serverTime s ($serverTimestamp) vs local=$localTime s ($localTimestamp) — pulling');
               await cacheServerProgress(
                 itemId: itemId,
@@ -314,10 +319,7 @@ class ProgressSyncService {
         debugPrint('[Sync] Too many consecutive failures ($_consecutiveFailures) - waiting for next connectivity change');
         return;
       }
-      final delay = _consecutiveFailures == 0
-          ? const Duration(milliseconds: 250)
-          : Duration(seconds: 5 * (1 << (_consecutiveFailures - 1)).clamp(1, 60));
-      final clampedDelay = delay > _maxRetryDelay ? _maxRetryDelay : delay;
+      final clampedDelay = SyncLogic.backoffDelay(_consecutiveFailures);
       debugPrint('[Sync] Scheduling retry in ${clampedDelay.inSeconds}s (failures=$_consecutiveFailures)');
 
       unawaited(

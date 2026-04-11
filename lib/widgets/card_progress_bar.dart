@@ -41,6 +41,10 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
   double _lastKnownPos = 0;
   DateTime _lastPosTime = DateTime.now();
   double _currentSpeed = 1.0;
+  // Per-item speed used for the time display while the card is inactive,
+  // so the expanded card's book time row matches the small card's behavior
+  // when speed-adjusted time is enabled.
+  double _savedSpeed = 1.0;
   bool _isPlaying = false;
   bool _isCastMode = false;
   StreamSubscription<Duration>? _posSub;
@@ -58,6 +62,14 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
   void _loadSettings() {
     PlayerSettings.getShowBookSlider().then((v) { if (mounted && v != _showBookSlider) setState(() => _showBookSlider = v); });
     PlayerSettings.getSpeedAdjustedTime().then((v) { if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v); });
+    _loadSavedSpeed();
+  }
+
+  Future<void> _loadSavedSpeed() async {
+    final itemId = widget.itemId;
+    final bookSpeed = itemId != null ? await PlayerSettings.getBookSpeed(itemId) : null;
+    final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+    if (mounted && speed != _savedSpeed) setState(() => _savedSpeed = speed);
   }
 
   void _onCastChanged() {
@@ -86,6 +98,7 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
   void didUpdateWidget(CardDualProgressBar old) {
     super.didUpdateWidget(old);
     if (old.isActive != widget.isActive) _subscribePosition();
+    if (old.itemId != widget.itemId) _loadSavedSpeed();
   }
 
   void _syncTicker() {
@@ -286,7 +299,11 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
         final chapterDur = chapterEnd - chapterStart;
         final chapterPos = (posS - chapterStart).clamp(0.0, chapterDur);
         final chapterProgress = chapterDur > 0 ? chapterPos / chapterDur : 0.0;
-        final speedDiv = _speedAdjustedTime ? speed : 1.0;
+        // When inactive, fall back to the per-item saved speed (or default)
+        // so the book time row on the expanded card still reflects the
+        // user's speed-adjusted-time setting. Matches absorbing_card's
+        // inline book-time logic.
+        final speedDiv = _speedAdjustedTime ? (active ? speed : _savedSpeed) : 1.0;
         final bookElapsed = posS / speedDiv;
         final bookRemaining = (totalDur - posS) / speedDiv;
         final chapterRemaining = (chapterDur - chapterPos) / speedDiv;

@@ -64,6 +64,14 @@ class HomeWidgetService {
     }
   }
 
+  /// Public entry point for cold-start resume of the last-played item.
+  ///
+  /// Wraps the original widget play/pause handler so the same restore path
+  /// can be invoked from elsewhere (for example from AudioPlayerService when
+  /// a media button press hits the service before the UI has bootstrapped
+  /// the current item).
+  Future<void> resumeLastPlayedIfAvailable() => _handlePlayPause();
+
   Future<void> _handlePlayPause() async {
     final player = AudioPlayerService();
 

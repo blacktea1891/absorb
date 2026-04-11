@@ -723,11 +723,15 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     final id = data['id'] as String?;
     final ts = data['updatedAt'] as num?;
     if (id != null && ts != null) _itemUpdatedAt[id] = ts.toInt();
+    // Invalidate cached session metadata - track URLs may have changed
+    if (id != null) SessionCache.clear(itemId: id);
     loadPersonalizedView(force: true);
     _checkSubscribedPodcastUpdate(data);
   }
 
   void _onRemoteItemRemoved(Map<String, dynamic> data) {
+    final id = data['id'] as String?;
+    if (id != null) SessionCache.clear(itemId: id);
     loadPersonalizedView(force: true);
   }
 

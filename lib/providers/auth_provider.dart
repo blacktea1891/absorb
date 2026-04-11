@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../services/api_service.dart';
 import '../services/android_auto_service.dart';
 import '../services/audio_player_service.dart';
+import '../services/session_cache.dart';
 import '../services/socket_service.dart';
 import '../services/user_account_service.dart';
 import '../main.dart' show scaffoldMessengerKey;
@@ -477,6 +478,10 @@ class AuthProvider extends ChangeNotifier {
 
     // Clear Android Auto browse tree cache so it doesn't show stale data
     AndroidAutoService().clearCache();
+
+    // Clear cached session metadata for this user (track URLs would be invalid
+    // on next login anyway)
+    await SessionCache.clearAll();
 
     // Remove account from saved accounts list
     final logoutServer = _serverUrl;
