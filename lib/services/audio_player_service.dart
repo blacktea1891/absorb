@@ -2621,6 +2621,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   DateTime? _lastPauseTime;
   double _lastAutoRewindAmount = 0;
+  bool _seekedWhilePaused = false;
   bool _wasPlayingBeforeInterrupt = false;
 
   /// Auto-rewind calculation using linear scaling.
@@ -2774,6 +2775,10 @@ class AudioPlayerService extends ChangeNotifier {
       debugPrint('[Player] Skipping session re-create on resume (manualOffline=$manualOffline, isOffline=$_isOfflineMode)');
       return;
     }
+    // Skip server position override if user manually seeked while paused
+    // (e.g. jumped to a different chapter) — respect the intentional seek.
+    final skipOverride = _seekedWhilePaused;
+    _seekedWhilePaused = false;
     try {
       if (_playbackSessionId == null) {
         // Session expired - re-create it
@@ -2783,25 +2788,29 @@ class AudioPlayerService extends ChangeNotifier {
         if (sessionData != null) {
           _playbackSessionId = sessionData['id'] as String?;
           debugPrint('[Player] Re-created session on resume: $_playbackSessionId');
-          final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
-          final localPos = position.inMilliseconds / 1000.0;
-          if (serverPos > localPos + _lastAutoRewindAmount + 5.0) {
-            debugPrint('[Player] Server is ahead on resume: server=${serverPos}s vs local=${localPos}s - seeking');
-            await _seekAbsolute(serverPos);
+          if (!skipOverride) {
+            final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
+            final localPos = position.inMilliseconds / 1000.0;
+            if (serverPos > localPos + _lastAutoRewindAmount + 5.0) {
+              debugPrint('[Player] Server is ahead on resume: server=${serverPos}s vs local=${localPos}s - seeking');
+              await _seekAbsolute(serverPos);
+            }
           }
         }
       } else {
         // Session still active - check server progress in case another client advanced
-        final pKey = _currentEpisodeId != null
-            ? '$_currentItemId-$_currentEpisodeId'
-            : _currentItemId!;
-        final serverProgress = await _api!.getItemProgress(pKey);
-        if (serverProgress != null) {
-          final serverPos = (serverProgress['currentTime'] as num?)?.toDouble() ?? 0;
-          final localPos = position.inMilliseconds / 1000.0;
-          if (serverPos > localPos + _lastAutoRewindAmount + 5.0) {
-            debugPrint('[Player] Server is ahead on resume: server=${serverPos}s vs local=${localPos}s - seeking');
-            await _seekAbsolute(serverPos);
+        if (!skipOverride) {
+          final pKey = _currentEpisodeId != null
+              ? '$_currentItemId-$_currentEpisodeId'
+              : _currentItemId!;
+          final serverProgress = await _api!.getItemProgress(pKey);
+          if (serverProgress != null) {
+            final serverPos = (serverProgress['currentTime'] as num?)?.toDouble() ?? 0;
+            final localPos = position.inMilliseconds / 1000.0;
+            if (serverPos > localPos + _lastAutoRewindAmount + 5.0) {
+              debugPrint('[Player] Server is ahead on resume: server=${serverPos}s vs local=${localPos}s - seeking');
+              await _seekAbsolute(serverPos);
+            }
           }
         }
       }
@@ -2884,6 +2893,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> seekTo(Duration pos) async {
     _resetStuckDetection();
+    if (_player != null && !_player!.playing) _seekedWhilePaused = true;
     final from = position;
     await _seekAbsolute(pos.inMilliseconds / 1000.0);
     _logEvent(PlaybackEventType.seek,
