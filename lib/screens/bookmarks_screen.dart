@@ -360,10 +360,19 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                       else ...[
                         if (_allBookmarks.isNotEmpty) ...[
                           IconButton(
-                            icon: Icon(_sort == 'newest' ? Icons.schedule_rounded : Icons.sort_rounded, color: cs.onSurfaceVariant),
-                            tooltip: _sort == 'newest' ? 'Sorted by newest' : 'Sorted by position',
+                            icon: Icon(
+                              _sort == 'newest' ? Icons.schedule_rounded
+                                  : _sort == 'position' ? Icons.arrow_upward_rounded
+                                  : Icons.arrow_downward_rounded,
+                              color: cs.onSurfaceVariant,
+                            ),
+                            tooltip: _sort == 'newest' ? 'Sorted by newest'
+                                : _sort == 'position' ? 'Sorted by position'
+                                : 'Sorted by position (reversed)',
                             onPressed: () {
-                              final next = _sort == 'newest' ? 'position' : 'newest';
+                              final next = _sort == 'newest' ? 'position'
+                                  : _sort == 'position' ? 'position_desc'
+                                  : 'newest';
                               setState(() => _sort = next);
                               PlayerSettings.setBookmarkSort(next);
                               _load();

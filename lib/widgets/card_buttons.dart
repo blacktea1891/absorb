@@ -589,7 +589,9 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
         Padding(padding: const EdgeInsets.symmetric(horizontal: 20), child: Row(children: [
           GestureDetector(
             onTap: () {
-              final next = _sort == 'newest' ? 'position' : 'newest';
+              final next = _sort == 'newest' ? 'position'
+                  : _sort == 'position' ? 'position_desc'
+                  : 'newest';
               setState(() => _sort = next);
               PlayerSettings.setBookmarkSort(next);
               _load();
@@ -597,7 +599,12 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
             child: Container(
               width: 36, height: 36,
               decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(10)),
-              child: Icon(_sort == 'newest' ? Icons.schedule_rounded : Icons.sort_rounded, color: cs.onSurfaceVariant, size: 20),
+              child: Icon(
+                _sort == 'newest' ? Icons.schedule_rounded
+                    : _sort == 'position' ? Icons.arrow_upward_rounded
+                    : Icons.arrow_downward_rounded,
+                color: cs.onSurfaceVariant, size: 20,
+              ),
             ),
           ),
           const Spacer(),

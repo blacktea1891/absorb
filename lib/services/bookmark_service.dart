@@ -102,6 +102,8 @@ class BookmarkService {
 
     if (sort == 'position') {
       bookmarks.sort((a, b) => a.positionSeconds.compareTo(b.positionSeconds));
+    } else if (sort == 'position_desc') {
+      bookmarks.sort((a, b) => b.positionSeconds.compareTo(a.positionSeconds));
     } else {
       bookmarks.sort((a, b) => b.created.compareTo(a.created));
     }
@@ -325,6 +327,8 @@ class BookmarkService {
       if (bookmarks.isNotEmpty) {
         if (sort == 'position') {
           bookmarks.sort((a, b) => a.positionSeconds.compareTo(b.positionSeconds));
+        } else if (sort == 'position_desc') {
+          bookmarks.sort((a, b) => b.positionSeconds.compareTo(a.positionSeconds));
         } else {
           bookmarks.sort((a, b) => b.created.compareTo(a.created));
         }
