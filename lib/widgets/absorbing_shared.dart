@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/download_service.dart';
 import '../services/playback_history_service.dart';
+import 'overlay_toast.dart';
 
 String dateLabel(DateTime dt) {
   final now = DateTime.now();
@@ -175,7 +176,7 @@ class _DownloadWideButtonState extends State<DownloadWideButton> {
     );
   }
 
-  void _handleTap(BuildContext context) {
+  void _handleTap(BuildContext context) async {
     final auth = context.read<AuthProvider>();
     final api = auth.apiService;
     if (api == null) return;
@@ -188,13 +189,7 @@ class _DownloadWideButtonState extends State<DownloadWideButton> {
           TextButton(onPressed: () {
             _dl.deleteDownload(widget.itemId);
             Navigator.pop(ctx);
-            ScaffoldMessenger.of(context)
-              ..clearSnackBars()
-              ..showSnackBar(const SnackBar(
-                content: Text('Download removed'),
-                duration: Duration(seconds: 2),
-                behavior: SnackBarBehavior.floating,
-              ));
+            showOverlayToast(context, 'Download removed', icon: Icons.delete_outline_rounded);
           },
             child: const Text('Remove', style: TextStyle(color: Colors.redAccent))),
         ],
@@ -202,7 +197,10 @@ class _DownloadWideButtonState extends State<DownloadWideButton> {
     } else if (_dl.isDownloading(widget.itemId)) {
       _dl.cancelDownload(widget.itemId);
     } else {
-      _dl.downloadItem(api: api, itemId: widget.itemId, title: widget.title, author: widget.author, coverUrl: widget.coverUrl, libraryId: context.read<LibraryProvider>().selectedLibraryId);
+      final error = await _dl.downloadItem(api: api, itemId: widget.itemId, title: widget.title, author: widget.author, coverUrl: widget.coverUrl, libraryId: context.read<LibraryProvider>().selectedLibraryId);
+      if (error != null && context.mounted) {
+        showOverlayToast(context, error, icon: Icons.error_outline_rounded);
+      }
     }
   }
 }

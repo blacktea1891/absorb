@@ -10,6 +10,7 @@ import '../services/chromecast_service.dart';
 import '../providers/auth_provider.dart';
 import 'card_buttons.dart';
 import 'html_description.dart';
+import 'overlay_toast.dart';
 import 'playlist_picker_sheet.dart';
 import 'stackable_sheet.dart';
 import 'episode_list_sheet.dart';
@@ -116,7 +117,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       libraryId: context.read<LibraryProvider>().selectedLibraryId,
     );
     if (error != null && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+      showOverlayToast(context, error, icon: Icons.error_outline_rounded);
     }
   }
 
