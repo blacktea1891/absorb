@@ -1558,6 +1558,7 @@ class AudioPlayerService extends ChangeNotifier {
       final bookSpeed = await PlayerSettings.getBookSpeed(speedKey);
       final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
       await _player!.setSpeed(speed);
+      await EqualizerService().switchItem(speedKey);
       debugPrint('[Player] Starting local playback at ${speed}x');
       // Re-activate audio session before play so the first playback event
       // reaches the audio_service iOS plugin with an active session.
@@ -1666,6 +1667,7 @@ class AudioPlayerService extends ChangeNotifier {
       final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
       final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
       await _player!.setSpeed(speed);
+      await EqualizerService().switchItem(itemId);
       debugPrint('[Player] Starting cached session playback at ${speed}x');
       try { (await AudioSession.instance).setActive(true); } catch (_) {}
       _player!.play();
@@ -1858,6 +1860,7 @@ class AudioPlayerService extends ChangeNotifier {
       final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
       final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
       await _player!.setSpeed(speed);
+      await EqualizerService().switchItem(itemId);
       debugPrint('[Player] Starting stream playback at ${speed}x');
       // Re-activate audio session before play (see local playback comment above)
       try { (await AudioSession.instance).setActive(true); } catch (_) {}
@@ -1954,6 +1957,7 @@ class AudioPlayerService extends ChangeNotifier {
               final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
               final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
               await _player!.setSpeed(speed);
+              await EqualizerService().switchItem(itemId);
               debugPrint('[Player] Transcoded playback starting at ${speed}x');
               try { (await AudioSession.instance).setActive(true); } catch (_) {}
               _player!.play();

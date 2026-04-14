@@ -244,6 +244,37 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                   ),
                 ),
 
+                const SizedBox(height: 8),
+
+                // Per-item EQ toggle
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withValues(alpha: 0.04),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.library_music_rounded, size: 18,
+                        color: _eq.perItem ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.2)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text('Per-book EQ', style: TextStyle(
+                          color: _eq.perItem ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24),
+                          fontSize: 12, fontWeight: FontWeight.w500)),
+                      ),
+                      Transform.scale(
+                        scale: 0.8,
+                        child: Switch(
+                          value: _eq.perItem,
+                          activeTrackColor: accent,
+                          onChanged: (v) => _eq.setPerItem(v),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
                 const SizedBox(height: 20),
 
                 // Reset button
@@ -326,6 +357,9 @@ class _EQBandSlider extends StatelessWidget {
         Text(label, style: TextStyle(
           color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.15),
           fontSize: 10, fontWeight: FontWeight.w500)),
+        Text(eq.freqName(frequency), style: TextStyle(
+          color: enabled ? cs.onSurfaceVariant.withValues(alpha: 0.5) : cs.onSurface.withValues(alpha: 0.1),
+          fontSize: 9, fontWeight: FontWeight.w400)),
       ],
     );
   }
