@@ -9,6 +9,7 @@ import '../services/audio_player_service.dart';
 import '../services/bookmark_service.dart';
 import '../services/chromecast_service.dart';
 import '../services/download_service.dart';
+import '../services/equalizer_service.dart';
 import '../services/playback_history_service.dart';
 import '../services/sleep_timer_service.dart';
 import 'absorb_slider.dart';
@@ -86,6 +87,7 @@ class CardWideButton extends StatelessWidget {
   final bool large;
   final bool compact;
   final bool iconsOnly;
+  final bool highlighted;
   final VoidCallback? onTap;
   final Widget? child;
 
@@ -94,7 +96,7 @@ class CardWideButton extends StatelessWidget {
     required this.icon, required this.label,
     required this.accent, required this.isActive,
     this.alwaysEnabled = false, this.large = false, this.compact = false,
-    this.iconsOnly = false, this.onTap, this.child,
+    this.iconsOnly = false, this.highlighted = false, this.onTap, this.child,
   });
 
   @override Widget build(BuildContext context) {
@@ -106,24 +108,27 @@ class CardWideButton extends StatelessWidget {
     final vPad = compact ? 8.0 : (large ? 14.0 : 10.0);
     final radius = compact ? 10.0 : (large ? 14.0 : 12.0);
     final showIconOnly = compact || iconsOnly;
+    final fgColor = highlighted
+        ? accent
+        : (enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24));
     return Pressable(
       onTap: enabled ? onTap : () => showInactiveToast(context),
       child: Container(
         padding: EdgeInsets.symmetric(vertical: vPad),
         decoration: BoxDecoration(
-          color: cs.onSurface.withValues(alpha: 0.06),
+          color: highlighted ? accent.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.06),
           borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+          border: Border.all(color: highlighted ? accent.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.08)),
         ),
         child: showIconOnly
-          ? Center(child: Icon(icon, size: iconSize, color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)))
+          ? Center(child: Icon(icon, size: iconSize, color: fgColor))
           : Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(icon, size: iconSize, color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
+                Icon(icon, size: iconSize, color: fgColor),
                 const SizedBox(width: 6),
                 Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
-                  color: enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24),
+                  color: fgColor,
                   fontSize: fontSize, fontWeight: FontWeight.w500))),
               ],
             ),
@@ -1108,78 +1113,98 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
                     child: child,
                   );
                 },
-                itemCount: _order.length,
+                // +1 slot for the section divider, rendered as its own non-draggable item
+                // at index == _visibleCount. Giving the divider its own slot lets users drop
+                // at the top of hidden / bottom of visible without the `newIdx--` adjustment
+                // swallowing the drop zone, and keeps the section header from dragging along
+                // with the first hidden item.
+                itemCount: _order.length + 1,
                 onReorder: (oldIdx, newIdx) {
+                  // Divider is not draggable, so oldIdx should never equal _visibleCount.
+                  if (oldIdx == _visibleCount) return;
+                  if (newIdx > oldIdx) newIdx--;
                   setState(() {
-                    if (newIdx > oldIdx) newIdx--;
-                    final id = _order[oldIdx];
-                    // Prevent _more from leaving visible zone
-                    if (id == '_more' && newIdx >= _visibleCount) {
-                      newIdx = _visibleCount - 1;
+                    // Build a combined list with a sentinel at the divider position,
+                    // simulate the move, then derive new _order and _visibleCount
+                    // from where the sentinel lands.
+                    const div = '__DIV__';
+                    final combined = <String>[];
+                    for (int i = 0; i <= _order.length; i++) {
+                      if (i == _visibleCount) combined.add(div);
+                      if (i < _order.length) combined.add(_order[i]);
                     }
-                    final movedOut = oldIdx < _visibleCount && newIdx >= _visibleCount;
-                    final movedIn = oldIdx >= _visibleCount && newIdx < _visibleCount;
-                    // Cap: max 9 total visible slots (including _more)
-                    if (movedIn && _visibleCount >= 9) return;
-                    _order.removeAt(oldIdx);
-                    _order.insert(newIdx, id);
-                    if (movedOut) _visibleCount--;
-                    if (movedIn) _visibleCount++;
-                    _visibleCount = _visibleCount.clamp(1, _order.length);
+                    final moved = combined.removeAt(oldIdx);
+                    final insertAt = newIdx.clamp(0, combined.length);
+                    combined.insert(insertAt, moved);
+
+                    final newDivIdx = combined.indexOf(div);
+                    combined.removeAt(newDivIdx);
+
+                    // Constraints: at least 1 visible, _more stays visible, cap 9 visible
+                    int newVisible = newDivIdx;
+                    if (newVisible < 1) return;
+                    if (newVisible > 9) return;
+                    if (newVisible > combined.length) newVisible = combined.length;
+                    final moreIdx = combined.indexOf('_more');
+                    if (moreIdx != -1 && moreIdx >= newVisible) return;
+
+                    _order
+                      ..clear()
+                      ..addAll(combined);
+                    _visibleCount = newVisible;
                   });
                 },
                 itemBuilder: (context, i) {
-                  final id = _order[i];
+                  // Divider slot - rendered as its own non-draggable list item.
+                  if (i == _visibleCount) {
+                    return Padding(
+                      key: const ValueKey('__DIV__'),
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      child: Row(children: [
+                        Expanded(child: Divider(color: cs.onSurface.withValues(alpha: 0.12))),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(_moreInline ? 'Hidden' : 'In menu',
+                            style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.4))),
+                        ),
+                        Expanded(child: Divider(color: cs.onSurface.withValues(alpha: 0.12))),
+                      ]),
+                    );
+                  }
+
+                  final orderIdx = i < _visibleCount ? i : i - 1;
+                  final id = _order[orderIdx];
                   final isMore = id == '_more';
                   final def = isMore ? null : buttonDefById(id);
                   if (def == null && !isMore) return SizedBox.shrink(key: ValueKey(id));
 
-                  final isOnCard = i < _visibleCount;
-                  final showDivider = i == _visibleCount;
+                  final isOnCard = orderIdx < _visibleCount;
 
-                  return Column(
+                  return Padding(
                     key: ValueKey(id),
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (showDivider)
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                          child: Row(children: [
-                            Expanded(child: Divider(color: cs.onSurface.withValues(alpha: 0.12))),
-                            Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 12),
-                              child: Text(_moreInline ? 'Hidden' : 'In menu',
-                                style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.4))),
-                            ),
-                            Expanded(child: Divider(color: cs.onSurface.withValues(alpha: 0.12))),
-                          ]),
-                        ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                          decoration: BoxDecoration(
-                            color: isOnCard ? widget.accent.withValues(alpha: 0.08) : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(children: [
-                            Icon(isMore ? Icons.more_horiz_rounded : def!.icon, size: 20,
-                              color: id == 'remove' ? Colors.red.shade300 : cs.onSurface.withValues(alpha: 0.7)),
-                            const SizedBox(width: 12),
-                            Expanded(child: Text(isMore ? 'More' : def!.label, style: tt.bodyMedium)),
-                            if (isOnCard)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Text('${i + 1}', style: tt.labelSmall?.copyWith(color: widget.accent, fontWeight: FontWeight.w700)),
-                              ),
-                            ReorderableDragStartListener(
-                              index: i,
-                              child: Icon(Icons.drag_handle_rounded, size: 20, color: cs.onSurface.withValues(alpha: 0.3)),
-                            ),
-                          ]),
-                        ),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isOnCard ? widget.accent.withValues(alpha: 0.08) : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
                       ),
-                    ],
+                      child: Row(children: [
+                        Icon(isMore ? Icons.more_horiz_rounded : def!.icon, size: 20,
+                          color: id == 'remove' ? Colors.red.shade300 : cs.onSurface.withValues(alpha: 0.7)),
+                        const SizedBox(width: 12),
+                        Expanded(child: Text(isMore ? 'More' : def!.label, style: tt.bodyMedium)),
+                        if (isOnCard)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Text('${orderIdx + 1}', style: tt.labelSmall?.copyWith(color: widget.accent, fontWeight: FontWeight.w700)),
+                          ),
+                        ReorderableDragStartListener(
+                          index: i,
+                          child: Icon(Icons.drag_handle_rounded, size: 20, color: cs.onSurface.withValues(alpha: 0.3)),
+                        ),
+                      ]),
+                    ),
                   );
                 },
               ),
@@ -1347,6 +1372,16 @@ class CardActionDelegate {
     );
   }
 
+  /// True when this card's EQ is actively shaping audio:
+  /// - global EQ mode: any card glows when the single EQ is on
+  /// - per-book mode: only cards whose book has saved EQ enabled
+  Future<bool> _resolveEqHighlight(EqualizerService eq, String id) async {
+    if (!eq.perItem) return eq.enabled;
+    if (id == eq.currentItemId) return eq.enabled;
+    final snap = await eq.loadItemSnapshot(id);
+    return snap['enabled'] as bool;
+  }
+
   Widget buildCardButton(String id, Color accent, TextTheme tt, {bool compact = false, bool short = false, bool iconsOnly = false}) {
     final large = MediaQuery.sizeOf(context).height > 700;
     switch (id) {
@@ -1385,10 +1420,24 @@ class CardActionDelegate {
           onTap: () => _openDetails(),
         );
       case 'equalizer':
-        return CardWideButton(
-          icon: Icons.equalizer_rounded, label: compact ? 'EQ' : 'Equalizer',
-          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
-          onTap: () => showEqualizerSheet(context, accent),
+        return ListenableBuilder(
+          listenable: EqualizerService(),
+          builder: (_, __) {
+            final eq = EqualizerService();
+            return FutureBuilder<bool>(
+              future: _resolveEqHighlight(eq, itemId),
+              builder: (_, snap) {
+                final highlighted = snap.data ?? false;
+                return CardWideButton(
+                  icon: Icons.equalizer_rounded, label: compact ? 'EQ' : 'Equalizer',
+                  accent: accent, isActive: true, alwaysEnabled: true,
+                  highlighted: highlighted,
+                  large: large, compact: compact, iconsOnly: iconsOnly,
+                  onTap: () => showEqualizerSheet(context, accent, itemId: itemId, itemTitle: title),
+                );
+              },
+            );
+          },
         );
       case 'cast':
         return ListenableBuilder(
@@ -1501,7 +1550,7 @@ class CardActionDelegate {
       case 'equalizer':
         return MoreMenuItem(
           icon: Icons.equalizer_rounded, label: 'Equalizer', accent: accent,
-          onTap: () { Navigator.pop(ctx); showEqualizerSheet(context, accent); },
+          onTap: () { Navigator.pop(ctx); showEqualizerSheet(context, accent, itemId: itemId, itemTitle: title); },
         );
       case 'cast':
         return ListenableBuilder(
