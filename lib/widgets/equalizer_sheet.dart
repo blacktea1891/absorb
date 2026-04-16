@@ -2,7 +2,11 @@ import 'package:flutter/material.dart';
 import '../services/equalizer_service.dart';
 
 /// Show the equalizer & audio enhancements bottom sheet.
-void showEqualizerSheet(BuildContext context, Color accent) {
+///
+/// [itemId] and [itemTitle] identify which card the sheet was opened from;
+/// in per-book EQ mode, the sheet uses them to show whether the displayed
+/// EQ belongs to that card's book or to whatever is currently playing.
+void showEqualizerSheet(BuildContext context, Color accent, {String? itemId, String? itemTitle}) {
   showModalBottomSheet(
     context: context,
     isScrollControlled: true,
@@ -13,7 +17,12 @@ void showEqualizerSheet(BuildContext context, Color accent) {
       initialChildSize: 0.75,
       minChildSize: 0.05, snap: true,
       maxChildSize: 0.92,
-      builder: (ctx, sc) => _EqualizerSheetContent(accent: accent, scrollController: sc),
+      builder: (ctx, sc) => _EqualizerSheetContent(
+        accent: accent,
+        scrollController: sc,
+        openedForItemId: itemId,
+        openedForItemTitle: itemTitle,
+      ),
     ),
   );
 }
@@ -21,7 +30,14 @@ void showEqualizerSheet(BuildContext context, Color accent) {
 class _EqualizerSheetContent extends StatefulWidget {
   final Color accent;
   final ScrollController scrollController;
-  const _EqualizerSheetContent({required this.accent, required this.scrollController});
+  final String? openedForItemId;
+  final String? openedForItemTitle;
+  const _EqualizerSheetContent({
+    required this.accent,
+    required this.scrollController,
+    this.openedForItemId,
+    this.openedForItemTitle,
+  });
 
   @override
   State<_EqualizerSheetContent> createState() => _EqualizerSheetContentState();
@@ -30,12 +46,24 @@ class _EqualizerSheetContent extends StatefulWidget {
 class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
   final _eq = EqualizerService();
 
+  // Preview mode: the sheet was opened from a card whose book isn't currently
+  // playing. We load that item's saved EQ into local state, render from it,
+  // and write edits back to that item's storage without touching the platform
+  // (which is still applying the playing book's EQ).
+  bool _previewMode = false;
+  bool _previewLoaded = false;
+  bool _pEnabled = false;
+  String _pPreset = 'flat';
+  List<double> _pBands = [];
+  double _pBass = 0.0, _pVirt = 0.0, _pLoud = 0.0;
+  bool _pMono = false;
+
   @override
   void initState() {
     super.initState();
     _eq.addListener(_rebuild);
-    // Ensure EQ is initialized
     if (!_eq.available) _eq.init();
+    _syncPreviewMode();
   }
 
   @override
@@ -45,7 +73,195 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
   }
 
   void _rebuild() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _syncPreviewMode();
+    setState(() {});
+  }
+
+  void _syncPreviewMode() {
+    final shouldPreview = _eq.perItem
+        && widget.openedForItemId != null
+        && widget.openedForItemId != _eq.currentItemId;
+    if (shouldPreview && !_previewMode) {
+      _previewMode = true;
+      _previewLoaded = false;
+      // Seed the buffer so the UI has a valid shape (correct band count)
+      // until loadItemSnapshot returns. These defaults get overwritten
+      // once the real saved snapshot loads.
+      _pBands = List<double>.filled(_eq.bandLevels.length, 0.0);
+      _pEnabled = false;
+      _pPreset = 'flat';
+      _pBass = 0.0;
+      _pVirt = 0.0;
+      _pLoud = 0.0;
+      _pMono = false;
+      _loadPreview();
+    } else if (!shouldPreview && _previewMode) {
+      _previewMode = false;
+      _previewLoaded = false;
+    }
+  }
+
+  Future<void> _loadPreview() async {
+    final id = widget.openedForItemId;
+    if (id == null) return;
+    final snap = await _eq.loadItemSnapshot(id);
+    if (!mounted) return;
+    setState(() {
+      _pEnabled = snap['enabled'] as bool;
+      _pPreset = snap['preset'] as String;
+      _pBass = snap['bassBoost'] as double;
+      _pVirt = snap['virtualizer'] as double;
+      _pLoud = snap['loudnessGain'] as double;
+      _pMono = snap['mono'] as bool;
+      _pBands = List<double>.from((snap['bands'] as List).cast<double>());
+      _previewLoaded = true;
+    });
+  }
+
+  Future<void> _savePreview() async {
+    final id = widget.openedForItemId;
+    if (id == null) return;
+    await _eq.saveItemSnapshot(id, {
+      'enabled': _pEnabled,
+      'preset': _pPreset,
+      'bassBoost': _pBass,
+      'virtualizer': _pVirt,
+      'loudnessGain': _pLoud,
+      'mono': _pMono,
+      'bands': _pBands,
+    });
+  }
+
+  // Branching getters - read from preview buffer when previewing, else service.
+  bool get _vEnabled => _previewMode ? _pEnabled : _eq.enabled;
+  String get _vPreset => _previewMode ? _pPreset : _eq.activePreset;
+  List<double> get _vBands => _previewMode ? _pBands : _eq.bandLevels;
+  double get _vBass => _previewMode ? _pBass : _eq.bassBoost;
+  double get _vVirt => _previewMode ? _pVirt : _eq.virtualizer;
+  double get _vLoud => _previewMode ? _pLoud : _eq.loudnessGain;
+  bool get _vMono => _previewMode ? _pMono : _eq.mono;
+
+  void _setEnabled(bool v) {
+    if (_previewMode) {
+      setState(() => _pEnabled = v);
+      _savePreview();
+    } else {
+      _eq.setEnabled(v);
+    }
+  }
+
+  void _applyPreset(String name) {
+    if (_previewMode) {
+      final curve = EqualizerService.presets[name];
+      if (curve == null) return;
+      setState(() {
+        _pPreset = name;
+        for (int i = 0; i < _pBands.length; i++) {
+          final idx = (i * curve.length / _pBands.length).floor().clamp(0, curve.length - 1);
+          _pBands[i] = curve[idx].clamp(_eq.minLevel, _eq.maxLevel);
+        }
+      });
+      _savePreview();
+    } else {
+      _eq.applyPreset(name);
+    }
+  }
+
+  void _setBand(int i, double v) {
+    if (_previewMode) {
+      if (i < 0 || i >= _pBands.length) return;
+      setState(() {
+        _pBands[i] = v.clamp(_eq.minLevel, _eq.maxLevel);
+        _pPreset = 'custom';
+      });
+      _savePreview();
+    } else {
+      _eq.setBandLevel(i, v);
+    }
+  }
+
+  void _setBass(double v) {
+    if (_previewMode) {
+      setState(() => _pBass = v.clamp(0.0, 1.0));
+      _savePreview();
+    } else {
+      _eq.setBassBoost(v);
+    }
+  }
+
+  void _setVirt(double v) {
+    if (_previewMode) {
+      setState(() => _pVirt = v.clamp(0.0, 1.0));
+      _savePreview();
+    } else {
+      _eq.setVirtualizer(v);
+    }
+  }
+
+  void _setLoud(double v) {
+    if (_previewMode) {
+      setState(() => _pLoud = v.clamp(0.0, 1.0));
+      _savePreview();
+    } else {
+      _eq.setLoudnessGain(v);
+    }
+  }
+
+  void _setMono(bool v) {
+    if (_previewMode) {
+      setState(() => _pMono = v);
+      _savePreview();
+    } else {
+      _eq.setMono(v);
+    }
+  }
+
+  void _resetAll() {
+    if (_previewMode) {
+      setState(() {
+        _pPreset = 'flat';
+        _pBands = List<double>.filled(_pBands.length, 0.0);
+        _pBass = 0.0;
+        _pVirt = 0.0;
+        _pLoud = 0.0;
+        _pMono = false;
+      });
+      _savePreview();
+    } else {
+      _eq.resetAll();
+    }
+  }
+
+  /// Shown only in preview mode (per-book EQ on, viewing a non-playing book's
+  /// settings). The sliders already reflect the correct book's EQ, but we
+  /// still surface the fact that edits won't hit live playback right now.
+  Widget _buildScopeBanner(ColorScheme cs, TextTheme tt, Color accent) {
+    if (!_previewMode) return const SizedBox.shrink();
+
+    final message = widget.openedForItemTitle != null
+        ? 'Editing saved EQ for "${widget.openedForItemTitle}" - applies when it plays'
+        : 'Editing saved EQ for this book - applies when it plays';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: cs.onSurfaceVariant.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: cs.onSurfaceVariant.withValues(alpha: 0.2)),
+        ),
+        child: Row(children: [
+          Icon(Icons.edit_note_rounded, size: 16, color: cs.onSurfaceVariant),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(message, style: tt.labelSmall?.copyWith(
+              color: cs.onSurface.withValues(alpha: 0.75), height: 1.3)),
+          ),
+        ]),
+      ),
+    );
   }
 
   @override
@@ -83,14 +299,50 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                 Transform.scale(
                   scale: 0.8,
                   child: Switch(
-                    value: _eq.enabled,
+                    value: _vEnabled,
                     activeTrackColor: accent,
-                    onChanged: (v) => _eq.setEnabled(v),
+                    onChanged: (v) => _setEnabled(v),
                   ),
                 ),
               ],
             ),
           ),
+          // Per-book EQ toggle - lives up top so users can tell at a glance
+          // whether EQ is per-book or global, and flip it without scrolling.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 0),
+            child: GestureDetector(
+              onTap: () => _eq.setPerItem(!_eq.perItem),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _eq.perItem ? accent.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: _eq.perItem ? accent.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.08)),
+                ),
+                child: Row(children: [
+                  Icon(Icons.library_music_rounded, size: 16,
+                    color: _eq.perItem ? accent : cs.onSurfaceVariant),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text('Per-book EQ',
+                      style: tt.labelMedium?.copyWith(
+                        color: _eq.perItem ? accent : cs.onSurface.withValues(alpha: 0.75),
+                        fontWeight: FontWeight.w600)),
+                  ),
+                  Transform.scale(
+                    scale: 0.7,
+                    child: Switch(
+                      value: _eq.perItem,
+                      activeTrackColor: accent,
+                      onChanged: (v) => _eq.setPerItem(v),
+                    ),
+                  ),
+                ]),
+              ),
+            ),
+          ),
+          _buildScopeBanner(cs, tt, accent),
           const SizedBox(height: 4),
           // Content
           Expanded(
@@ -106,9 +358,9 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                 Wrap(
                   spacing: 8, runSpacing: 8,
                   children: EqualizerService.presets.keys.map((name) {
-                    final isActive = _eq.activePreset == name;
+                    final isActive = _vPreset == name;
                     return GestureDetector(
-                      onTap: _eq.enabled ? () => _eq.applyPreset(name) : null,
+                      onTap: _vEnabled ? () => _applyPreset(name) : null,
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 150),
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -122,7 +374,7 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                         child: Text(
                           name[0].toUpperCase() + name.substring(1),
                           style: TextStyle(
-                            color: _eq.enabled
+                            color: _vEnabled
                                 ? (isActive ? accent : cs.onSurface.withValues(alpha: 0.7))
                                 : cs.onSurface.withValues(alpha: 0.24),
                             fontSize: 12,
@@ -133,11 +385,11 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                     );
                   }).toList(),
                 ),
-                if (_eq.activePreset == 'custom')
+                if (_vPreset == 'custom')
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: GestureDetector(
-                      onTap: _eq.enabled ? () => _eq.applyPreset('flat') : null,
+                      onTap: _vEnabled ? () => _applyPreset('flat') : null,
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                         decoration: BoxDecoration(
@@ -160,16 +412,16 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                   height: 200,
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: List.generate(_eq.bandLevels.length, (i) {
+                    children: List.generate(_vBands.length, (i) {
                       return Expanded(
                         child: _EQBandSlider(
                           frequency: i < _eq.bandFrequencies.length ? _eq.bandFrequencies[i] : 0,
-                          level: _eq.bandLevels[i],
+                          level: _vBands[i],
                           minLevel: _eq.minLevel,
                           maxLevel: _eq.maxLevel,
                           accent: accent,
-                          enabled: _eq.enabled,
-                          onChanged: (v) => _eq.setBandLevel(i, v),
+                          enabled: _vEnabled,
+                          onChanged: (v) => _setBand(i, v),
                         ),
                       );
                     }),
@@ -186,10 +438,10 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                 _EffectRow(
                   icon: Icons.speaker_rounded,
                   label: 'Bass Boost',
-                  value: _eq.bassBoost,
+                  value: _vBass,
                   accent: accent,
-                  enabled: _eq.enabled,
-                  onChanged: (v) => _eq.setBassBoost(v),
+                  enabled: _vEnabled,
+                  onChanged: (v) => _setBass(v),
                 ),
                 const SizedBox(height: 8),
 
@@ -197,10 +449,10 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                 _EffectRow(
                   icon: Icons.surround_sound_rounded,
                   label: 'Surround',
-                  value: _eq.virtualizer,
+                  value: _vVirt,
                   accent: accent,
-                  enabled: _eq.enabled,
-                  onChanged: (v) => _eq.setVirtualizer(v),
+                  enabled: _vEnabled,
+                  onChanged: (v) => _setVirt(v),
                 ),
                 const SizedBox(height: 8),
 
@@ -208,10 +460,10 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                 _EffectRow(
                   icon: Icons.volume_up_rounded,
                   label: 'Loudness',
-                  value: _eq.loudnessGain,
+                  value: _vLoud,
                   accent: accent,
-                  enabled: _eq.enabled,
-                  onChanged: (v) => _eq.setLoudnessGain(v),
+                  enabled: _vEnabled,
+                  onChanged: (v) => _setLoud(v),
                 ),
                 const SizedBox(height: 8),
 
@@ -225,50 +477,19 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                   child: Row(
                     children: [
                       Icon(Icons.headphones_rounded, size: 18,
-                        color: _eq.mono ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.2)),
+                        color: _vMono ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.2)),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text('Mono Audio', style: TextStyle(
-                          color: _eq.mono ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24),
+                          color: _vMono ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24),
                           fontSize: 12, fontWeight: FontWeight.w500)),
                       ),
                       Transform.scale(
                         scale: 0.8,
                         child: Switch(
-                          value: _eq.mono,
+                          value: _vMono,
                           activeTrackColor: accent,
-                          onChanged: (v) => _eq.setMono(v),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 8),
-
-                // Per-item EQ toggle
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: cs.onSurface.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.library_music_rounded, size: 18,
-                        color: _eq.perItem ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.2)),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text('Per-book EQ', style: TextStyle(
-                          color: _eq.perItem ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24),
-                          fontSize: 12, fontWeight: FontWeight.w500)),
-                      ),
-                      Transform.scale(
-                        scale: 0.8,
-                        child: Switch(
-                          value: _eq.perItem,
-                          activeTrackColor: accent,
-                          onChanged: (v) => _eq.setPerItem(v),
+                          onChanged: (v) => _setMono(v),
                         ),
                       ),
                     ],
@@ -280,11 +501,11 @@ class _EqualizerSheetContentState extends State<_EqualizerSheetContent> {
                 // Reset button
                 Center(
                   child: TextButton.icon(
-                    onPressed: _eq.enabled ? () => _eq.resetAll() : null,
+                    onPressed: _vEnabled ? () => _resetAll() : null,
                     icon: Icon(Icons.refresh_rounded, size: 18,
-                      color: _eq.enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.12)),
+                      color: _vEnabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.12)),
                     label: Text('Reset All', style: TextStyle(
-                      color: _eq.enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.12),
+                      color: _vEnabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.12),
                       fontSize: 13)),
                   ),
                 ),

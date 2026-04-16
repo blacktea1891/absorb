@@ -52,6 +52,7 @@ class EqualizerService extends ChangeNotifier {
   double get loudnessGain => _loudnessGain;
   bool get mono => _mono;
   bool get perItem => _perItem;
+  String? get currentItemId => _currentItemId;
 
   /// Initialize — try to connect to platform EQ, fall back to software presets.
   Future<void> init() async {
@@ -275,6 +276,49 @@ class EqualizerService extends ChangeNotifier {
   // ── Persistence ──
 
   String _itemKey(String key, String itemId) => 'eq_${itemId}_$key';
+
+  /// Read an item's persisted EQ settings without mutating service state.
+  /// Used by the EQ sheet to preview/edit a non-playing item's EQ.
+  Future<Map<String, dynamic>> loadItemSnapshot(String itemId) async {
+    final bandCount = _bandLevels.isEmpty ? 5 : _bandLevels.length;
+    final hasItemEq = await ScopedPrefs.containsKey(_itemKey('enabled', itemId));
+    if (!hasItemEq) {
+      return {
+        'enabled': false,
+        'preset': 'flat',
+        'bassBoost': 0.0,
+        'virtualizer': 0.0,
+        'loudnessGain': 0.0,
+        'mono': false,
+        'bands': List<double>.filled(bandCount, 0.0),
+      };
+    }
+    final bandStr = await ScopedPrefs.getString(_itemKey('bands', itemId));
+    final bands = bandStr != null
+        ? bandStr.split(',').map((s) => double.tryParse(s) ?? 0.0).toList()
+        : List<double>.filled(bandCount, 0.0);
+    return {
+      'enabled': await ScopedPrefs.getBool(_itemKey('enabled', itemId)) ?? false,
+      'preset': await ScopedPrefs.getString(_itemKey('preset', itemId)) ?? 'flat',
+      'bassBoost': await ScopedPrefs.getDouble(_itemKey('bassBoost', itemId)) ?? 0.0,
+      'virtualizer': await ScopedPrefs.getDouble(_itemKey('virtualizer', itemId)) ?? 0.0,
+      'loudnessGain': await ScopedPrefs.getDouble(_itemKey('loudnessGain', itemId)) ?? 0.0,
+      'mono': await ScopedPrefs.getBool(_itemKey('mono', itemId)) ?? false,
+      'bands': bands,
+    };
+  }
+
+  /// Persist a full snapshot to an item's storage without affecting live state.
+  Future<void> saveItemSnapshot(String itemId, Map<String, dynamic> s) async {
+    await ScopedPrefs.setBool(_itemKey('enabled', itemId), s['enabled'] as bool);
+    await ScopedPrefs.setString(_itemKey('preset', itemId), s['preset'] as String);
+    await ScopedPrefs.setDouble(_itemKey('bassBoost', itemId), s['bassBoost'] as double);
+    await ScopedPrefs.setDouble(_itemKey('virtualizer', itemId), s['virtualizer'] as double);
+    await ScopedPrefs.setDouble(_itemKey('loudnessGain', itemId), s['loudnessGain'] as double);
+    await ScopedPrefs.setBool(_itemKey('mono', itemId), s['mono'] as bool);
+    final bands = (s['bands'] as List).cast<double>();
+    await ScopedPrefs.setString(_itemKey('bands', itemId), bands.map((l) => l.toStringAsFixed(1)).join(','));
+  }
 
   Future<void> _loadItemSettings(String itemId) async {
     final hasItemEq = await ScopedPrefs.containsKey(_itemKey('enabled', itemId));
