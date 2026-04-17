@@ -1044,10 +1044,11 @@ class AudioPlayerService extends ChangeNotifier {
       avAudioSessionCategoryOptions: Platform.isIOS
           ? AVAudioSessionCategoryOptions.none
           : AVAudioSessionCategoryOptions.duckOthers,
-      // Android: use music content type to avoid speech-specific volume normalization
-      // that makes audiobooks quieter than music apps on Pixel and other devices
+      // Android: speech content type enables OS voice-intelligibility
+      // processing so audiobooks play at normal listening levels. Matches the
+      // reference ABS Android client.
       androidAudioAttributes: AndroidAudioAttributes(
-        contentType: AndroidAudioContentType.music,
+        contentType: AndroidAudioContentType.speech,
         usage: AndroidAudioUsage.media,
       ),
       androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
