@@ -1,6 +1,8 @@
 {
   "@@locale": "zh",
+
   "appTitle": "A B S O R B",
+
   "online": "在线",
   "offline": "离线",
   "retry": "重试",
@@ -26,6 +28,7 @@
   "untitled": "无标题",
   "noThanks": "不了，谢谢",
   "stay": "保留",
+
   "homeTitle": "首页",
   "continueListening": "继续收听",
   "continueSeries": "继续收听系列",
@@ -39,6 +42,7 @@
   "downloadBooksWhileOnline": "在线时下载书籍以离线收听",
   "customizeHome": "自定义首页",
   "dragToReorderTapEye": "拖动排序，点击眼睛图标显示/隐藏",
+
   "loginTagline": "开始收听之旅",
   "loginConnectToServer": "连接到您的服务器",
   "loginServerAddress": "服务器地址",
@@ -77,6 +81,7 @@
   "loginRestoreFailed": "恢复失败: {error}",
   "@loginRestoreFailed": { "placeholders": { "error": { "type": "String" } } },
   "loginSavedAccounts": "已保存账户",
+
   "libraryTitle": "媒体库",
   "librarySearchBooksHint": "搜索书籍、系列和作者...",
   "librarySearchShowsHint": "搜索播客和单集...",
@@ -106,6 +111,7 @@
   "@libraryAuthorsCount": { "placeholders": { "count": { "type": "int" } } },
   "libraryBooksCount": "已加载 {loaded}/{total} 本书",
   "@libraryBooksCount": { "placeholders": { "loaded": { "type": "int" }, "total": { "type": "int" } } },
+
   "sort": "排序",
   "filter": "筛选",
   "filterActive": "筛选 ●",
@@ -128,6 +134,7 @@
   "noGenresFound": "未找到分类",
   "asc": "升序",
   "desc": "降序",
+
   "absorbingTitle": "正在收听",
   "absorbingStop": "停止",
   "absorbingManageQueue": "管理队列",
@@ -140,12 +147,14 @@
   "absorbingDownloadBooksToListen": "下载书籍以离线收听",
   "absorbingStartEpisodeFromShows": "从播客标签页开始播放剧集",
   "absorbingStartBookFromLibrary": "从媒体库标签页开始播放书籍",
+
   "carModeTitle": "车载模式",
   "carModeNoBookLoaded": "未加载书籍",
   "carModeBookLabel": "书籍",
   "carModeChapterLabel": "章节",
   "carModeBookmarkDefault": "书签",
   "carModeBookmarkAdded": "已添加书签",
+
   "downloadsTitle": "下载",
   "downloadsCancelSelection": "取消选择",
   "downloadsSelect": "选择",
@@ -168,6 +177,7 @@
   "@downloadsRemovedTitle": { "placeholders": { "title": { "type": "String" } } },
   "downloadsSelectedCount": "已选择 {count} 项",
   "@downloadsSelectedCount": { "placeholders": { "count": { "type": "int" } } },
+
   "bookmarksTitle": "全部书签",
   "bookmarksCancelSelection": "取消选择",
   "bookmarksSortedByNewest": "按最新排序",
@@ -187,6 +197,7 @@
   "bookmarksCouldNotLoad": "无法加载书籍",
   "bookmarksSelectedCount": "已选择 {count} 项",
   "@bookmarksSelectedCount": { "placeholders": { "count": { "type": "int" } } },
+
   "statsTitle": "你的统计",
   "statsCouldNotLoad": "无法加载统计数据",
   "statsTotalListeningTime": "总收听时长",
@@ -208,12 +219,14 @@
   "statsLast7Days": "过去7天",
   "statsMostListened": "收听最多",
   "statsRecentSessions": "最近会话",
+
   "appShellHomeTab": "首页",
   "appShellLibraryTab": "媒体库",
   "appShellAbsorbingTab": "正在收听",
   "appShellStatsTab": "统计",
   "appShellSettingsTab": "设置",
   "appShellPressBackToExit": "再按一次返回键退出",
+
   "settingsTitle": "设置",
   "sectionAppearance": "外观",
   "themeLabel": "主题",
@@ -238,6 +251,7 @@
   "rectangleBookCovers": "矩形书籍封面",
   "rectangleBookCoversOnSubtitle": "封面以 2:3 的书籍比例显示",
   "rectangleBookCoversOffSubtitle": "封面为正方形",
+
   "sectionAbsorbingCards": "收听卡片",
   "fullScreenPlayer": "全屏播放器",
   "fullScreenPlayerOnSubtitle": "开启 - 播放时以全屏方式打开书籍",
@@ -278,6 +292,7 @@
   "autoDownloadQueueOnSubtitle": "保留接下来 {count} 个项目的下载",
   "@autoDownloadQueueOnSubtitle": { "placeholders": { "count": { "type": "int" } } },
   "autoDownloadQueueOffSubtitle": "关闭 - 仅手动下载",
+
   "sectionPlayback": "播放",
   "defaultSpeed": "默认速度",
   "defaultSpeedSubtitle": "新书以此速度开始播放 - 每本书会记住自己的速度",
@@ -305,6 +320,7 @@
   "rewindNoRewind": "不倒回",
   "rewindSeconds": "倒回 {seconds} 秒",
   "@rewindSeconds": { "placeholders": { "seconds": { "type": "String" } } },
+
   "sectionSleepTimer": "睡眠定时器",
   "sleep": "睡眠",
   "sleepTimer": "睡眠定时器",
@@ -338,6 +354,7 @@
   "cancelTimer": "取消定时器",
   "chaptersLeftCount": "剩余 {count} 章",
   "@chaptersLeftCount": { "placeholders": { "count": { "type": "int" } } },
+
   "sectionDownloadsAndStorage": "下载与存储",
   "downloadOverWifiOnly": "仅在 Wi-Fi 下下载",
   "downloadOverWifiOnSubtitle": "开启 - 禁止使用移动数据下载",
@@ -374,6 +391,7 @@
   "@streamingCacheOnSubtitle": { "placeholders": { "size": { "type": "int" } } },
   "clearCache": "清除缓存",
   "streamingCacheCleared": "流式缓存已清除",
+
   "sectionLibrary": "媒体库",
   "hideEbookOnlyTitles": "隐藏仅含电子书的标题",
   "hideEbookOnlyOnSubtitle": "隐藏没有音频文件的书籍",
@@ -381,6 +399,7 @@
   "showGoodreadsButton": "显示 Goodreads 按钮",
   "showGoodreadsOnSubtitle": "书籍详情页显示 Goodreads 的链接",
   "showGoodreadsOffSubtitle": "关 - 隐藏 Goodreads 按钮",
+
   "sectionPermissions": "权限",
   "notifications": "通知",
   "notificationsSubtitle": "用于下载进度和播放控制",
@@ -388,6 +407,7 @@
   "unrestrictedBattery": "无限制电池权限",
   "unrestrictedBatterySubtitle": "防止 Android 终止后台播放",
   "batteryAlreadyUnrestricted": "电池优化已关闭",
+
   "sectionIssuesAndSupport": "问题与支持",
   "bugsAndFeatureRequests": "错误报告与功能请求",
   "bugsAndFeatureRequestsSubtitle": "在 GitHub 上提交问题",
@@ -406,6 +426,7 @@
   "@failedToShare": { "placeholders": { "error": { "type": "String" } } },
   "clearLogs": "清除日志",
   "logsCleared": "日志已清除",
+
   "sectionAdvanced": "高级",
   "localServer": "本地服务器",
   "localServerInfoTitle": "本地服务器",
@@ -429,6 +450,7 @@
   "trustAllCertificatesInfoContent": "如果你的 Audiobookshelf 服务器使用自签名证书或自定义根 CA，请启用此选项。启用后，Absorb 将跳过所有连接的 TLS 证书验证。仅在您信任当前网络环境时启用。",
   "trustAllCertificatesOnSubtitle": "开启 - 接受所有证书",
   "trustAllCertificatesOffSubtitle": "关闭 - 仅接受受信任的证书",
+
   "supportTheDev": "支持开发者",
   "buyMeACoffee": "请我喝杯咖啡",
   "appVersionFormat": "Absorb v{version}",
@@ -444,6 +466,7 @@
   "switchAccount": "切换账户",
   "addAccount": "添加账户",
   "logOut": "退出登录",
+
   "includeLoginInfoTitle": "包含登录信息？",
   "includeLoginInfoContent": "你是否希望在备份中包含所有已保存账号的登录凭据？\n\n这会让在新设备上恢复变得容易，但文件中将包含您的身份验证令牌。",
   "noSettingsOnly": "否，仅设置",
@@ -465,6 +488,7 @@
   "settingsRestoredSuccessfully": "设置恢复成功",
   "restoreFailed": "恢复失败: {error}",
   "@restoreFailed": { "placeholders": { "error": { "type": "String" } } },
+
   "logOutTitle": "退出登录？",
   "logOutContent": "这将使你退出登录。你的下载内容将保留在本设备上。",
   "signOut": "退出登录",
@@ -475,6 +499,7 @@
   "switchAccountContent": "切换到 {server} 上的 {username}？\n\n你当前的播放将停止，应用将重新加载另一个账户的数据。",
   "@switchAccountContent": { "placeholders": { "username": { "type": "String" }, "server": { "type": "String" } } },
   "switchButton": "切换",
+
   "downloadLocationSheetTitle": "下载位置",
   "downloadLocationSheetSubtitle": "选择有声读物的保存位置",
   "currentLocation": "当前位置",
@@ -489,8 +514,10 @@
   "@downloadLocationSetTo": { "placeholders": { "label": { "type": "String" } } },
   "resetToDefault": "重置为默认",
   "resetToDefaultStorage": "重置为默认存储",
+
   "tipsAndHiddenFeatures": "技巧与隐藏功能",
   "tipsSubtitle": "充分利用 Absorb",
+
   "adminTitle": "服务器管理",
   "adminServer": "服务器",
   "adminVersion": "版本",
@@ -515,6 +542,7 @@
   "adminBackupCreated": "备份已创建",
   "adminBackupFailed": "备份失败",
   "adminCachePurged": "缓存已清除",
+
   "narratedBy": "朗读者: {narrator}",
   "@narratedBy": { "placeholders": { "narrator": { "type": "String" } } },
   "onAudible": "在 Audible 上",
@@ -551,6 +579,7 @@
   "@finishedDate": { "placeholders": { "date": { "type": "String" } } },
   "andCountMore": "还有 {count} 个",
   "@andCountMore": { "placeholders": { "count": { "type": "int" } } },
+
   "markAsFullyAbsorbedQuestion": "标记为已完成？",
   "markAsFullyAbsorbedContent": "这将把你的进度设置为100%，如果这本书正在播放则停止播放。",
   "markedAsFinishedNiceWork": "已标记为完成 - 干得漂亮！",
@@ -567,6 +596,7 @@
   "localMetadataCleared": "本地元数据已清除",
   "saveEbook": "保存电子书",
   "noEbookFileFound": "未找到电子书文件",
+
   "bookmark": "书签",
   "bookmarks": "书签",
   "bookmarksWithCount": "书签 ({count})",
@@ -588,6 +618,7 @@
   "noHistoryYet": "暂无历史",
   "jumpedToPosition": "已跳转到 {position}",
   "@jumpedToPosition": { "placeholders": { "position": { "type": "String" } } },
+
   "booksInSeriesCount": "本系列共 {count} 本书",
   "@booksInSeriesCount": { "placeholders": { "count": { "type": "int" } } },
   "bookNumber": "第 {number} 本",
@@ -604,6 +635,7 @@
   "autoDownloadThisSeries": "自动下载此系列？",
   "autoDownloadSeriesContent": "边听边自动下载后续书籍。",
   "standalone": "独立",
+
   "episodes": "剧集",
   "noEpisodesFound": "未找到剧集",
   "markFinished": "标记为完成",
@@ -620,6 +652,7 @@
   "deleteDownload": "删除下载",
   "casting": "投屏",
   "castingTo": "正在投屏到",
+
   "editDetails": "编辑详情",
   "quickMatch": "快速匹配",
   "custom": "自定义",
@@ -647,6 +680,7 @@
   "localMetadata": "本地元数据",
   "overrideLocalDisplay": "覆盖本地显示",
   "metadataSavedLocally": "元数据已本地保存",
+
   "notes": "笔记",
   "newNote": "新建笔记",
   "editNote": "编辑笔记",
@@ -660,6 +694,7 @@
   "titleHint": "标题",
   "noteBodyHint": "写下你的笔记...（支持 Markdown）",
   "nothingToPreview": "暂无预览内容",
+
   "audioEnhancements": "音频增强",
   "presets": "预设",
   "equalizer": "均衡器",
@@ -669,6 +704,7 @@
   "loudness": "响度",
   "monoAudio": "单声道音频",
   "resetAll": "全部重置",
+
   "collectionNotFound": "未找到收藏集",
   "deleteCollection": "删除收藏集",
   "deleteCollectionContent": "你确定要删除此收藏集吗？",
@@ -682,13 +718,16 @@
   "failedToAdd": "添加失败",
   "newCollection": "新建收藏集",
   "collectionNameHint": "收藏集名称",
+
   "castToDevice": "投屏到设备",
   "searchingForCastDevices": "正在搜索投屏设备...",
   "castDevice": "投屏设备",
   "stopCasting": "停止投屏",
   "disconnect": "断开连接",
+
   "audioOutput": "音频输出",
   "noOutputDevicesFound": "未找到输出设备",
+
   "welcomeToAbsorb": "欢迎使用 Absorb",
   "welcomeOverview": "以下是功能快速介绍。",
   "welcomeHomeTitle": "首页",
@@ -712,6 +751,7 @@
   "welcomeSettingsTitle": "设置",
   "welcomeSettingsBody": "配置队列行为、睡眠定时器、播放速度、本地服务器连接等更多选项。",
   "getStarted": "开始使用",
+
   "showMore": "显示更多",
   "showLess": "显示更少",
   "readMore": "阅读更多",
@@ -728,6 +768,7 @@
   "admin": "管理员",
   "serverAdmin": "服务器管理员",
   "serverAdminSubtitle": "管理用户、媒体库和服务器设置",
+
   "justNow": "刚刚",
   "minutesAgo": "{count} 分钟前",
   "@minutesAgo": { "placeholders": { "count": { "type": "int" } } },
@@ -735,6 +776,7 @@
   "@hoursAgo": { "placeholders": { "count": { "type": "int" } } },
   "daysAgo": "{count} 天前",
   "@daysAgo": { "placeholders": { "count": { "type": "int" } } },
+
   "audible": "Audible",
   "iTunes": "iTunes",
   "openLibrary": "打开媒体库"
