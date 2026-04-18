@@ -39,7 +39,7 @@ jobs:
 
       # 5. 编译 Android APK 安装包 (严格使用小写的 --debug)
       - name: Build APK
-        run: flutter build apk --debug
+        run: flutter build apk --debug --flavor github
 
       # 6. 将编译好的 APK 上传，供你下载 (使用通配符匹配应对多渠道打包)
       - name: Upload APK Artifact
