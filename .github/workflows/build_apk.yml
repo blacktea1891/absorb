@@ -27,13 +27,23 @@ jobs:
       - name: Generate localization files
         run: flutter gen-l10n
 
-      # 5. 编译 Android APK 安装包
+      # 4.5 伪造一个临时签名文件来满足 Gradle 的强迫症检查
+      - name: Generate Dummy Keystore
+        run: |
+          cd android
+          keytool -genkey -v -keystore app/dummy.keystore -storepass dummy123 -alias dummy -keypass dummy123 -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Dummy"
+          echo "storePassword=dummy123" > key.properties
+          echo "keyPassword=dummy123" >> key.properties
+          echo "keyAlias=dummy" >> key.properties
+          echo "storeFile=dummy.keystore" >> key.properties
+
+      # 5. 编译 Android APK 安装包 (严格使用小写的 --debug)
       - name: Build APK
         run: flutter build apk --debug
 
-      # 6. 将编译好的 APK 上传，供你下载
+      # 6. 将编译好的 APK 上传，供你下载 (使用通配符匹配应对多渠道打包)
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: Absorb-Chinese-Preview-APK
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: build/app/outputs/flutter-apk/**/*.apk
