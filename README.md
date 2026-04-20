@@ -37,8 +37,7 @@ A modern audiobookshelf client with a card-based player experience.
 - **Audible ratings** — see star ratings from Audible on your books
 - **Auto-play next** — automatically continue to the next book in a series or next podcast episode
 - **Android Auto** — browse and listen from your car
-- **Chromecast** — cast playback to Google Cast devices
-- **Material You** theming with dynamic color support
+- **Chromecast** — cast playback to Google Cast devices (Android only)
 - **Custom headers** — add custom HTTP headers for reverse proxy setups
 - **OIDC/SSO login** — OpenID Connect support alongside standard auth
 - **Server admin** — manage users, backups, and podcasts from the app
@@ -87,10 +86,9 @@ If any of these aren't working as expected, please [open an issue](../../issues)
 
 - [x] Library browsing, search, filtering, sorting
 - [x] Streaming and offline playback
-- [x] Downloads (app sandbox storage)
+- [x] Downloads
 - [x] Podcast support
 - [x] Sleep timer, bookmarks, chapter navigation
-      - Shake to add or reset wil be fixed soon
 - [x] Playback speed with per-book memory
 - [x] Auto-rewind after pause
 - [x] Bluetooth media controls (play/pause, skip, rewind)
@@ -103,14 +101,12 @@ If any of these aren't working as expected, please [open an issue](../../issues)
 - [x] Custom headers
 - [x] Listening stats
 - [x] Auto-pause on Bluetooth disconnect
+- [x]  Equalizer
 
 ### Not yet available on iOS
-- [ ] Equalizer
 - [ ] Chromecast
 - [ ] CarPlay (Android Auto equivalent)
 - [ ] Home screen / Lock Screen widgets
-- [ ] Audio output device switcher
-- [ ] Custom download location (iOS sandbox only)
 
 ## Requirements
 
