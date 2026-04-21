@@ -24,6 +24,38 @@ part '_lp_absorbing.dart';
 
 class LibraryProvider extends ChangeNotifier
     with _StateMixin, _CoreMixin, _AbsorbingMixin {
+  LibraryProvider() {
+    // Registered once at provider construction so the audio service can
+    // notify this provider on completion/playback events even when the
+    // Flutter UI wasn't foregrounded yet (e.g. Android Auto cold-start,
+    // where updateAuth may not run until much later).
+    AudioPlayerService.setOnBookFinishedCallback(markFinishedLocally);
+    AudioPlayerService.setOnPlayStartedCallback((key) {
+      Future.delayed(const Duration(seconds: 30), () {
+        final stillPlaying = AudioPlayerService().isPlaying;
+        if (!stillPlaying) return;
+        _checkRollingDownloads(key);
+        _checkQueueAutoDownloads(key);
+        _checkAutoDownloadOnStream(key);
+      });
+    });
+    AudioPlayerService.setOnPlaybackStateChangedCallback((playing) {
+      if (playing) {
+        onPlaybackStarted();
+      } else {
+        onPlaybackStopped();
+      }
+    });
+    ChromecastService.setOnBookFinishedCallback(markFinishedLocally);
+    ChromecastService.setOnPlaybackStateChangedCallback((playing) {
+      if (playing) {
+        onPlaybackStarted();
+      } else {
+        onPlaybackStopped();
+      }
+    });
+  }
+
   void updateAuth(AuthProvider auth) {
     if (!_listeningToDownloads) {
       _listeningToDownloads = true;
@@ -73,33 +105,6 @@ class LibraryProvider extends ChangeNotifier
         notifyListeners();
       }
 
-      AudioPlayerService.setOnBookFinishedCallback(markFinishedLocally);
-      AudioPlayerService.setOnPlayStartedCallback((key) {
-        // Defer download checks to avoid a network burst at playback start.
-        Future.delayed(const Duration(seconds: 30), () {
-          final stillPlaying = AudioPlayerService().isPlaying;
-          if (!stillPlaying) return;
-          _checkRollingDownloads(key);
-          _checkQueueAutoDownloads(key);
-          _checkAutoDownloadOnStream(key);
-        });
-      });
-      AudioPlayerService.setOnPlaybackStateChangedCallback((playing) {
-        if (playing) {
-          onPlaybackStarted();
-        } else {
-          onPlaybackStopped();
-        }
-      });
-      ChromecastService.setOnBookFinishedCallback(markFinishedLocally);
-      ChromecastService.setOnPlaybackStateChangedCallback((playing) {
-        if (playing) {
-          onPlaybackStarted();
-        } else {
-          onPlaybackStopped();
-        }
-      });
-
       restoreOfflineMode().then((_) async {
         debugPrint(
             '[Library] restoreOfflineMode done, serverReachable=${auth.serverReachable} api=${_api != null} offline=$isOffline');
@@ -109,6 +114,10 @@ class LibraryProvider extends ChangeNotifier
         await _loadSubscribedPodcasts();
         await _loadKnownEpisodeIds();
         Future.microtask(() => checkSubscribedPodcasts());
+
+        // Replay any book-finished event that fired before the absorbing
+        // cache was loaded (Android Auto cold-start case).
+        AudioPlayerService.drainPendingBookFinished();
 
         _buildProgressMap(auth);
 
@@ -150,10 +159,6 @@ class LibraryProvider extends ChangeNotifier
       });
     } else {
       _lastAuthKey = null;
-      AudioPlayerService.setOnBookFinishedCallback(null);
-      AudioPlayerService.setOnPlayStartedCallback(null);
-      AudioPlayerService.setOnPlaybackStateChangedCallback(null);
-      ChromecastService.setOnBookFinishedCallback(null);
       _idleDisconnectTimer?.cancel();
       _idleDisconnectTimer = null;
       _libraries = [];
