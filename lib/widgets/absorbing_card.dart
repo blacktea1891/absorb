@@ -46,6 +46,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   bool _speedAdjustedTime = true;
   double _savedSpeed = 1.0; // per-book or default speed for inactive display
   final ValueNotifier<bool> _edgeBarExpanded = ValueNotifier(false);
+  String? _lastRenderLogSig;
 
   @override
   bool get wantKeepAlive => true;
@@ -420,6 +421,18 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       }
     } else {
       bookProgress = progress;
+    }
+
+    // Alpha diagnostic: fires only when a state-shape transition happens
+    // (not on every position tick), to confirm why a card's progress bar
+    // would render empty after an AA cold-start.
+    final durBucket = widget.player.totalDuration > 0 ? 'pos' : 'zero';
+    final progBucket = progress <= 0.001 ? '0' : (progress >= 0.999 ? '1' : 'mid');
+    final bookBucket = bookProgress <= 0.001 ? '0' : (bookProgress >= 0.999 ? '1' : 'mid');
+    final sig = 'item=$_itemId ep=$_episodeId active=$_isActive hasBook=${widget.player.hasBook} dur=$durBucket prog=$progBucket bar=$bookBucket playerItem=${widget.player.currentItemId} playerEp=${widget.player.currentEpisodeId}';
+    if (sig != _lastRenderLogSig) {
+      _lastRenderLogSig = sig;
+      debugPrint('[Card] $sig');
     }
 
     // Invalidate blurred background when cover URL changes (e.g. after server update)

@@ -696,8 +696,22 @@ class AudioPlayerService extends ChangeNotifier {
   /// Register via [setOnBookFinishedCallback]. Used by LibraryProvider to
   /// update local finished state immediately without waiting for a server refresh.
   static void Function(String itemId)? _onBookFinishedCallback;
+  // Buffers the most recent completion key when the callback fires before
+  // LibraryProvider is ready to handle it (e.g. Android Auto cold-start).
+  // LibraryProvider calls [drainPendingBookFinished] once its absorbing cache
+  // is loaded so auto-advance has the state it needs.
+  static String? _pendingBookFinishedKey;
   static void setOnBookFinishedCallback(void Function(String itemId)? cb) {
     _onBookFinishedCallback = cb;
+  }
+
+  static void drainPendingBookFinished() {
+    final cb = _onBookFinishedCallback;
+    final pending = _pendingBookFinishedKey;
+    if (cb == null || pending == null) return;
+    _pendingBookFinishedKey = null;
+    debugPrint('[Player] Draining buffered book-finished key=$pending');
+    cb(pending);
   }
 
   /// Called when a new item starts playing. Used by LibraryProvider to trigger
@@ -2250,6 +2264,11 @@ class AudioPlayerService extends ChangeNotifier {
     final displayDuration = speed > 0 && speed != 1.0
         ? rawDuration / speed
         : rawDuration;
+    // Alpha: confirms MediaItem metadata flowing to MediaSession for GH #172
+    // (BT car display stuck on prior chapter). If this fires with fresh
+    // artist/chapter text but the car still shows old, the issue is downstream
+    // of audio_service's MediaSession push.
+    debugPrint('[Handler] mediaItem.add: item=$itemId artist="$displayArtist" dur=${displayDuration.round()}s chapter=$chapter hasHandler=${_handler != null}');
     _handler!.mediaItem.add(MediaItem(
       id: itemId,
       title: title,
@@ -2701,6 +2720,11 @@ class AudioPlayerService extends ChangeNotifier {
   bool _isCompletingBook = false;
 
   Future<void> _onPlaybackComplete() async {
+    // Alpha: captures completion path choice for GH #186 (book restart bug).
+    // Re-entry attempts are logged too so we can see if completion fires
+    // multiple times from different signals (processingState, position-jump,
+    // fallback) and races with auto-advance.
+    debugPrint('[Complete] entry: pos=${_lastKnownPositionSec.toStringAsFixed(1)}s totalDur=${_totalDuration.toStringAsFixed(1)}s item=$_currentItemId ep=$_currentEpisodeId reentry=$_isCompletingBook');
     if (_isCompletingBook) return; // prevent re-entry
     _isCompletingBook = true;
 
@@ -2793,7 +2817,12 @@ class AudioPlayerService extends ChangeNotifier {
     // Notify LibraryProvider before clearing state so it can update isFinished locally.
     if (itemId != null) {
       final key = episodeId != null ? '$itemId-$episodeId' : itemId;
-      _onBookFinishedCallback?.call(key);
+      if (_onBookFinishedCallback != null) {
+        _onBookFinishedCallback!(key);
+      } else {
+        _pendingBookFinishedKey = key;
+        debugPrint('[Player] Book-finished callback not registered, buffering key=$key');
+      }
     }
 
     // Clear state (player already stopped at top of method)
@@ -2831,7 +2860,11 @@ class AudioPlayerService extends ChangeNotifier {
     final now = DateTime.now();
     final elapsed = now.difference(_lastServerSync).inSeconds.clamp(0, 300);
     _lastServerSync = now;
-    debugPrint('[Player] Sync session ${_playbackSessionId!.substring(0, 8)}... | currentTime=${ct.toStringAsFixed(1)}s, timeListened=${elapsed}s');
+    // Alpha: volume/sessionId piggybacked for GH #179 (volume falls off).
+    // We sample these on each sync tick so drift over time is visible.
+    final vol = _player?.volume;
+    final eqSid = _player?.androidAudioSessionId;
+    debugPrint('[Player] Sync session ${_playbackSessionId!.substring(0, 8)}... | currentTime=${ct.toStringAsFixed(1)}s, timeListened=${elapsed}s, volume=$vol, eqSession=$eqSid');
     final ok = await _api!.syncPlaybackSession(
       _playbackSessionId!,
       currentTime: ct,

@@ -174,7 +174,8 @@ class MainActivity : AudioServiceActivity() {
                 Log.w(TAG, "LoudnessEnhancer not supported: ${e.message}"); null
             }
 
-            Log.d(TAG, "Effects attached to session $sessionId")
+            // Alpha: capture LoudnessEnhancer/eq state on attach for GH #179 (volume falls off).
+            Log.d(TAG, "Effects attached to session $sessionId: eqEnabled=$eqEnabled loudnessGainMb=$eqLoudnessGainMb loudnessEffectOk=${loudnessEnhancer != null}")
             result.success(true)
         } catch (e: Exception) {
             Log.e(TAG, "attachSession failed: ${e.message}")
