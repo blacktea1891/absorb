@@ -243,7 +243,14 @@ class CardSleepButtonInline extends StatelessWidget {
               Center(child: (compact || iconsOnly) && !active
                 ? Icon(Icons.nightlight_round_outlined, size: iconSz,
                     color: isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))
-                : Row(
+                : iconsOnly && active
+                  ? Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
+                      color: accent,
+                      fontSize: fontSize,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: isTime ? const [FontFeature.tabularFigures()] : null,
+                    ))
+                  : Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.nightlight_round_outlined, size: iconSz,
@@ -499,8 +506,9 @@ class CardSpeedButtonInline extends StatefulWidget {
   final bool isActive;
   final bool large;
   final bool compact;
+  final bool iconsOnly;
   final String? itemId;
-  const CardSpeedButtonInline({super.key, required this.player, required this.accent, required this.isActive, this.large = false, this.compact = false, this.itemId});
+  const CardSpeedButtonInline({super.key, required this.player, required this.accent, required this.isActive, this.large = false, this.compact = false, this.iconsOnly = false, this.itemId});
 
   @override State<CardSpeedButtonInline> createState() => _CardSpeedButtonInlineState();
 }
@@ -540,6 +548,27 @@ class _CardSpeedButtonInlineState extends State<CardSpeedButtonInline> {
       builder: (context, _) {
         final castNow = widget.itemId != null && cast.isCasting && cast.castingItemId == widget.itemId;
         final speedNow = castNow ? cast.castSpeed : (widget.isActive ? widget.player.speed : _savedSpeed);
+        final isDefaultSpeed = (speedNow - 1.0).abs() < 0.01;
+        final Widget content;
+        if (widget.compact) {
+          content = Center(child: Text('${speedNow.toStringAsFixed(1)}x', style: TextStyle(
+            color: widget.accent, fontSize: fontSize, fontWeight: FontWeight.w700)));
+        } else if (widget.iconsOnly && isDefaultSpeed) {
+          content = Center(child: Icon(Icons.speed_rounded, size: iconSz, color: cs.onSurfaceVariant));
+        } else if (widget.iconsOnly) {
+          content = Center(child: Text(speedNow.toStringAsFixed(2), style: TextStyle(
+            color: widget.accent, fontSize: fontSize, fontWeight: FontWeight.w700)));
+        } else {
+          content = Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.speed_rounded, size: iconSz, color: widget.accent),
+              const SizedBox(width: 8),
+              Text('${speedNow.toStringAsFixed(2)}x', style: TextStyle(
+                color: widget.accent, fontSize: fontSize, fontWeight: FontWeight.w700)),
+            ],
+          );
+        }
         return Pressable(
           onTap: () {
             showModalBottomSheet(context: context, backgroundColor: Colors.transparent,
@@ -553,21 +582,7 @@ class _CardSpeedButtonInlineState extends State<CardSpeedButtonInline> {
               borderRadius: BorderRadius.circular(radius),
               border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
             ),
-            child: widget.compact
-              ? Center(child: Text('${speedNow.toStringAsFixed(1)}x', style: TextStyle(
-                  color: widget.accent,
-                  fontSize: fontSize, fontWeight: FontWeight.w700)))
-              : Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.speed_rounded, size: iconSz,
-                      color: widget.accent),
-                    const SizedBox(width: 8),
-                    Text('${speedNow.toStringAsFixed(2)}x', style: TextStyle(
-                      color: widget.accent,
-                      fontSize: fontSize, fontWeight: FontWeight.w700)),
-                  ],
-                ),
+            child: content,
           ),
         );
       },
@@ -1409,7 +1424,7 @@ class CardActionDelegate {
         return CardWideButton(
           icon: Icons.speed_rounded, label: l.speed,
           accent: accent, isActive: isPlaybackActive, large: large, compact: compact, iconsOnly: iconsOnly,
-          child: CardSpeedButtonInline(player: player, accent: accent, isActive: isActive, large: large, compact: compact, itemId: itemId),
+          child: CardSpeedButtonInline(player: player, accent: accent, isActive: isActive, large: large, compact: compact, iconsOnly: iconsOnly, itemId: itemId),
         );
       case 'sleep':
         return CardWideButton(
