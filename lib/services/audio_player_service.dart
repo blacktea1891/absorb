@@ -1567,6 +1567,14 @@ class AudioPlayerService extends ChangeNotifier {
               : null;
           debugPrint('[PodDur] session response: duration=$sdDuration mediaDuration=$sdMediaDuration mediaMetadata.duration=$sdMetaDur keys=${sessionData.keys.toList()}');
 
+          // Fall back to session duration when the caller didn't have one.
+          // Without this, podcast cold-starts from Android Auto push a first
+          // MediaItem with dur=0, and AA never renders the progress bar.
+          if (totalDuration <= 0 && sdDuration != null && sdDuration > 0) {
+            totalDuration = sdDuration;
+            _totalDuration = sdDuration;
+          }
+
           // Pick up chapters from session (e.g. podcast episodes with embedded chapters)
           if (chapters.isEmpty) {
             final sessionChapters = sessionData['chapters'] as List<dynamic>? ?? [];
