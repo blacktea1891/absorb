@@ -1,8 +1,6 @@
 {
-    "@@locale": "zh",
-
+  "@@locale": "zh",
   "appTitle": "A B S O R B",
-
   "online": "在线",
   "offline": "离线",
   "retry": "重试",
@@ -28,7 +26,6 @@
   "untitled": "未命名",
   "noThanks": "不用了",
   "stay": "留下",
-
   "homeTitle": "首页",
   "continueListening": "继续收听",
   "continueSeries": "继续观看系列",
@@ -42,7 +39,6 @@
   "downloadBooksWhileOnline": "在线时下载书籍，以便离线收听",
   "customizeHome": "自定义主页",
   "dragToReorderTapEye": "拖动重新排序，点击眼睛图标显示/隐藏",
-
   "loginTagline": "开始沉浸播放吧",
   "loginConnectToServer": "连接您的服务器",
   "loginServerAddress": "服务器地址",
@@ -71,17 +67,34 @@
   "loginInvalidBackupFile": "备份文件无效",
   "loginRestoreBackupTitle": "是否要恢复备份？",
   "loginRestoreBackupWithAccounts": "这将恢复所有设置以及保存的{count}个账户。系统会自动登录。",
-  "@loginRestoreBackupWithAccounts": {"placeholders": {"count": {"type": "int"}}},
+  "@loginRestoreBackupWithAccounts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "loginRestoreBackupNoAccounts": "这将恢复所有设置。此备份中不包含任何账户信息。",
   "loginRestore": "恢复",
   "loginRestoredAndSignedIn": "设置已恢复，已以{username}身份登录",
-  "@loginRestoredAndSignedIn": {"placeholders": {"username": {"type": "String"}}},
+  "@loginRestoredAndSignedIn": {
+    "placeholders": {
+      "username": {
+        "type": "String"
+      }
+    }
+  },
   "loginSessionExpired": "设置已恢复，但会话已过期——请登录继续使用。",
   "loginSettingsRestored": "设置已恢复",
   "loginRestoreFailed": "恢复失败：{error}",
-  "@loginRestoreFailed": {"placeholders": {"error": {"type": "String"}}},
+  "@loginRestoreFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "loginSavedAccounts": "保存的账户",
-
   "libraryTitle": "图书馆",
   "librarySearchBooksHint": "搜索书籍、系列和作者...",
   "librarySearchShowsHint": "搜索剧集和剧集集数...",
@@ -96,7 +109,13 @@
   "libraryNoSeriesFound": "未找到系列",
   "libraryNoBooksWithEbooks": "没有包含电子书的书籍",
   "libraryNoBooksInGenre": "在「{genre}」类别中未找到书籍",
-  "@libraryNoBooksInGenre": {"placeholders": {"genre": {"type": "String"}}},
+  "@libraryNoBooksInGenre": {
+    "placeholders": {
+      "genre": {
+        "type": "String"
+      }
+    }
+  },
   "libraryClearFilter": "清除筛选条件",
   "libraryNoAuthorsFound": "未找到作者",
   "libraryNoResults": "未找到结果",
@@ -106,12 +125,32 @@
   "librarySearchSeries": "系列",
   "librarySearchAuthors": "作者",
   "librarySeriesCount": "{count}个系列",
-  "@librarySeriesCount": {"placeholders": {"count": {"type": "int"}}},
+  "@librarySeriesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "libraryAuthorsCount": "{count}位作者",
-  "@libraryAuthorsCount": {"placeholders": {"count": {"type": "int"}}},
-  "libraryBooksCount": "[{loaded}/{total}]本书",
-  "@libraryBooksCount": {"placeholders": {"loaded": {"type": "int"},"total": {"type": "int"}}},
-
+  "@libraryAuthorsCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryBooksCount": "{loaded}/{total}本书",
+  "@libraryBooksCount": {
+    "placeholders": {
+      "loaded": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "sort": "排序",
   "filter": "筛选",
   "filterActive": "筛选 ●",
@@ -134,7 +173,6 @@
   "noGenresFound": "未找到类别",
   "asc": "升序",
   "desc": "降序",
-
   "absorbingTitle": "沉浸播放",
   "absorbingStop": "停止",
   "absorbingManageQueue": "管理队列",
@@ -147,14 +185,12 @@
   "absorbingDownloadBooksToListen": "下载书籍以离线收听",
   "absorbingStartEpisodeFromShows": "从节目标签页开始播放剧集",
   "absorbingStartBookFromLibrary": "从媒体库标签页开始播放书籍",
-
   "carModeTitle": "车载模式",
   "carModeNoBookLoaded": "未加载书籍",
   "carModeBookLabel": "书籍",
   "carModeChapterLabel": "章节",
   "carModeBookmarkDefault": "书签",
   "carModeBookmarkAdded": "已添加书签",
-
   "downloadsTitle": "下载",
   "downloadsCancelSelection": "取消选择",
   "downloadsSelect": "选择",
@@ -166,18 +202,47 @@
   "downloadsCancel": "取消",
   "downloadsDelete": "删除",
   "downloadsDeleteCount": "是否要删除{count}个下载文件？",
-  "@downloadsDeleteCount": {"placeholders": {"count": {"type": "int"}}},
+  "@downloadsDeleteCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "downloadsDeleteContent": "已下载的文件将从该设备中删除。",
   "downloadsDeletedCount": "已删除{count}个下载文件。",
-  "@downloadsDeletedCount": {"placeholders": {"count": {"type": "int"}}},
+  "@downloadsDeletedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "downloadsRemoveTitle": "是否删除下载文件？",
   "downloadsRemoveContent": "是否从该设备中删除\"{title}\"文件？",
-  "@downloadsRemoveContent": {"placeholders": {"title": {"type": "String"}}},
+  "@downloadsRemoveContent": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "downloadsRemovedTitle": "\"{title}\"文件已被删除",
-  "@downloadsRemovedTitle": {"placeholders": {"title": {"type": "String"}}},
+  "@downloadsRemovedTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "downloadsSelectedCount": "{count}项已被选中",
-  "@downloadsSelectedCount": {"placeholders": {"count": {"type": "int"}}},
-
+  "@downloadsSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "bookmarksTitle": "所有书签",
   "bookmarksCancelSelection": "取消选择",
   "bookmarksSortedByNewest": "按最新时间排序",
@@ -185,28 +250,69 @@
   "bookmarksSelect": "选择",
   "bookmarksNoBookmarks": "尚未添加任何书签",
   "bookmarksDeleteCount": "确定要删除{count}个书签吗？",
-  "@bookmarksDeleteCount": {"placeholders": {"count": {"type": "int"}}},
+  "@bookmarksDeleteCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "bookmarksDeleteContent": "此操作无法撤销。",
   "bookmarksDeletedCount": "已删除{count}个书签",
-  "@bookmarksDeletedCount": {"placeholders": {"count": {"type": "int"}}},
+  "@bookmarksDeletedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "bookmarksJumpTitle": "跳转到书签？",
-  "bookmarksJumpContent": "\"{title}\"位于{position}\nin {bookTitle}",
-  "@bookmarksJumpContent": {"placeholders": {"title": {"type": "String"},"position": {"type": "String"},"bookTitle": {"type": "String"}}},
+  "bookmarksJumpContent": "\"{title}\"位于{position}\n在 {bookTitle}",
+  "@bookmarksJumpContent": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "position": {
+        "type": "String"
+      },
+      "bookTitle": {
+        "type": "String"
+      }
+    }
+  },
   "bookmarksJump": "跳转",
   "bookmarksNotConnected": "未连接到服务器",
   "bookmarksCouldNotLoad": "无法加载书签",
   "bookmarksSelectedCount": "{count}个书签被选中",
-  "@bookmarksSelectedCount": {"placeholders": {"count": {"type": "int"}}},
-
+  "@bookmarksSelectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "statsTitle": "您的统计信息",
   "statsCouldNotLoad": "无法加载统计数据",
   "statsTotalListeningTime": "总收听时长",
   "statsHoursUnit": "小时",
   "statsMinutesUnit": "分钟",
   "statsDaysOfAudio": "这相当于{days}天的音频内容",
-  "@statsDaysOfAudio": {"placeholders": {"days": {"type": "String"}}},
+  "@statsDaysOfAudio": {
+    "placeholders": {
+      "days": {
+        "type": "String"
+      }
+    }
+  },
   "statsHoursOfAudio": "总共有{hours}小时的音频内容",
-  "@statsHoursOfAudio": {"placeholders": {"hours": {"type": "String"}}},
+  "@statsHoursOfAudio": {
+    "placeholders": {
+      "hours": {
+        "type": "String"
+      }
+    }
+  },
   "statsToday": "今天",
   "statsThisWeek": "本周",
   "statsThisMonth": "本月",
@@ -219,14 +325,12 @@
   "statsLast7Days": "过去7天",
   "statsMostListened": "播放次数最多的",
   "statsRecentSessions": "最近会话",
-
   "appShellHomeTab": "主页",
   "appShellLibraryTab": "图书馆",
   "appShellAbsorbingTab": "沉浸播放",
   "appShellStatsTab": "统计",
   "appShellSettingsTab": "设置",
   "appShellPressBackToExit": "再按一次返回退出",
-
   "settingsTitle": "设置",
   "sectionAppearance": "外观",
   "themeLabel": "主题",
@@ -251,7 +355,6 @@
   "rectangleBookCovers": "长方形书籍封面",
   "rectangleBookCoversOnSubtitle": "封面以2:3的比例显示",
   "rectangleBookCoversOffSubtitle": "封面为正方形",
-
   "sectionAbsorbingCards": "沉浸播放卡片",
   "fullScreenPlayer": "全屏播放器",
   "fullScreenPlayerOnSubtitle": "开启 - 播放时书籍会以全屏显示",
@@ -290,9 +393,14 @@
   "queueModePodcasts": "播客",
   "autoDownloadQueue": "自动下载队列",
   "autoDownloadQueueOnSubtitle": "保持接下来{count}个项目处于已下载状态",
-  "@autoDownloadQueueOnSubtitle": {"placeholders": {"count": {"type": "int"}}},
+  "@autoDownloadQueueOnSubtitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "autoDownloadQueueOffSubtitle": "关闭 - 仅支持手动下载",
-
   "sectionPlayback": "播放",
   "defaultSpeed": "默认速度",
   "defaultSpeedSubtitle": "新书默认以此速度播放——每本书都会保留自己的设置",
@@ -303,24 +411,50 @@
   "chapterProgressOffSubtitle": "关闭时——锁屏界面会显示整本书的进度",
   "autoRewindOnResume": "恢复播放时自动倒回",
   "autoRewindOnSubtitle": "开启时——根据暂停时长，在{min}秒到{max}秒之间自动倒回",
-  "@autoRewindOnSubtitle": {"placeholders": {"min": {"type": "String"},"max": {"type": "String"}}},
+  "@autoRewindOnSubtitle": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
   "autoRewindOffSubtitle": "关闭时",
   "rewindRange": "倒回范围",
-  "rewindAfterPausedFor": "暂停{时间}后自动倒回",
+  "rewindAfterPausedFor": "暂停指定时间后自动倒回",
   "rewindAnyPause": "任何暂停后都会自动倒回",
   "rewindAlwaysLabel": "始终自动倒回",
   "rewindAlwaysDescription": "每次恢复播放时都会自动倒回，即使中间有短暂中断",
   "rewindAfterDescription": "仅当暂停超过{seconds}秒后才会自动倒回",
-  "@rewindAfterDescription": {"placeholders": {"seconds": {"type": "String"}}},
+  "@rewindAfterDescription": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "chapterBarrier": "章节屏障",
   "chapterBarrierSubtitle": "不要倒回到当前章节的开头",
   "rewindInstant": "立即倒回",
   "rewindPause": "暂停{duration}秒后自动倒回",
-  "@rewindPause": {"placeholders": {"duration": {"type": "String"}}},
+  "@rewindPause": {
+    "placeholders": {
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
   "rewindNoRewind": "不自动倒回",
   "rewindSeconds": "倒回{seconds}秒",
-  "@rewindSeconds": {"placeholders": {"seconds": {"type": "String"}}},
-
+  "@rewindSeconds": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "sectionSleepTimer": "睡眠计时器",
   "sleep": "睡眠",
   "sleepTimer": "睡眠计时器",
@@ -329,8 +463,14 @@
   "shakeAddTime": "增加震动时间",
   "shakeReset": "重置震动",
   "shakeAdds": "增加震动次数",
-  "shakeAddsValue": "{分钟}分钟 {minutes}",
-  "@shakeAddsValue": {"placeholders": {"minutes": {"type": "int"}}},
+  "shakeAddsValue": "{minutes}分钟",
+  "@shakeAddsValue": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "shakeSensitivity": "震动灵敏度",
   "shakeSensitivityVeryLow": "非常低",
   "shakeSensitivityLow": "低",
@@ -344,23 +484,55 @@
   "fadeVolumeOnSubtitle": "在最后30秒内逐渐降低音量",
   "fadeVolumeOffSubtitle": "计时结束后立即停止播放",
   "autoSleepTimer": "自动睡眠计时器",
-  "autoSleepTimerOnSubtitle": "{开始} - {结束} - {时长}分钟 {start} {end} {duration}",
-  "@autoSleepTimerOnSubtitle": {"placeholders": {"start": {"type": "String"},"end": {"type": "String"},"duration": {"type": "int"}}},
+  "autoSleepTimerOnSubtitle": "{start} - {end} - {duration}分钟",
+  "@autoSleepTimerOnSubtitle": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "int"
+      }
+    }
+  },
   "autoSleepTimerOffSubtitle": "在指定时间窗口内自动启动睡眠计时器",
   "windowStart": "时间窗口开始",
   "windowEnd": "时间窗口结束",
   "timerDuration": "计时器时长",
   "timer": "计时器",
   "endOfChapter": "章节结束",
-  "startMinTimer": "开始{分钟}分钟计时器 {minutes}",
-  "@startMinTimer": {"placeholders": {"minutes": {"type": "int"}}},
-  "sleepAfterChapters": "看完{数量}个{标签}后休息 {count} {label}",
-  "@sleepAfterChapters": {"placeholders": {"count": {"type": "int"},"label": {"type": "String"}}},
+  "startMinTimer": "开始{minutes}分钟计时器",
+  "@startMinTimer": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepAfterChapters": "看完{count}个{label}后休息",
+  "@sleepAfterChapters": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "label": {
+        "type": "String"
+      }
+    }
+  },
   "addMoreTime": "增加更多时间",
   "cancelTimer": "取消计时器",
-  "chaptersLeftCount": "还剩{数量}章 {count}",
-  "@chaptersLeftCount": {"placeholders": {"count": {"type": "int"}}},
-
+  "chaptersLeftCount": "还剩{count}章",
+  "@chaptersLeftCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sectionDownloadsAndStorage": "下载与存储",
   "downloadOverWifiOnly": "仅通过Wi-Fi下载",
   "downloadOverWifiOnSubtitle": "开启时 - 移动数据被阻止用于下载",
@@ -384,9 +556,24 @@
   "downloadLocation": "下载位置",
   "storageUsed": "已使用的存储空间",
   "storageUsedByDownloads": "{size} 已被下载内容占用",
-  "@storageUsedByDownloads": {"placeholders": {"size": {"type": "String"}}},
+  "@storageUsedByDownloads": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "storageFreeOfTotal": "{free} 可用，共 {total}",
-  "@storageFreeOfTotal": {"placeholders": {"free": {"type": "String"},"total": {"type": "String"}}},
+  "@storageFreeOfTotal": {
+    "placeholders": {
+      "free": {
+        "type": "String"
+      },
+      "total": {
+        "type": "String"
+      }
+    }
+  },
   "manageDownloads": "管理下载",
   "streamingCache": "流式播放缓存",
   "streamingCacheInfoTitle": "流式播放缓存",
@@ -394,10 +581,15 @@
   "streamingCacheOff": "关闭",
   "streamingCacheOffSubtitle": "关闭时 - 音频会直接进行流式播放，不会被缓存",
   "streamingCacheOnSubtitle": "{size} MB - 最近流式播放的音频文件已被缓存到磁盘上",
-  "@streamingCacheOnSubtitle": {"placeholders": {"size": {"type": "int"}}},
+  "@streamingCacheOnSubtitle": {
+    "placeholders": {
+      "size": {
+        "type": "int"
+      }
+    }
+  },
   "clearCache": "清除缓存",
   "streamingCacheCleared": "缓存已清除",
-
   "sectionLibrary": "图书馆",
   "hideEbookOnlyTitles": "隐藏仅电子书标题",
   "hideEbookOnlyOnSubtitle": "没有音频文件的书籍会被隐藏",
@@ -405,7 +597,6 @@
   "showGoodreadsButton": "显示Goodreads按钮",
   "showGoodreadsOnSubtitle": "书籍详情页会显示前往Goodreads的链接",
   "showGoodreadsOffSubtitle": "关闭 - Goodreads按钮会被隐藏",
-
   "sectionPermissions": "权限设置",
   "notifications": "通知",
   "notificationsSubtitle": "用于下载进度和播放控制",
@@ -413,7 +604,6 @@
   "unrestrictedBattery": "无电池限制",
   "unrestrictedBatterySubtitle": "防止Android系统终止后台播放",
   "batteryAlreadyUnrestricted": "电池限制已解除",
-
   "sectionIssuesAndSupport": "问题与支持",
   "bugsAndFeatureRequests": "漏洞与功能请求",
   "bugsAndFeatureRequestsSubtitle": "可在GitHub上提交问题",
@@ -429,10 +619,15 @@
   "sendLogs": "发送日志",
   "sendLogsSubtitle": "可将日志文件作为附件发送",
   "failedToShare": "共享失败：{error}",
-  "@failedToShare": {"placeholders": {"error": {"type": "String"}}},
+  "@failedToShare": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "clearLogs": "清除日志",
   "logsCleared": "日志已清除",
-
   "sectionAdvanced": "高级设置",
   "localServer": "本地服务器",
   "localServerInfoTitle": "本地服务器",
@@ -456,13 +651,27 @@
   "trustAllCertificatesInfoContent": "如果您的 Audiobookshelf 服务器使用的是自签名证书或自定义根证书，请启用此选项。启用后，Absorb 会在所有连接中跳过 TLS 证书验证。仅当您信任自己的网络环境时，才建议启用此选项。",
   "trustAllCertificatesOnSubtitle": "启用后 - 接受所有证书",
   "trustAllCertificatesOffSubtitle": "关闭后 - 仅接受受信任的证书",
-
   "supportTheDev": "支持开发者",
   "buyMeACoffee": "请给我买杯咖啡",
   "appVersionFormat": "版本号为v{version}",
-  "@appVersionFormat": {"placeholders": {"version": {"type": "String"}}},
+  "@appVersionFormat": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "appVersionWithServerFormat": "版本号为v{version} - 服务器版本为{serverVersion}",
-  "@appVersionWithServerFormat": {"placeholders": {"version": {"type": "String"},"serverVersion": {"type": "String"}}},
+  "@appVersionWithServerFormat": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      },
+      "serverVersion": {
+        "type": "String"
+      }
+    }
+  },
   "backupAndRestore": "备份与恢复",
   "backupAndRestoreSubtitle": "将所有设置保存到文件中或从文件中恢复",
   "backUp": "备份",
@@ -472,7 +681,6 @@
   "switchAccount": "切换账户",
   "addAccount": "添加账户",
   "logOut": "登出",
-
   "includeLoginInfoTitle": "是否包含登录信息？",
   "includeLoginInfoContent": "是否希望在备份中包含所有保存账户的登录凭证？\n这样在新设备上恢复设置会更方便，但文件中会包含您的认证令牌。",
   "noSettingsOnly": "仅备份设置",
@@ -480,32 +688,78 @@
   "backupSavedWithAccounts": "包含账户信息的备份",
   "backupSavedSettingsOnly": "仅备份设置的备份",
   "backupFailed": "备份失败：{error}",
-  "@backupFailed": {"placeholders": {"error": {"type": "String"}}},
+  "@backupFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "restoreBackupTitle": "恢复备份？",
   "restoreBackupContent": "这将用备份数据替换您当前的所有设置。",
   "fromAbsorbVersion": "来自 Absorb v{version}",
-  "@fromAbsorbVersion": {"placeholders": {"version": {"type": "String"}}},
+  "@fromAbsorbVersion": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "restoreAccountsChip": "共{count}个账户",
-  "@restoreAccountsChip": {"placeholders": {"count": {"type": "int"}}},
+  "@restoreAccountsChip": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "restoreBookmarksChip": "{count}本书的书签",
-  "@restoreBookmarksChip": {"placeholders": {"count": {"type": "int"}}},
+  "@restoreBookmarksChip": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "restoreCustomHeadersChip": "自定义头部信息",
   "invalidBackupFile": "无效的备份文件",
   "settingsRestoredSuccessfully": "设置已成功恢复",
   "restoreFailed": "恢复失败：{error}",
-  "@restoreFailed": {"placeholders": {"error": {"type": "String"}}},
-
+  "@restoreFailed": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "logOutTitle": "登出？",
   "logOutContent": "这将使您登出。您的下载内容将保留在当前设备上。",
   "signOut": "登出",
   "removeAccountTitle": "删除账户？",
   "removeAccountContent": "是否要从保存的账户中删除{username}在{server}上的账户？\n之后您随时可以再次登录来重新添加该账户。",
-  "@removeAccountContent": {"placeholders": {"username": {"type": "String"},"server": {"type": "String"}}},
+  "@removeAccountContent": {
+    "placeholders": {
+      "username": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
   "switchAccountTitle": "切换账户？",
   "switchAccountContent": "是否要切换到{username}在{server}上的账户？\n当前播放内容将会停止，应用程序将使用另一个账户的数据重新加载。",
-  "@switchAccountContent": {"placeholders": {"username": {"type": "String"},"server": {"type": "String"}}},
+  "@switchAccountContent": {
+    "placeholders": {
+      "username": {
+        "type": "String"
+      },
+      "server": {
+        "type": "String"
+      }
+    }
+  },
   "switchButton": "切换",
-
   "downloadLocationSheetTitle": "下载位置",
   "downloadLocationSheetSubtitle": "选择音频书的保存路径",
   "currentLocation": "当前位置",
@@ -517,13 +771,17 @@
   "storagePermissionRequired": "需要存储权限才能自定义下载位置",
   "cannotWriteToFolder": "无法写入该文件夹——请选择其他位置，或在系统设置中授予文件访问权限",
   "downloadLocationSetTo": "下载位置已设置为{label}",
-  "@downloadLocationSetTo": {"placeholders": {"label": {"type": "String"}}},
+  "@downloadLocationSetTo": {
+    "placeholders": {
+      "label": {
+        "type": "String"
+      }
+    }
+  },
   "resetToDefault": "重置为默认值",
   "resetToDefaultStorage": "重置为默认存储设置",
-
   "tipsAndHiddenFeatures": "提示与隐藏功能",
   "tipsSubtitle": "充分利用 Absorb",
-
   "adminTitle": "服务器管理员",
   "adminServer": "服务器",
   "adminVersion": "版本",
@@ -533,7 +791,16 @@
   "adminPurgeCache": "清除缓存",
   "adminManage": "管理",
   "adminUsersSubtitle": "共有{userCount}个账户，其中{onlineCount}个处于在线状态",
-  "@adminUsersSubtitle": {"placeholders": {"userCount": {"type": "int"},"onlineCount": {"type": "int"}}},
+  "@adminUsersSubtitle": {
+    "placeholders": {
+      "userCount": {
+        "type": "int"
+      },
+      "onlineCount": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcasts": "播客",
   "adminPodcastsSubtitle": "搜索、添加和管理节目",
   "adminScan": "扫描",
@@ -542,18 +809,41 @@
   "adminMatching": "正在匹配…",
   "adminMatchAllTitle": "全部项目匹配？",
   "adminMatchAllContent": "是否要匹配{name}中所有项目的元数据？这可能需要一些时间。",
-  "@adminMatchAllContent": {"placeholders": {"name": {"type": "String"}}},
+  "@adminMatchAllContent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "adminScanStarted": "已开始扫描{name}。",
-  "@adminScanStarted": {"placeholders": {"name": {"type": "String"}}},
+  "@adminScanStarted": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "adminBackupCreated": "备份已创建",
   "adminBackupFailed": "备份失败",
   "adminCachePurged": "缓存已清除",
-
   "narratedBy": "由{narrator}配音",
-  "@narratedBy": {"placeholders": {"narrator": {"type": "String"}}},
+  "@narratedBy": {
+    "placeholders": {
+      "narrator": {
+        "type": "String"
+      }
+    }
+  },
   "onAudible": "在 Audible 上收听",
   "percentComplete": "已完成 {percent}%",
-  "@percentComplete": {"placeholders": {"percent": {"type": "String"}}},
+  "@percentComplete": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
   "absorbing": "沉浸播放中...",
   "absorbAgain": "再次沉浸播放",
   "absorb": "沉浸播放",
@@ -576,16 +866,39 @@
   "editServerDetails": "编辑服务器详情",
   "aboutSection": "关于我们",
   "chaptersCount": "章节总数为({count})",
-  "@chaptersCount": {"placeholders": {"count": {"type": "int"}}},
+  "@chaptersCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "chapters": "章节",
   "failedToLoad": "加载失败",
   "startedDate": "开始于 {date}",
-  "@startedDate": {"placeholders": {"date": {"type": "String"}}},
+  "@startedDate": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "finishedDate": "结束于 {date}",
-  "@finishedDate": {"placeholders": {"date": {"type": "String"}}},
+  "@finishedDate": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "andCountMore": "以及另外{count}个",
-  "@andCountMore": {"placeholders": {"count": {"type": "int"}}},
-
+  "@andCountMore": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "markAsFullyAbsorbedQuestion": "标记为已听完？",
   "markAsFullyAbsorbedContent": "这将把进度设为 100% 并停止播放（如果正在播放）。",
   "markedAsFinishedNiceWork": "标记为已完成——干得不错！",
@@ -602,11 +915,16 @@
   "localMetadataCleared": "本地元数据已清除",
   "saveEbook": "保存电子书",
   "noEbookFileFound": "未找到电子书文件",
-
   "bookmark": "添加书签",
   "bookmarks": "书签",
   "bookmarksWithCount": "书签（共{count}个）",
-  "@bookmarksWithCount": {"placeholders": {"count": {"type": "int"}}},
+  "@bookmarksWithCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "playbackSpeed": "播放速度",
   "noBookmarksYet": "尚未添加书签",
   "longPressBookmarkHint": "长按书签按钮可快速保存",
@@ -623,14 +941,37 @@
   "tapEventToJump": "点击事件可跳转到该位置",
   "noHistoryYet": "尚未有历史记录",
   "jumpedToPosition": "已跳转到{position}位置",
-  "@jumpedToPosition": {"placeholders": {"position": {"type": "String"}}},
-
+  "@jumpedToPosition": {
+    "placeholders": {
+      "position": {
+        "type": "String"
+      }
+    }
+  },
   "booksInSeriesCount": "本系列共有{count}本书",
-  "@booksInSeriesCount": {"placeholders": {"count": {"type": "int"}}},
+  "@booksInSeriesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "bookNumber": "第{number}册",
-  "@bookNumber": {"placeholders": {"number": {"type": "String"}}},
+  "@bookNumber": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "downloadRemainingCount": "剩余{count}次下载机会",
-  "@downloadRemainingCount": {"placeholders": {"count": {"type": "int"}}},
+  "@downloadRemainingCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "downloadAll": "下载全部",
   "markAllNotFinished": "标记全部未完成",
   "markAllFinished": "全部标记完成",
@@ -641,7 +982,6 @@
   "autoDownloadThisSeries": "自动下载本系列？",
   "autoDownloadSeriesContent": "在您收听时自动下载下一本书。",
   "standalone": "独立版",
-
   "episodes": "剧集",
   "noEpisodesFound": "未找到剧集",
   "markFinished": "标记为已完成",
@@ -650,7 +990,13 @@
   "aboutThisEpisode": "关于这一集",
   "reversePlayOrder": "倒序播放",
   "selectedCount": "{count}项被选中",
-  "@selectedCount": {"placeholders": {"count": {"type": "int"}}},
+  "@selectedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "selectAll": "全选",
   "autoDownloadThisPodcast": "自动下载本播客？",
   "autoDownloadPodcastContent": "在您收听时自动下载下一集。",
@@ -658,7 +1004,6 @@
   "deleteDownload": "删除下载",
   "casting": "类型转换",
   "castingTo": "转换为目标类型",
-
   "editDetails": "编辑详情",
   "quickMatch": "快速匹配",
   "custom": "自定义",
@@ -686,7 +1031,6 @@
   "localMetadata": "本地元数据",
   "overrideLocalDisplay": "覆盖本地显示设置",
   "metadataSavedLocally": "元数据已保存到本地",
-
   "notes": "备注",
   "newNote": "新建备注",
   "editNote": "编辑备注",
@@ -700,7 +1044,6 @@
   "titleHint": "书名",
   "noteBodyHint": "请撰写您的备注...（支持Markdown格式）",
   "nothingToPreview": "无内容可供预览",
-
   "audioEnhancements": "音频增强功能",
   "presets": "预设设置",
   "equalizer": "均衡器",
@@ -710,7 +1053,6 @@
   "loudness": "音量",
   "monoAudio": "单声道音频",
   "resetAll": "全部重置",
-
   "collectionNotFound": "未找到集合",
   "deleteCollection": "删除集合",
   "deleteCollectionContent": "您确定要删除此集合吗？",
@@ -720,20 +1062,23 @@
   "newPlaylist": "新建播放列表",
   "playlistNameHint": "播放列表名称",
   "addedToName": "已添加到「{name}」",
-  "@addedToName": {"placeholders": {"name": {"type": "String"}}},
+  "@addedToName": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "failedToAdd": "添加失败",
   "newCollection": "新建集合",
   "collectionNameHint": "集合名称",
-
   "castToDevice": "投射到设备",
   "searchingForCastDevices": "正在搜索投射设备...",
   "castDevice": "投射设备",
   "stopCasting": "停止投射",
   "disconnect": "断开连接",
-
   "audioOutput": "音频输出",
   "noOutputDevicesFound": "未找到输出设备",
-
   "welcomeToAbsorb": "欢迎使用 Absorb",
   "welcomeOverview": "以下是该功能的简要介绍。",
   "welcomeHomeTitle": "首页",
@@ -760,7 +1105,6 @@
   "welcomeSettingsTitle": "设置",
   "welcomeSettingsBody": "您可以配置队列行为、睡眠定时器、播放速度以及本地服务器连接等相关设置",
   "getStarted": "开始使用",
-
   "showMore": "显示更多",
   "showLess": "显示较少",
   "readMore": "阅读更多",
@@ -777,19 +1121,34 @@
   "admin": "管理员",
   "serverAdmin": "服务器管理员",
   "serverAdminSubtitle": "管理用户、库及服务器设置",
-
   "justNow": "刚刚",
   "minutesAgo": "{count}分钟前",
-  "@minutesAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@minutesAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "hoursAgo": "{count}小时前",
-  "@hoursAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@hoursAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "daysAgo": "{count}天前",
-  "@daysAgo": {"placeholders": {"count": {"type": "int"}}},
-
+  "@daysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "audible": "Audible",
   "iTunes": "iTunes",
   "openLibrary": "Open Library",
-
   "root": "根用户",
   "coverPlayPause": "封面播放/暂停",
   "coverPlayPauseOnSubtitle": "开启时——点击封面图片即可播放/暂停",
@@ -810,38 +1169,128 @@
   "chapterBarrierOnRewindOnSubtitle": "开启时——倒回时会直接跳到章节开头",
   "chapterBarrierOnRewindOffSubtitle": "关闭时——倒回时会跨越章节边界",
   "autoRewindOnSubtitleFormat": "开启时——根据暂停时长，在{min}秒到{max}秒之间自动倒回",
-  "@autoRewindOnSubtitleFormat": {"placeholders": {"min": {"type": "String"},"max": {"type": "String"}}},
+  "@autoRewindOnSubtitleFormat": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
   "rewindOnSessionStart": "在新会话开始时自动倒回",
   "rewindOnSessionStartInfoContent": "通常情况下，自动倒回功能会在您在当前会话中暂停后恢复播放时触发。而这个设置会在您开始一个全新的会话时也会自动倒回播放内容——例如，在应用程序关闭后、播放被暂停后，或者您重新打开应用程序时。\n\n当此功能开启后，在每个新会话开始时，系统都会自动倒回播放内容，这样您就可以从上次暂停的地方继续观看。",
   "rewindOnSessionStartOnSubtitle": "开启时——在新会话开始时，系统会自动倒回{seconds}秒",
-  "@rewindOnSessionStartOnSubtitle": {"placeholders": {"seconds": {"type": "String"}}},
-  "rewindActivationDelayValue": "{seconds}s后自动倒回",
-  "@rewindActivationDelayValue": {"placeholders": {"seconds": {"type": "String"}}},
+  "@rewindOnSessionStartOnSubtitle": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
+  "rewindActivationDelayValue": "{seconds}s+",
+  "@rewindActivationDelayValue": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "rewindRangeValue": "{min}秒到{max}秒",
-  "@rewindRangeValue": {"placeholders": {"min": {"type": "String"},"max": {"type": "String"}}},
+  "@rewindRangeValue": {
+    "placeholders": {
+      "min": {
+        "type": "String"
+      },
+      "max": {
+        "type": "String"
+      }
+    }
+  },
   "rewindSecondsPause": "暂停{seconds}秒后自动倒回",
-  "@rewindSecondsPause": {"placeholders": {"seconds": {"type": "String"}}},
+  "@rewindSecondsPause": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "rewindMinPause": "至少暂停{minutes}分钟",
-  "@rewindMinPause": {"placeholders": {"minutes": {"type": "String"}}},
+  "@rewindMinPause": {
+    "placeholders": {
+      "minutes": {
+        "type": "String"
+      }
+    }
+  },
   "rewindHrPause": "至少暂停{hours}小时",
-  "@rewindHrPause": {"placeholders": {"hours": {"type": "String"}}},
+  "@rewindHrPause": {
+    "placeholders": {
+      "hours": {
+        "type": "String"
+      }
+    }
+  },
   "rewindOneHrPause": "暂停1小时",
   "speedValue": "{speed}倍",
-  "@speedValue": {"placeholders": {"speed": {"type": "String"}}},
+  "@speedValue": {
+    "placeholders": {
+      "speed": {
+        "type": "String"
+      }
+    }
+  },
   "secondsValue": "{seconds}秒",
-  "@secondsValue": {"placeholders": {"seconds": {"type": "String"}}},
+  "@secondsValue": {
+    "placeholders": {
+      "seconds": {
+        "type": "String"
+      }
+    }
+  },
   "minutesValue": "{minutes}分钟",
-  "@minutesValue": {"placeholders": {"minutes": {"type": "int"}}},
+  "@minutesValue": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "chimeBeforeSleep": "睡前提示音",
   "chimeBeforeSleepOnSubtitle": "计时器即将结束时播放轻柔铃声",
   "chimeBeforeSleepOffSubtitle": "睡前不发出声音提示",
   "windDownDuration": "放松时间时长",
-  "windDownDurationSubtitle": "在睡前{秒}秒开始逐渐降低音量并播放提示音 {seconds}",
-  "@windDownDurationSubtitle": {"placeholders": {"seconds": {"type": "int"}}},
-  "fadeVolumeOnSubtitleDynamic": "在最后{秒}秒内逐渐降低音量 {seconds}",
-  "@fadeVolumeOnSubtitleDynamic": {"placeholders": {"seconds": {"type": "int"}}},
-  "autoSleepTimerEnabledSubtitle": "{开始} – {结束} · {时长} {start} {end} {duration}",
-  "@autoSleepTimerEnabledSubtitle": {"placeholders": {"start": {"type": "String"},"end": {"type": "String"},"duration": {"type": "String"}}},
+  "windDownDurationSubtitle": "在睡前{seconds}秒开始逐渐降低音量并播放提示音",
+  "@windDownDurationSubtitle": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "fadeVolumeOnSubtitleDynamic": "在最后{seconds}秒内逐渐降低音量",
+  "@fadeVolumeOnSubtitleDynamic": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "autoSleepTimerEnabledSubtitle": "{start} – {end} · {duration}",
+  "@autoSleepTimerEnabledSubtitle": {
+    "placeholders": {
+      "start": {
+        "type": "String"
+      },
+      "end": {
+        "type": "String"
+      },
+      "duration": {
+        "type": "String"
+      }
+    }
+  },
   "endOfChapterShort": "章节结束",
   "endOfChapterOnSubtitle": "在当前章节结束时停止操作",
   "endOfChapterOffSubtitle": "使用定时睡眠计时器",
@@ -861,28 +1310,90 @@
   "updateAvailable": "有更新可用",
   "preReleaseAvailable": "预发布版本可用",
   "updateDialogContent": "新的 {kind} 版本的 Absorb 现已发布：{latest}\n\n您当前使用的是 {current} 版本。",
-  "@updateDialogContent": {"placeholders": {"kind": {"type": "String"},"latest": {"type": "String"},"current": {"type": "String"}}},
+  "@updateDialogContent": {
+    "placeholders": {
+      "kind": {
+        "type": "String"
+      },
+      "latest": {
+        "type": "String"
+      },
+      "current": {
+        "type": "String"
+      }
+    }
+  },
   "updateKindPreRelease": "预发布",
   "updateKindVersion": "版本",
   "downloadButton": "下载",
-  "libraryCountOne": "[{count}]本图书馆",
-  "@libraryCountOne": {"placeholders": {"count": {"type": "int"}}},
-  "libraryCountOther": "[{count}]个图书馆",
-  "@libraryCountOther": {"placeholders": {"count": {"type": "int"}}},
+  "libraryCountOne": "{count}个图书馆",
+  "@libraryCountOne": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "libraryCountOther": "{count}个图书馆",
+  "@libraryCountOther": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "serverVersionLabel": "服务器{version}",
-  "@serverVersionLabel": {"placeholders": {"version": {"type": "String"}}},
+  "@serverVersionLabel": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "appVersionServerSuffix": "  ·  服务器{version}",
-  "@appVersionServerSuffix": {"placeholders": {"version": {"type": "String"}}},
+  "@appVersionServerSuffix": {
+    "placeholders": {
+      "version": {
+        "type": "String"
+      }
+    }
+  },
   "backupDateFormat": "{month}/{day}/{year}",
-  "@backupDateFormat": {"placeholders": {"month": {"type": "int"},"day": {"type": "int"},"year": {"type": "int"}}},
+  "@backupDateFormat": {
+    "placeholders": {
+      "month": {
+        "type": "int"
+      },
+      "day": {
+        "type": "int"
+      },
+      "year": {
+        "type": "int"
+      }
+    }
+  },
   "backupDetailsSeparator": " · ",
-
   "bookmarksSortedByPositionReversed": "按位置逆序排序",
   "bookmarksJumpShortContent": "\"{title}\"位于{position}位置",
-  "@bookmarksJumpShortContent": {"placeholders": {"title": {"type": "String"},"position": {"type": "String"}}},
+  "@bookmarksJumpShortContent": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "position": {
+        "type": "String"
+      }
+    }
+  },
   "deleteBookmarkQuestion": "删除书签？",
   "bookmarkAtPosition": "在{position}处添加书签",
-  "@bookmarkAtPosition": {"placeholders": {"position": {"type": "String"}}},
+  "@bookmarkAtPosition": {
+    "placeholders": {
+      "position": {
+        "type": "String"
+      }
+    }
+  },
   "cardIconsOnlyChip": "仅图标",
   "cardMoreInGridChip": "在网格中显示“更多”",
   "cardLayoutHidden": "隐藏",
@@ -894,30 +1405,88 @@
   "equalizerLabel": "均衡器",
   "cast": "配音",
   "castingToDevice": "转换为{device}格式",
-  "@castingToDevice": {"placeholders": {"device": {"type": "String"}}},
+  "@castingToDevice": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "castToDeviceNamed": "投射到「{device}」",
-  "@castToDeviceNamed": {"placeholders": {"device": {"type": "String"}}},
+  "@castToDeviceNamed": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
   "historyShort": "历史记录",
   "atPosition": "位于 {position} 处",
-  "@atPosition": {"placeholders": {"position": {"type": "String"}}},
-
+  "@atPosition": {
+    "placeholders": {
+      "position": {
+        "type": "String"
+      }
+    }
+  },
   "chaptersChip": "{count}章",
-  "@chaptersChip": {"placeholders": {"count": {"type": "int"}}},
+  "@chaptersChip": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "chapterNumber": "第 {number} 章",
-  "@chapterNumber": {"placeholders": {"number": {"type": "int"}}},
+  "@chapterNumber": {
+    "placeholders": {
+      "number": {
+        "type": "int"
+      }
+    }
+  },
   "kbpsValue": "{value} kbps",
-  "@kbpsValue": {"placeholders": {"value": {"type": "int"}}},
+  "@kbpsValue": {
+    "placeholders": {
+      "value": {
+        "type": "int"
+      }
+    }
+  },
   "resetMayNotHaveSynced": "重置操作可能尚未完成同步——请检查您的服务器状态",
   "failedToDownloadEbook": "无法下载电子书（错误代码：{code}）",
-  "@failedToDownloadEbook": {"placeholders": {"code": {"type": "int"}}},
+  "@failedToDownloadEbook": {
+    "placeholders": {
+      "code": {
+        "type": "int"
+      }
+    }
+  },
   "serverReturnedErrorPage": "服务器返回了错误页面，而非电子书文件",
   "ebookSaved": "电子书已保存：{filename}",
-  "@ebookSaved": {"placeholders": {"filename": {"type": "String"}}},
+  "@ebookSaved": {
+    "placeholders": {
+      "filename": {
+        "type": "String"
+      }
+    }
+  },
   "errorSavingEbook": "保存电子书时出现错误：{error}",
-  "@errorSavingEbook": {"placeholders": {"error": {"type": "String"}}},
+  "@errorSavingEbook": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "failedToSaveError": "保存失败：{error}",
-  "@failedToSaveError": {"placeholders": {"error": {"type": "String"}}},
-
+  "@failedToSaveError": {
+    "placeholders": {
+      "error": {
+        "type": "String"
+      }
+    }
+  },
   "adminBackupsLabel": "备份",
   "adminListeningNow": "正在监听",
   "adminLibraries": "库",
@@ -928,19 +1497,36 @@
   "adminLibraryDuration": "时长",
   "adminMatchAction": "匹配",
   "adminMatchingStarted": "正在为{name}进行匹配",
-  "@adminMatchingStarted": {"placeholders": {"name": {"type": "String"}}},
+  "@adminMatchingStarted": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "adminMatchFailed": "失败",
   "adminScanFailed": "无法扫描{name}",
-  "@adminScanFailed": {"placeholders": {"name": {"type": "String"}}},
+  "@adminScanFailed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "adminPurgeCacheFailed": "失败",
-
   "adminUsersRootBadge": "root",
   "adminUsersAdminBadge": "admin",
   "adminUsersDisabledBadge": "disabled",
   "adminUsersEditUserTooltip": "编辑用户",
   "adminUsersOnlineNow": "当前在线",
   "adminUsersLastSeen": "最后查看时间：{time}",
-  "@adminUsersLastSeen": {"placeholders": {"time": {"type": "String"}}},
+  "@adminUsersLastSeen": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
   "adminUsersNever": "从未",
   "adminUsersTotal": "总数",
   "adminUsersNoReadingActivity": "无阅读活动",
@@ -949,9 +1535,21 @@
   "adminUsersNoRecentSessions": "没有最近的会话记录",
   "adminUsersLibraryProgress": "库文件加载进度",
   "adminUsersLoadMoreRemaining": "还可以加载更多（剩余{count}条）",
-  "@adminUsersLoadMoreRemaining": {"placeholders": {"count": {"type": "int"}}},
+  "@adminUsersLoadMoreRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminUsersMonthsAgo": "{count}个月前",
-  "@adminUsersMonthsAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@adminUsersMonthsAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminUsersNewUser": "新用户",
   "adminUsersEditUser": "编辑用户",
   "adminUsersUsername": "用户名",
@@ -989,12 +1587,30 @@
   "adminUsersThisUser": "当前用户",
   "adminUsersDeleteUserTitle": "删除用户？",
   "adminUsersDeleteUserContent": "是否永久删除{name}？",
-  "@adminUsersDeleteUserContent": {"placeholders": {"name": {"type": "String"}}},
+  "@adminUsersDeleteUserContent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "adminUsersUserDeleted": "{name}已被删除",
-  "@adminUsersUserDeleted": {"placeholders": {"name": {"type": "String"}}},
+  "@adminUsersUserDeleted": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "adminUsersFailedDelete": "删除用户失败",
   "adminUsersByAuthor": "按{author}排序",
-  "@adminUsersByAuthor": {"placeholders": {"author": {"type": "String"}}},
+  "@adminUsersByAuthor": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "adminUsersListened": "已收听",
   "adminUsersStartedAtPosition": "从位置开始",
   "adminUsersEndedAtPosition": "在位置结束",
@@ -1009,7 +1625,6 @@
   "adminUsersPlayDirectStream": "直接流媒体播放",
   "adminUsersPlayTranscode": "转码播放",
   "adminUsersPlayLocal": "本地播放",
-
   "adminPodcastsCheckNewEpisodesTitle": "检查新剧集",
   "adminPodcastsCheckNewEpisodesContent": "此功能会检查所有播客的RSS源，并在自动下载功能开启的情况下下载新发现的剧集。",
   "adminPodcastsCheckNewEpisodesSubtitle": "扫描RSS源并下载新剧集",
@@ -1020,8 +1635,14 @@
   "adminPodcastsCheckFeedsTooltip": "检查订阅源以获取新剧集信息",
   "adminPodcastsNoPodcastsYet": "目前还没有任何播客",
   "adminPodcastsTapPlusHint": "点击“+”按钮可以搜索并添加节目",
-  "adminPodcastsEpisodesCount": "[{count}]集剧集",
-  "@adminPodcastsEpisodesCount": {"placeholders": {"count": {"type": "int"}}},
+  "adminPodcastsEpisodesCount": "{count}集剧集",
+  "@adminPodcastsEpisodesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsAddPodcast": "添加播客",
   "adminPodcastsCouldNotFindFeed": "无法找到播客订阅源",
   "adminPodcastsSearchHint": "搜索播客……",
@@ -1029,13 +1650,37 @@
   "adminPodcastsNoPodcastsFound": "未找到任何播客",
   "adminPodcastsRelToday": "今天",
   "adminPodcastsWeeksAgo": "{count}周前",
-  "@adminPodcastsWeeksAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsWeeksAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsMonthsAgo": "{count}个月前",
-  "@adminPodcastsMonthsAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsMonthsAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsYearsAgo": "{count}年前",
-  "@adminPodcastsYearsAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsYearsAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsUpdated": "更新时间：{when}",
-  "@adminPodcastsUpdated": {"placeholders": {"when": {"type": "String"}}},
+  "@adminPodcastsUpdated": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsGenreAll": "所有类型",
   "adminPodcastsGenreArts": "艺术",
   "adminPodcastsGenreComedy": "喜剧",
@@ -1058,57 +1703,153 @@
   "adminPodcastsEpisodeFallback": "剧集",
   "adminPodcastsNoFeedFound": "未找到订阅源URL",
   "adminPodcastsNoFeedAvailable": "无法获取订阅源URL",
-  "adminPodcastsAddedToLibrary": "{{title}}已添加到图书馆",
-  "@adminPodcastsAddedToLibrary": {"placeholders": {"title": {"type": "String"}}},
-  "adminPodcastsFailedToAdd": "无法添加{{title}}",
-  "@adminPodcastsFailedToAdd": {"placeholders": {"title": {"type": "String"}}},
-  "adminPodcastsEpisodesInFeed": "订阅源中包含{{count}}集剧集",
-  "@adminPodcastsEpisodesInFeed": {"placeholders": {"count": {"type": "int"}}},
-  "adminPodcastsMoreEpisodes": "还有{{count}}集剧集",
-  "@adminPodcastsMoreEpisodes": {"placeholders": {"count": {"type": "int"}}},
+  "adminPodcastsAddedToLibrary": "{title}已添加到图书馆",
+  "@adminPodcastsAddedToLibrary": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "adminPodcastsFailedToAdd": "无法添加{title}",
+  "@adminPodcastsFailedToAdd": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
+  "adminPodcastsEpisodesInFeed": "订阅源中包含{count}集剧集",
+  "@adminPodcastsEpisodesInFeed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "adminPodcastsMoreEpisodes": "还有{count}集剧集",
+  "@adminPodcastsMoreEpisodes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsAdding": "正在添加…",
   "adminPodcastsAddToLibrary": "添加到库中",
   "adminPodcastsRemoveShowTitle": "移除节目标题？",
-  "adminPodcastsRemoveShowContent": "是否要从服务器中移除「{title}」及其所有剧集？此操作不可撤销。",
-  "@adminPodcastsRemoveShowContent": {"placeholders": {"title": {"type": "String"}}},
+  "adminPodcastsRemoveShowContent": "是否要从服务器中移除「{title}」及其所有剧集？\n此操作不可撤销。",
+  "@adminPodcastsRemoveShowContent": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsRemovedShow": "已移除「{title}」",
-  "@adminPodcastsRemovedShow": {"placeholders": {"title": {"type": "String"}}},
+  "@adminPodcastsRemovedShow": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsFailedRemoveShow": "无法移除节目",
   "adminPodcastsRemoveShowTooltip": "移除节目",
   "adminPodcastsSelectMultipleTooltip": "选择多个",
   "adminPodcastsDownloadedCount": "{count}个已下载",
-  "@adminPodcastsDownloadedCount": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsDownloadedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsTabDownloaded": "已下载",
   "adminPodcastsTabFeed": "订阅源",
   "adminPodcastsTabSettings": "设置",
   "adminPodcastsDownloadingEpisode": "正在下载「{title}」",
-  "@adminPodcastsDownloadingEpisode": {"placeholders": {"title": {"type": "String"}}},
+  "@adminPodcastsDownloadingEpisode": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsFailedDownload": "下载失败",
   "adminPodcastsDeleteEpisodeTitle": "删除剧集？",
   "adminPodcastsDeleteEpisodeContent": "删除“{title}”吗？",
-  "@adminPodcastsDeleteEpisodeContent": {"placeholders": {"title": {"type": "String"}}},
+  "@adminPodcastsDeleteEpisodeContent": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsDeleted": "已删除",
   "adminPodcastsFailed": "失败",
   "adminPodcastsDeleteEpisodesTitle": "删除剧集吗？",
   "adminPodcastsDeleteEpisodesContent": "从服务器中删除{count}集剧集吗？",
-  "@adminPodcastsDeleteEpisodesContent": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsDeleteEpisodesContent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsDeletedEpisodes": "已删除{count}集剧集",
-  "@adminPodcastsDeletedEpisodes": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsDeletedEpisodes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsBrowseFeedToDownload": "浏览剧集列表以进行下载",
   "adminPodcastsDownloadingDots": "正在下载…",
   "adminPodcastsDeleteEpisodesCount": "将删除{count}集节目",
-  "@adminPodcastsDeleteEpisodesCount": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsDeleteEpisodesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsDownloadingCount": "正在下载{count}集节目",
-  "@adminPodcastsDownloadingCount": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsDownloadingCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsDownloadEpisodesCount": "将下载{count}集节目",
-  "@adminPodcastsDownloadEpisodesCount": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsDownloadEpisodesCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsLookForEpisodesAfter": "在之后查找节目",
   "adminPodcastsSelectDate": "选择日期",
   "adminPodcastsMaxEpisodes": "可下载的最大节目集数",
   "adminPodcastsNoNewEpisodesAfter": "在{date}之后未找到新剧集",
-  "@adminPodcastsNoNewEpisodesAfter": {"placeholders": {"date": {"type": "String"}}},
+  "@adminPodcastsNoNewEpisodesAfter": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsFoundNewEpisodes": "找到了{count}集新剧集——正在下载中",
-  "@adminPodcastsFoundNewEpisodes": {"placeholders": {"count": {"type": "int"}}},
+  "@adminPodcastsFoundNewEpisodes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "adminPodcastsFailedToCheckNew": "无法检查新剧集",
   "adminPodcastsCheckAndDownload": "检查并下载",
   "adminPodcastsMatchPodcast": "匹配到播客",
@@ -1137,20 +1878,43 @@
   "adminPodcastsDeleting": "正在删除...",
   "adminPodcastsDeleteEpisode": "删除剧集",
   "adminPodcastsSeasonChip": "第{season}季",
-  "@adminPodcastsSeasonChip": {"placeholders": {"season": {"type": "String"}}},
+  "@adminPodcastsSeasonChip": {
+    "placeholders": {
+      "season": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsEpChip": "第{number}集",
-  "@adminPodcastsEpChip": {"placeholders": {"number": {"type": "String"}}},
+  "@adminPodcastsEpChip": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "adminPodcastsApplyingMatch": "正在匹配中...",
   "adminPodcastsNoResults": "没有找到结果",
   "adminPodcastsPodcastMatched": "播客已匹配并更新",
   "adminPodcastsFailedMatch": "无法匹配到播客",
-
   "episodeListEpisodeFallback": "剧集",
   "episodeListUnknownPodcast": "未知播客",
-  "episodeListMarkedFinished": "{count, plural, =1{1集已标记为已完成} 其他{{count}集已标记为已完成}} {count, plural, =1{1 episode marked as finished}",
-  "@episodeListMarkedFinished": {"placeholders": {"count": {"type": "int"}}},
-  "episodeListMarkedUnfinished": "{count, plural, =1{1集已标记为未完成} 其他{{count}集已标记为未完成}} {count, plural, =1{1 episode marked as unfinished}",
-  "@episodeListMarkedUnfinished": {"placeholders": {"count": {"type": "int"}}},
+  "episodeListMarkedFinished": "{count, plural, =1{1集已标记为已完成} other{{count}集已标记为已完成}}",
+  "@episodeListMarkedFinished": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "episodeListMarkedUnfinished": "{count, plural, =1{1集已标记为未完成} other{{count}集已标记为未完成}}",
+  "@episodeListMarkedUnfinished": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "episodeListUnsubscribeFromNewEpisodes": "取消订阅新剧集",
   "episodeListSubscribeToNewEpisodes": "订阅新剧集",
   "episodeListSubscribeTitle": "是否订阅此播客？",
@@ -1160,16 +1924,27 @@
   "episodeListHideFinishedEpisodes": "隐藏已完成的剧集",
   "episodeListPlaysNewerToOlder": "按最新到最旧的顺序播放剧集",
   "episodeListPlaysOlderToNewer": "从较旧的剧集开始播放",
-  "episodeListEpisodeCount": "{count, plural, =1{1集} 其他{{count}集}} {count, plural, =1{1 episode}",
-  "@episodeListEpisodeCount": {"placeholders": {"count": {"type": "int"}}},
+  "episodeListEpisodeCount": "{count, plural, =1{1集} other{{count}集}}",
+  "@episodeListEpisodeCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "episodeListAutoDownloadChip": "自动下载",
   "episodeListSubscribedChip": "已订阅",
   "episodeListExplicitChip": "明确选择下载",
   "episodeListSortNewest": "最新排序",
   "episodeListSortOldest": "最旧排序",
   "episodeListAddedToAbsorbing": "已将\"{title}\"添加到沉浸播放",
-  "@episodeListAddedToAbsorbing": {"placeholders": {"title": {"type": "String"}}},
-
+  "@episodeListAddedToAbsorbing": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "episodeDetailEpisodeFallback": "剧集详情",
   "episodeDetailMarkedNotFinished": "标记为未完成",
   "episodeDetailMarkedFinishedNice": "标记为已完成——很不错！",
@@ -1178,57 +1953,151 @@
   "episodeDetailToday": "今天",
   "episodeDetailYesterday": "昨天",
   "episodeDetailDaysAgo": "{count}天前",
-  "@episodeDetailDaysAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@episodeDetailDaysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "episodeDetailWeeksAgo": "{count}周前",
-  "@episodeDetailWeeksAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@episodeDetailWeeksAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "episodeDetailDurationHm": "{hours}小时{minutes}分钟",
-  "@episodeDetailDurationHm": {"placeholders": {"hours": {"type": "int"},"minutes": {"type": "int"}}},
+  "@episodeDetailDurationHm": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "episodeDetailDurationM": "{minutes}分钟",
-  "@episodeDetailDurationM": {"placeholders": {"minutes": {"type": "int"}}},
+  "@episodeDetailDurationM": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "episodeDetailResume": "继续观看",
   "episodeDetailPlayEpisode": "播放剧集",
   "episodeDetailEpisodeNumber": "第{number}集",
-  "@episodeDetailEpisodeNumber": {"placeholders": {"number": {"type": "String"}}},
+  "@episodeDetailEpisodeNumber": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "episodeDetailSeasonNumber": "第{number}季",
-  "@episodeDetailSeasonNumber": {"placeholders": {"number": {"type": "String"}}},
-
+  "@episodeDetailSeasonNumber": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "editMetadataUpdatedFromMatch": "根据匹配结果更新元数据",
   "editMetadataConfirmMatch": "使用以下信息更新该书的服务器元数据：\n\n\"{title}\"\n\n服务器上的所有字段及封面信息都将被覆盖。",
-  "@editMetadataConfirmMatch": {"placeholders": {"title": {"type": "String"}}},
+  "@editMetadataConfirmMatch": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "editMetadataConfirmMatchWithAuthor": "使用以下信息更新该书的服务器元数据：\n\n\"{title}\" 作者：{author}\n\n服务器上的所有字段及封面信息都将被覆盖。",
-  "@editMetadataConfirmMatchWithAuthor": {"placeholders": {"title": {"type": "String"},"author": {"type": "String"}}},
-
+  "@editMetadataConfirmMatchWithAuthor": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      },
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "seriesBooksFindMissingTitle": "查找缺失的书籍",
   "seriesBooksFindMissingContent": "此功能会搜索Audible平台，找出您图书馆中可能缺失的该系列书籍。\n\n书籍会首先通过ASIN进行匹配（具体取决于您的服务器是否保存了这些书籍的ASIN信息），如果无法匹配，则会通过书名进行查找。因此，搜索结果可能并不完全准确。",
   "seriesBooksCouldNotFindOnAudible": "在Audible平台上未找到该系列书籍",
-  "seriesBooksMarkAllNotFinishedContent": "{count, plural, =1{这将取消标记该系列中1本书为已完成状态。} other{这将取消标记该系列中全部{count}本书为已完成状态。}} {count, plural, =1{This will clear the finished status for the 1 book in this series.} {This will clear the finished status for all {count}",
-  "@seriesBooksMarkAllNotFinishedContent": {"placeholders": {"count": {"type": "int"}}},
-  "seriesBooksFullyAbsorbContent": "{count, plural, =1{这将标记该系列中 1 本书为已听完。} other{这将标记该系列中全部 {count} 本书为已听完。}}",
-  "@seriesBooksFullyAbsorbContent": {"placeholders": {"count": {"type": "int"}}},
+  "seriesBooksMarkAllNotFinishedContent": "{count, plural, =1{这将取消标记该系列中1本书为已完成状态。} other{这将取消标记该系列中全部{count}本书为已完成状态。}}",
+  "@seriesBooksMarkAllNotFinishedContent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "seriesBooksFullyAbsorbContent": "{count, plural, =1{这将标记该系列中1本书为已听完。} other{这将标记该系列中全部{count}本书为已听完。}}",
+  "@seriesBooksFullyAbsorbContent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "seriesBooksUnmarkAll": "取消全部标记",
   "seriesBooksShowAllBooks": "显示所有书籍",
   "seriesBooksGroupBySubSeries": "按子系列分组",
   "seriesBooksLoadingSubSeries": "正在加载子系列信息...",
-  "seriesBooksBookCount": "{count, plural, =1{1本书} other{{count}本书}} {count, plural, =1{1 book}",
-  "@seriesBooksBookCount": {"placeholders": {"count": {"type": "int"}}},
+  "seriesBooksBookCount": "{count, plural, =1{1本书} other{{count}本书}}",
+  "@seriesBooksBookCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "seriesBooksDone": "已完成",
   "seriesBooksExplicitBadge": "E",
-
   "expandedCardStreaming": "流媒体播放",
   "expandedCardDeviceFallback": "设备端观看",
-
   "bookmarksScreenPositionInBook": "位于{bookTitle}中的{position}位置",
-  "@bookmarksScreenPositionInBook": {"placeholders": {"position": {"type": "String"},"bookTitle": {"type": "String"}}},
+  "@bookmarksScreenPositionInBook": {
+    "placeholders": {
+      "position": {
+        "type": "String"
+      },
+      "bookTitle": {
+        "type": "String"
+      }
+    }
+  },
   "bookmarksScreenClose": "关闭",
   "bookmarksScreenSortNewest": "最新",
   "bookmarksScreenSortPosition": "位置",
-
   "statsScreenStreakDays": "{count}天",
-  "@statsScreenStreakDays": {"placeholders": {"count": {"type": "int"}}},
+  "@statsScreenStreakDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "statsScreenSessionCountOne": "{count}次会话",
-  "@statsScreenSessionCountOne": {"placeholders": {"count": {"type": "int"}}},
+  "@statsScreenSessionCountOne": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "statsScreenSessionCountOther": "{count}次会话",
-  "@statsScreenSessionCountOther": {"placeholders": {"count": {"type": "int"}}},
+  "@statsScreenSessionCountOther": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "statsScreenDayMon": "周一",
   "statsScreenDayTue": "周二",
   "statsScreenDayWed": "周三",
@@ -1237,19 +2106,52 @@
   "statsScreenDaySat": "周六",
   "statsScreenDaySun": "周日",
   "statsScreenDurationHm": "{h}小时{m}分钟",
-  "@statsScreenDurationHm": {"placeholders": {"h": {"type": "int"},"m": {"type": "int"}}},
+  "@statsScreenDurationHm": {
+    "placeholders": {
+      "h": {
+        "type": "int"
+      },
+      "m": {
+        "type": "int"
+      }
+    }
+  },
   "statsScreenDurationM": "{m}分钟",
-  "@statsScreenDurationM": {"placeholders": {"m": {"type": "int"}}},
+  "@statsScreenDurationM": {
+    "placeholders": {
+      "m": {
+        "type": "int"
+      }
+    }
+  },
   "statsScreenDurationLessThanMin": "少于1分钟",
   "statsScreenDurationZero": "0分钟",
   "statsScreenDurationShortH": "{h}小时",
-  "@statsScreenDurationShortH": {"placeholders": {"h": {"type": "int"}}},
+  "@statsScreenDurationShortH": {
+    "placeholders": {
+      "h": {
+        "type": "int"
+      }
+    }
+  },
   "statsScreenDurationShortM": "{m}分钟",
-  "@statsScreenDurationShortM": {"placeholders": {"m": {"type": "int"}}},
+  "@statsScreenDurationShortM": {
+    "placeholders": {
+      "m": {
+        "type": "int"
+      }
+    }
+  },
   "statsScreenCouldNotLoadItem": "无法加载项目",
   "statsScreenCouldNotFindEpisode": "未找到剧集",
-  "statsScreenByAuthor": "按{作者}排序 {author}",
-  "@statsScreenByAuthor": {"placeholders": {"author": {"type": "String"}}},
+  "statsScreenByAuthor": "按{author}排序",
+  "@statsScreenByAuthor": {
+    "placeholders": {
+      "author": {
+        "type": "String"
+      }
+    }
+  },
   "statsScreenListened": "已收听",
   "statsScreenStartedAtPosition": "在位置 {position} 开始",
   "statsScreenEndedAtPosition": "在位置 {position} 结束",
@@ -1262,15 +2164,42 @@
   "statsScreenPlayMethod": "播放方式",
   "statsScreenLoading": "正在加载…",
   "statsScreenJumpToSessionStart": "跳转到会话开始位置 ({position})",
-  "@statsScreenJumpToSessionStart": {"placeholders": {"position": {"type": "String"}}},
+  "@statsScreenJumpToSessionStart": {
+    "placeholders": {
+      "position": {
+        "type": "String"
+      }
+    }
+  },
   "statsScreenPlayMethodDirect": "直接播放",
   "statsScreenPlayMethodDirectStream": "直接流式播放",
   "statsScreenPlayMethodTranscode": "转码",
   "statsScreenPlayMethodLocal": "本地",
   "statsScreenAmLabel": "上午",
   "statsScreenPmLabel": "下午",
-  "statsScreenDateAtTime": "{月份} {日期}, {年份} {小时}:{分钟} {am/pm} {month} {day} {year} {hour} {minute} {ampm}",
-  "@statsScreenDateAtTime": {"placeholders": {"month": {"type": "String"},"day": {"type": "int"},"year": {"type": "int"},"hour": {"type": "int"},"minute": {"type": "String"},"ampm": {"type": "String"}}},
+  "statsScreenDateAtTime": "{month} {day}, {year} {hour}:{minute} {ampm}",
+  "@statsScreenDateAtTime": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "int"
+      },
+      "year": {
+        "type": "int"
+      },
+      "hour": {
+        "type": "int"
+      },
+      "minute": {
+        "type": "String"
+      },
+      "ampm": {
+        "type": "String"
+      }
+    }
+  },
   "statsScreenMonthJan": "1月",
   "statsScreenMonthFeb": "2月",
   "statsScreenMonthMar": "3月",
@@ -1283,81 +2212,232 @@
   "statsScreenMonthOct": "十月",
   "statsScreenMonthNov": "十一月",
   "statsScreenMonthDec": "十二月",
-
   "upcomingReleasesTitle": "即将发布的版本",
   "upcomingReleasesRescanTitle": "重新扫描？",
   "upcomingReleasesRescanContent": "这些数据已经{days}天旧了。发布日期可能已经发生变化——您是否想要重新扫描？",
-  "@upcomingReleasesRescanContent": {"placeholders": {"days": {"type": "int"}}},
+  "@upcomingReleasesRescanContent": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "upcomingReleasesNotNow": "现在不行",
   "upcomingReleasesRescan": "重新扫描",
   "upcomingReleasesRescanReleaseDate": "重新扫描发布日期",
   "upcomingReleasesRescanning": "正在重新扫描…",
   "upcomingReleasesUpdatedWithDate": "已更新——{date}",
-  "@upcomingReleasesUpdatedWithDate": {"placeholders": {"date": {"type": "String"}}},
+  "@upcomingReleasesUpdatedWithDate": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
   "upcomingReleasesNoReleaseDateFound": "未找到发布日期",
   "upcomingReleasesRescanFailed": "重新扫描失败",
   "upcomingReleasesDateChip": "日期",
   "upcomingReleasesCheckingSeries": "正在检查{name}...（已处理{processed}/{total}）",
-  "@upcomingReleasesCheckingSeries": {"placeholders": {"name": {"type": "String"},"processed": {"type": "int"},"total": {"type": "int"}}},
+  "@upcomingReleasesCheckingSeries": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "processed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "upcomingReleasesLoadingSeries": "正在加载系列数据...",
   "upcomingReleasesScannedToday": "（今日已扫描）",
   "upcomingReleasesScannedYesterday": "（昨日已扫描）",
   "upcomingReleasesScannedDaysAgo": "（{days}天前已扫描）",
-  "@upcomingReleasesScannedDaysAgo": {"placeholders": {"days": {"type": "int"}}},
+  "@upcomingReleasesScannedDaysAgo": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "upcomingReleasesUpcomingCount": "还有{count}个即将发布的版本",
-  "@upcomingReleasesUpcomingCount": {"placeholders": {"count": {"type": "int"}}},
+  "@upcomingReleasesUpcomingCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "upcomingReleasesRecentCount": "最近有{count}个版本",
-  "@upcomingReleasesRecentCount": {"placeholders": {"count": {"type": "int"}}},
+  "@upcomingReleasesRecentCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "upcomingReleasesNoneFound": "未找到任何即将发布或最近的版本",
   "upcomingReleasesAcrossSeries": "共有{count}个系列中有{summary}个版本",
-  "@upcomingReleasesAcrossSeries": {"placeholders": {"summary": {"type": "String"},"count": {"type": "int"}}},
+  "@upcomingReleasesAcrossSeries": {
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "upcomingReleasesCheckedSeries": "已检查Audible上的{count}个系列",
-  "@upcomingReleasesCheckedSeries": {"placeholders": {"count": {"type": "int"}}},
-  "upcomingReleasesDateFormat": "{月} {日}, {年} {month} {day} {year}",
-  "@upcomingReleasesDateFormat": {"placeholders": {"month": {"type": "String"},"day": {"type": "int"},"year": {"type": "int"}}},
-  "upcomingReleasesSequenceLabel": "[序列编号] {sequence}",
-  "@upcomingReleasesSequenceLabel": {"placeholders": {"sequence": {"type": "String"}}},
+  "@upcomingReleasesCheckedSeries": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingReleasesDateFormat": "{month} {day}, {year}",
+  "@upcomingReleasesDateFormat": {
+    "placeholders": {
+      "month": {
+        "type": "String"
+      },
+      "day": {
+        "type": "int"
+      },
+      "year": {
+        "type": "int"
+      }
+    }
+  },
+  "upcomingReleasesSequenceLabel": "#{sequence}",
+  "@upcomingReleasesSequenceLabel": {
+    "placeholders": {
+      "sequence": {
+        "type": "String"
+      }
+    }
+  },
   "upcomingReleasesBadgeUpcoming": "即将推出",
   "upcomingReleasesBadgeAdded": "已添加",
   "upcomingReleasesBadgeMissing": "缺失",
-
   "homeScreenEpisodeFallback": "剧集",
   "libraryScreenUnknownTitle": "未知标题",
-
   "playlistDetailDefaultName": "播放列表",
   "playlistDetailItemCount": "{count} 项",
-  "@playlistDetailItemCount": {"placeholders": {"count": {"type": "int"}}},
+  "@playlistDetailItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "playlistDetailUnfinished": "未完成",
   "playlistDetailRemoveFromPlaylist": "从播放列表中移除",
   "playlistDetailDone": "已完成",
   "playlistDetailItemsMarkedFinished": "{count} 项已标记为完成",
-  "@playlistDetailItemsMarkedFinished": {"placeholders": {"count": {"type": "int"}}},
+  "@playlistDetailItemsMarkedFinished": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "playlistDetailItemsMarkedUnfinished": "{count} 项已标记为未完成",
-  "@playlistDetailItemsMarkedUnfinished": {"placeholders": {"count": {"type": "int"}}},
+  "@playlistDetailItemsMarkedUnfinished": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "playlistDetailItemsRemoved": "{count} 项已被移除",
-  "@playlistDetailItemsRemoved": {"placeholders": {"count": {"type": "int"}}},
+  "@playlistDetailItemsRemoved": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "playlistDetailAddedToAbsorbing": "已将\"{title}\"添加到沉浸播放",
-  "@playlistDetailAddedToAbsorbing": {"placeholders": {"title": {"type": "String"}}},
-
+  "@playlistDetailAddedToAbsorbing": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "collectionDetailDefaultName": "集合",
   "collectionDetailBookCount": "{count} 本书",
-  "@collectionDetailBookCount": {"placeholders": {"count": {"type": "int"}}},
+  "@collectionDetailBookCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "collectionDetailDone": "已完成",
   "collectionDetailAddedToAbsorbing": "已将\"{title}\"添加到沉浸播放",
-  "@collectionDetailAddedToAbsorbing": {"placeholders": {"title": {"type": "String"}}},
-
+  "@collectionDetailAddedToAbsorbing": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "audibleSeriesNoBooksFound": "在Audible上未找到相关书籍",
   "audibleSeriesFailedToLoad": "无法从Audible加载系列信息",
   "audibleSeriesSummary": "在Audible上有{total}本图书，其中{missing}本尚未下载",
-  "@audibleSeriesSummary": {"placeholders": {"total": {"type": "int"},"missing": {"type": "int"}}},
+  "@audibleSeriesSummary": {
+    "placeholders": {
+      "total": {
+        "type": "int"
+      },
+      "missing": {
+        "type": "int"
+      }
+    }
+  },
   "audibleSeriesSummaryWithUpcoming": "在Audible上有{total}本图书，其中{missing}本尚未下载，另有{upcoming}本即将推出",
-  "@audibleSeriesSummaryWithUpcoming": {"placeholders": {"total": {"type": "int"},"missing": {"type": "int"},"upcoming": {"type": "int"}}},
+  "@audibleSeriesSummaryWithUpcoming": {
+    "placeholders": {
+      "total": {
+        "type": "int"
+      },
+      "missing": {
+        "type": "int"
+      },
+      "upcoming": {
+        "type": "int"
+      }
+    }
+  },
   "audibleSeriesFilterMissing": "缺少{count}本图书",
-  "@audibleSeriesFilterMissing": {"placeholders": {"count": {"type": "int"}}},
+  "@audibleSeriesFilterMissing": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "audibleSeriesFilterUpcoming": "即将推出{count}本图书",
-  "@audibleSeriesFilterUpcoming": {"placeholders": {"count": {"type": "int"}}},
+  "@audibleSeriesFilterUpcoming": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "audibleSeriesFilterAll": "全部（{count}部）",
-  "@audibleSeriesFilterAll": {"placeholders": {"count": {"type": "int"}}},
+  "@audibleSeriesFilterAll": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "audibleSeriesSearching": "正在搜索Audible系列作品……",
   "audibleSeriesCompleteSeries": "您已收藏了全部该系列作品！",
   "audibleSeriesNoUpcoming": "未找到即将发布的作品",
@@ -1369,22 +2449,43 @@
   "audibleSeriesCouldNotOpenAudible": "无法打开Audible",
   "audibleSeriesCouldNotOpenCalendar": "无法打开日历",
   "audibleSeriesCalendarDescription": "《{seriesName}》系列中有新的有声书发布",
-  "@audibleSeriesCalendarDescription": {"placeholders": {"seriesName": {"type": "String"}}},
-
+  "@audibleSeriesCalendarDescription": {
+    "placeholders": {
+      "seriesName": {
+        "type": "String"
+      }
+    }
+  },
   "authorBooksGroupBySeries": "按系列分类",
   "authorBooksList": "列表显示",
   "authorBooksGrid": "网格显示",
   "authorBooksBookCount": "{count}本书",
-  "@authorBooksBookCount": {"placeholders": {"count": {"type": "int"}}},
-
+  "@authorBooksBookCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "metadataLookupCover": "封面查找",
   "metadataLookupChooseFields": "选择要应用的字段",
   "metadataLookupApplyFields": "应用{count}个字段",
-  "@metadataLookupApplyFields": {"placeholders": {"count": {"type": "int"}}},
-  "metadataLookupFieldsSavedLocally": "{}个字段已保存到本地 {count}",
-  "@metadataLookupFieldsSavedLocally": {"placeholders": {"count": {"type": "int"}}},
+  "@metadataLookupApplyFields": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "metadataLookupFieldsSavedLocally": "{count}个字段已保存到本地",
+  "@metadataLookupFieldsSavedLocally": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "metadataLookupOverrideLocalDisplay": "覆盖本地显示设置",
-
   "equalizerPresetFlat": "平直音效",
   "equalizerPresetVoiceBoost": "人声增强",
   "equalizerPresetBassBoost": "低音增强",
@@ -1394,57 +2495,149 @@
   "equalizerPresetReduceNoise": "降噪",
   "equalizerPresetLoudness": "音量调节",
   "equalizerEditingSavedNamed": "已保存\"{title}\"的均衡器设置",
-  "@equalizerEditingSavedNamed": {"placeholders": {"title": {"type": "String"}}},
+  "@equalizerEditingSavedNamed": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "equalizerEditingSavedGeneric": "已保存均衡器设置",
   "equalizerPerBookEq": "每本书独立的均衡器设置",
-
   "notesDeleteNoteQuestion": "是否删除备注？",
   "notesDeleteNoteContent": "是否删除\"{title}\"？",
-  "@notesDeleteNoteContent": {"placeholders": {"title": {"type": "String"}}},
+  "@notesDeleteNoteContent": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "notesExport": "导出备注",
   "notesNewNote": "新建备注",
-
   "librarySortFilterUpcomingReleases": "即将推出的系列",
   "librarySortFilterUpcomingReleasesSubtitle": "在Audible上搜索您感兴趣的系列新作品",
-
-  "sleepTimerSheetChaptersLeft": "还剩{数量, plural, =1{1章}其他{数量}章 {count, plural, =1{1 chapter left} {{count}",
-  "@sleepTimerSheetChaptersLeft": {"placeholders": {"count": {"type": "int"}}},
-  "sleepTimerSheetAddMinutesChip": "+{分钟}分钟 {minutes}",
-  "@sleepTimerSheetAddMinutesChip": {"placeholders": {"minutes": {"type": "int"}}},
-  "sleepTimerSheetAddChaptersChip": "+{数量}章 {count}",
-  "@sleepTimerSheetAddChaptersChip": {"placeholders": {"count": {"type": "int"}}},
-  "sleepTimerSheetMinShort": "{分钟}分钟 {minutes}",
-  "@sleepTimerSheetMinShort": {"placeholders": {"minutes": {"type": "int"}}},
-  "sleepTimerSheetSecondsShort": "{秒}秒 {seconds}",
-  "@sleepTimerSheetSecondsShort": {"placeholders": {"seconds": {"type": "int"}}},
-  "sleepTimerSheetMinSecShort": "{分钟}分钟 {秒}秒 {minutes} {seconds}",
-  "@sleepTimerSheetMinSecShort": {"placeholders": {"minutes": {"type": "int"},"seconds": {"type": "int"}}},
-  "sleepTimerSheetChaptersValue": "还剩{数量, plural, =1{1章}其他{数量}章 {count, plural, =1{1 chapter} {{count}",
-  "@sleepTimerSheetChaptersValue": {"placeholders": {"count": {"type": "int"}}},
-  "sleepTimerSheetChaptersChip": "{数量}章 {count}",
-  "@sleepTimerSheetChaptersChip": {"placeholders": {"count": {"type": "int"}}},
-  "sleepTimerSheetStartChapterSleep": "看完{数量}章后休息 {count, plural, =1{Sleep after 1 chapter} {Sleep after {count}",
-  "@sleepTimerSheetStartChapterSleep": {"placeholders": {"count": {"type": "int"}}},
+  "sleepTimerSheetChaptersLeft": "{count, plural, =1{还剩1章} other{还剩{count}章}}",
+  "@sleepTimerSheetChaptersLeft": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetAddMinutesChip": "+{minutes}m",
+  "@sleepTimerSheetAddMinutesChip": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetAddChaptersChip": "+{count} 章",
+  "@sleepTimerSheetAddChaptersChip": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetMinShort": "{minutes}m",
+  "@sleepTimerSheetMinShort": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetSecondsShort": "{seconds}s",
+  "@sleepTimerSheetSecondsShort": {
+    "placeholders": {
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetMinSecShort": "{minutes}m {seconds}s",
+  "@sleepTimerSheetMinSecShort": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      },
+      "seconds": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetChaptersValue": "{count, plural, =1{1章} other{{count}章}}",
+  "@sleepTimerSheetChaptersValue": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetChaptersChip": "{count} 章",
+  "@sleepTimerSheetChaptersChip": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "sleepTimerSheetStartChapterSleep": "{count, plural, =1{看完1章后休息} other{看完{count}章后休息}}",
+  "@sleepTimerSheetStartChapterSleep": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "sleepTimerSheetRewindOnSleep": "睡眠时倒带",
   "sleepTimerSheetShake": "震动",
-  "sleepTimerSheetAddsMinutes": "增加{分钟}分钟 {minutes}",
-  "@sleepTimerSheetAddsMinutes": {"placeholders": {"minutes": {"type": "int"}}},
+  "sleepTimerSheetAddsMinutes": "增加 {minutes} 分钟",
+  "@sleepTimerSheetAddsMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "sleepTimerSheetAddsOneChapter": "增加1章",
   "sleepTimerSheetResetsToFull": "重置为完整时长",
-
   "collectionPickerCollectionFallback": "集合",
   "collectionPickerNameWithCount": "{name} ({count})",
-  "@collectionPickerNameWithCount": {"placeholders": {"name": {"type": "String"},"count": {"type": "int"}}},
-
+  "@collectionPickerNameWithCount": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "playlistPickerPlaylistFallback": "播放列表",
   "playlistPickerNameWithCount": "{name} ({count})",
-  "@playlistPickerNameWithCount": {"placeholders": {"name": {"type": "String"},"count": {"type": "int"}}},
-
+  "@playlistPickerNameWithCount": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cardChaptersPlayFromChapterTitle": "从章节开始播放？",
   "cardChaptersPlayFromChapterContent": "从“{title}”开始播放？",
-  "@cardChaptersPlayFromChapterContent": {"placeholders": {"title": {"type": "String"}}},
+  "@cardChaptersPlayFromChapterContent": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "cardChaptersPlay": "播放",
-
   "absorbingSharedToday": "今日",
   "absorbingSharedYesterday": "昨天",
   "absorbingSharedMonday": "周一",
@@ -1456,16 +2649,18 @@
   "absorbingSharedSunday": "星期日",
   "absorbingSharedAm": "上午",
   "absorbingSharedPm": "下午",
-
   "sectionDetailAddedToAbsorbing": "已将\"{title}\"添加到沉浸播放",
-  "@sectionDetailAddedToAbsorbing": {"placeholders": {"title": {"type": "String"}}},
+  "@sectionDetailAddedToAbsorbing": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "sectionDetailDoneBadge": "已完成",
-
   "homeCustomizeAddGenreTitle": "添加类型分类",
   "homeCustomizeAddGenreSubtitle": "选择要在主屏幕上显示的类型分类",
-
   "homeSectionDoneBadge": "已完成",
-
   "tipsSheetQuickBookmarksTitle": "快速书签",
   "tipsSheetQuickBookmarksDesc": "长按任意卡片上的书签按钮，即可在当前位置添加书签，而无需打开书签页。",
   "tipsSheetEditBookmarksTitle": "编辑书签",
@@ -1504,104 +2699,233 @@
   "tipsSheetPlaylistsDesc": "您可以在Audiobookshelf服务器上创建和管理播放列表，这些播放列表会显示在首页上。您可以从任意书籍详情弹窗中将书籍添加到播放列表中。",
   "tipsSheetCollectionsTitle": "收藏集",
   "tipsSheetCollectionsDesc": "收藏集可以将相关的书籍归类在一起，并显示在首页上。管理员可以从书籍详情弹窗中添加书籍或编辑收藏集。",
-
   "bookCardUnknownTitle": "未知标题",
   "bookCardExplicitBadge": "E",
   "bookCardDone": "已完成",
   "bookCardSaved": "已保存",
-
   "episodeRowEpisode": "剧集",
   "episodeRowToday": "今天",
   "episodeRowYesterday": "昨天",
   "episodeRowDaysAgo": "{count}天前",
-  "@episodeRowDaysAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@episodeRowDaysAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "episodeRowWeeksAgo": "{count}周前",
-  "@episodeRowWeeksAgo": {"placeholders": {"count": {"type": "int"}}},
+  "@episodeRowWeeksAgo": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "episodeRowDurationHm": "{hours}小时{minutes}分钟",
-  "@episodeRowDurationHm": {"placeholders": {"hours": {"type": "int"},"minutes": {"type": "int"}}},
+  "@episodeRowDurationHm": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "episodeRowDurationM": "{minutes}分钟",
-  "@episodeRowDurationM": {"placeholders": {"minutes": {"type": "int"}}},
+  "@episodeRowDurationM": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
   "episodeRowSeasonShort": "第{number}季",
-  "@episodeRowSeasonShort": {"placeholders": {"number": {"type": "String"}}},
+  "@episodeRowSeasonShort": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "episodeRowEpisodeShort": "第{number}集",
-  "@episodeRowEpisodeShort": {"placeholders": {"number": {"type": "String"}}},
-
+  "@episodeRowEpisodeShort": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "librarySearchResultsExplicitBadge": "E",
   "librarySearchResultsDone": "已完成",
   "librarySearchResultsSaved": "已保存",
   "librarySearchResultsSequence": "[{number}]",
-  "@librarySearchResultsSequence": {"placeholders": {"number": {"type": "String"}}},
+  "@librarySearchResultsSequence": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "librarySearchResultsUnknownSeries": "未知系列",
   "librarySearchResultsUnknownEpisode": "未知剧集",
-  "librarySearchResultsBookCount": "{count, plural, =1{1本书} 其他{{count}本书}} {count, plural, =1{1 book}",
-  "@librarySearchResultsBookCount": {"placeholders": {"count": {"type": "int"}}},
-
+  "librarySearchResultsBookCount": "{count, plural, =1{1本书} other{{count}本书}}",
+  "@librarySearchResultsBookCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "libraryGridTilesExplicitBadge": "E",
   "libraryGridTilesDone": "已完成",
   "libraryGridTilesSaved": "已保存",
   "libraryGridTilesSequence": "[{number}]",
-  "@libraryGridTilesSequence": {"placeholders": {"number": {"type": "String"}}},
+  "@libraryGridTilesSequence": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "libraryGridTilesUnknownSeries": "未知系列",
-
   "seriesCardUnknownSeries": "未知系列",
-  "seriesCardBookCount": "{count, plural, =1{1本书} 其他{{count}本书}} {count, plural, =1{1 book}",
-  "@seriesCardBookCount": {"placeholders": {"count": {"type": "int"}}},
-
+  "seriesCardBookCount": "{count, plural, =1{1本书} other{{count}本书}}",
+  "@seriesCardBookCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cardProgressFineScrubbing": "精细调整进度",
   "cardProgressQuarterSpeed": "四分之一速度",
   "cardProgressHalfSpeed": "半速",
   "cardProgressChapterPrefix": "第{number}章",
-  "@cardProgressChapterPrefix": {"placeholders": {"number": {"type": "String"}}},
-
+  "@cardProgressChapterPrefix": {
+    "placeholders": {
+      "number": {
+        "type": "String"
+      }
+    }
+  },
   "cardEdgeProgressFineScrubbing": "精细调整边缘进度",
   "cardEdgeProgressQuarterSpeed": "四分之一速度",
   "cardEdgeProgressHalfSpeed": "半速",
-
   "authSessionExpired": "会话已过期。请重新登录。",
   "authCannotReachServer": "无法连接{url}处的服务器",
-  "@authCannotReachServer": {"placeholders": {"url": {"type": "String"}}},
+  "@authCannotReachServer": {
+    "placeholders": {
+      "url": {
+        "type": "String"
+      }
+    }
+  },
   "authInvalidUsernameOrPassword": "用户名或密码无效",
   "authLoginFailedDetail": "登录失败——请检查您的服务器地址和凭据信息",
   "authUnexpectedServerResponse": "服务器返回了意外响应",
   "authSsoUnexpectedResponse": "SSO返回了意外结果",
   "authSwitchedToLocalServer": "已切换到本地服务器",
   "authSwitchedToRemoteServer": "已切换到远程服务器",
-
   "lpDeletedFinishedDownload": "下载已完成删除",
   "lpSubscribedPodcastDownloading": "{showTitle}: {count, plural, =1{1 集新剧集正在下载} other{{count} 集新剧集正在下载}}",
-  "@lpSubscribedPodcastDownloading": {"placeholders": {"showTitle": {"type": "String"},"count": {"type": "int"}}},
+  "@lpSubscribedPodcastDownloading": {
+    "placeholders": {
+      "showTitle": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "lpQueueDownloadingItems": "{count, plural, =1{队列：正在下载 1 项} other{队列：正在下载 {count} 项}}",
-  "@lpQueueDownloadingItems": {"placeholders": {"count": {"type": "int"}}},
+  "@lpQueueDownloadingItems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "lpDownloadingBooks": "{count, plural, =1{正在下载 1 本书} other{正在下载 {count} 本书}}",
-  "@lpDownloadingBooks": {"placeholders": {"count": {"type": "int"}}},
+  "@lpDownloadingBooks": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "lpDownloadingEpisodes": "{count, plural, =1{正在下载 1 集剧集} other{正在下载 {count} 集剧集}}",
-  "@lpDownloadingEpisodes": {"placeholders": {"count": {"type": "int"}}},
-
+  "@lpDownloadingEpisodes": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "downloadNotifProgressChannelName": "下载进度",
   "downloadNotifProgressChannelDesc": "用于显示有声书下载过程中的进度",
   "downloadNotifAlertChannelName": "下载提醒",
   "downloadNotifAlertChannelDesc": "在下载完成或失败时发送通知",
   "downloadNotifDownloadingTitle": "正在下载中…",
   "downloadNotifActiveCount": "{count, plural, =1{1 个下载进行中} other{{count} 个下载进行中}}",
-  "@downloadNotifActiveCount": {"placeholders": {"count": {"type": "int"}}},
+  "@downloadNotifActiveCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "downloadNotifSlotTitle": "正在下载：{title}",
-  "@downloadNotifSlotTitle": {"placeholders": {"title": {"type": "String"}}},
+  "@downloadNotifSlotTitle": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "downloadNotifStartingLabel": "开始下载…",
   "downloadNotifCompleteTitle": "下载完成",
   "downloadNotifCompleteBody": "{title} 已准备好离线收听",
-  "@downloadNotifCompleteBody": {"placeholders": {"title": {"type": "String"}}},
+  "@downloadNotifCompleteBody": {
+    "placeholders": {
+      "title": {
+        "type": "String"
+      }
+    }
+  },
   "downloadNotifFailedTitle": "下载失败",
-
   "upcomingNotifChannelName": "即将发布的作品扫描",
   "upcomingNotifChannelDesc": "显示扫描即将发布的作品的进度",
   "upcomingNotifScanTitle": "正在扫描即将发布的作品",
   "upcomingNotifStartingScan": "开始扫描…",
   "upcomingNotifCheckingSeries": "正在检查{seriesName}…（当前{current}/{total}）",
-  "@upcomingNotifCheckingSeries": {"placeholders": {"seriesName": {"type": "String"},"current": {"type": "int"},"total": {"type": "int"}}},
+  "@upcomingNotifCheckingSeries": {
+    "placeholders": {
+      "seriesName": {
+        "type": "String"
+      },
+      "current": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
   "upcomingNotifFoundTitle": "找到了即将发布的作品！",
   "upcomingNotifFoundBody": "{books} 部作品即将在 {series, plural, =1{1 个系列} other{{series} 个系列}}中发布",
-  "@upcomingNotifFoundBody": {"placeholders": {"books": {"type": "int"},"series": {"type": "int"}}},
-
+  "@upcomingNotifFoundBody": {
+    "placeholders": {
+      "books": {
+        "type": "int"
+      },
+      "series": {
+        "type": "int"
+      }
+    }
+  },
   "androidAutoTabContinue": "继续",
   "androidAutoTabLibrary": "图书馆",
   "androidAutoTabDownloads": "下载",
