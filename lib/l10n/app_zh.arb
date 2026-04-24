@@ -1522,7 +1522,7 @@
   "@episodeRowWeeksAgo": { "placeholders": { "count": { "type": "int" } } },
   "episodeRowDurationHm": "占用你 {hours} 小时外加 {minutes} 分钟",
   "@episodeRowDurationHm": { "placeholders": { "hours": { "type": "int" }, "minutes": { "type": "int" } } },
-  "episodeRowDurationM": "只需 {minutes} 分钟就能听完,
+  "episodeRowDurationM": "只需 {minutes} 分钟就能听完",
   "@episodeRowDurationM": { "placeholders": { "minutes": { "type": "int" } } },
   "episodeRowSeasonShort": "第 {number} 季",
   "@episodeRowSeasonShort": { "placeholders": { "number": { "type": "String" } } },
