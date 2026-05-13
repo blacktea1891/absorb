@@ -560,6 +560,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
           });
         }
       });
+    } else if (_currentIndex != 0 && _currentIndex != 1 && _navBarListener != null) {
+      // Stale listener left over from a fade transition — detach and snap the
+      // nav bar visible so it doesn't get hidden by the previous tab's notifier.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (_currentIndex != 0 && _currentIndex != 1 && _navBarListener != null) {
+          _detachNavBarListener();
+          _navBarAnimController.value = 1.0;
+        }
+      });
     }
     // On phone landscape, shrink the nav bar so it doesn't eat ~20% of the
     // shorter screen height. Tablets keep the full-size bar in any orientation.
