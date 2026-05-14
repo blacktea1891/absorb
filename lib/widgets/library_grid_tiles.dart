@@ -68,6 +68,11 @@ class _GridBookTileState extends State<GridBookTile> {
         lib.isPodcastLibrary ? lib.getUnfinishedEpisodeCount(widget.item) : 0;
 
     return GestureDetector(
+      // opaque so taps on the blank space below the title (the tile's tall
+      // aspect ratio leaves a gap when the Column children stop short)
+      // still trigger the onTap. Without this, taps in that blank strip
+      // miss the Column's hit test and nothing happens.
+      behavior: HitTestBehavior.opaque,
       onTap: () {
         if (itemId.isNotEmpty) {
           if (lib.isPodcastLibrary) {
@@ -516,6 +521,7 @@ class GridSeriesTile extends StatelessWidget {
     final seriesProgress = itemIds.isNotEmpty ? totalProgress / itemIds.length : 0.0;
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () {
         if (seriesId.isNotEmpty) {
           showSeriesBooksSheet(
@@ -626,18 +632,20 @@ class GridSeriesTileDirect extends StatelessWidget {
     final seriesProgress = books.isNotEmpty ? totalProgress / books.length : 0.0;
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () {
-        if (seriesId.isNotEmpty) {
-          showSeriesBooksSheet(
-            context,
-            seriesName: seriesName,
-            seriesId: seriesId,
-            books: const [],
-            serverUrl: auth.serverUrl,
-            token: auth.token,
-            parentSeriesId: parentSeriesId,
-          );
-        }
+        // When seriesId is missing (e.g. collapsed-series tiles inferred from
+        // book metadata in the author sheet), open the sheet with the books
+        // we already have rather than dropping the tap silently.
+        showSeriesBooksSheet(
+          context,
+          seriesName: seriesName,
+          seriesId: seriesId.isEmpty ? null : seriesId,
+          books: seriesId.isEmpty ? books : const [],
+          serverUrl: auth.serverUrl,
+          token: auth.token,
+          parentSeriesId: parentSeriesId,
+        );
       },
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -706,6 +714,7 @@ class GridAuthorTile extends StatelessWidget {
     final headers = lib.mediaHeaders;
 
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: () {
         if (authorId.isNotEmpty) {
           showAuthorDetailSheet(context, authorId: authorId, authorName: name);

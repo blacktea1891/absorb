@@ -66,6 +66,11 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
   // ── Search state ──
   final _searchController = TextEditingController();
   final _focusNode = FocusNode();
+  /// GlobalKey on the SearchBar so its Element (and the TextField + focus
+  /// inside) survives the tree swap when `_isInSearchMode` flips. Without
+  /// this, typing the first character unmounts the tabbed tree, the
+  /// SearchBar element is destroyed, and the keyboard drops.
+  final _searchBarKey = GlobalKey();
   Timer? _debounce;
 
   /// Whether the search bar has active text.
@@ -1696,6 +1701,12 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                   child: SearchBar(
+                    // Same GlobalKey on whichever SearchBar gets the shared
+                    // focus, so when _isInSearchMode toggles and the tree
+                    // swaps from tabbed -> search results, Flutter re-parents
+                    // the existing Element instead of destroying and
+                    // recreating it. Keeps focus + keyboard alive.
+                    key: useSharedFocus ? _searchBarKey : null,
                     controller: _searchController,
                     // Only the active tab's SearchBar binds to the screen-
                     // level focus node. Inactive tabs' SearchBars use their
