@@ -56,6 +56,39 @@ class AppShell extends StatefulWidget {
     return true;
   }
 
+  /// Switch to the Library tab and apply a tag filter. Used by the book
+  /// detail sheet's tag chip so tapping a tag jumps the user to the library
+  /// view filtered by that tag. Returns false when the shell or library
+  /// state isn't mounted yet.
+  static bool openLibraryWithTagFilterGlobal(String tag) =>
+      _applyLibraryFilterGlobal((s) => s.applyTagFilter(tag));
+
+  /// Switch to the Library tab and apply a genre filter. Mirrors the tag
+  /// version above; used by the genre chip in book detail.
+  static bool openLibraryWithGenreFilterGlobal(String genre) =>
+      _applyLibraryFilterGlobal((s) => s.applyGenreFilter(genre));
+
+  static bool _applyLibraryFilterGlobal(
+      void Function(LibraryScreenState) apply) {
+    final inst = _AppShellState._instance;
+    if (inst == null) return false;
+    inst._navigateTo(1);
+    var attempts = 0;
+    void tryApply() {
+      if (!inst.mounted) return;
+      final state = inst._libraryKey.currentState;
+      if (state != null) {
+        apply(state);
+        return;
+      }
+      if (++attempts < 10) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => tryApply());
+      }
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) => tryApply());
+    return true;
+  }
+
   /// Called by Home (callingTab=0) and Library (callingTab=1) after their
   /// first frame. Lets the AppShell re-sync the bottom-nav listener to the
   /// right notifier — handles both "screen state didn't exist on initial

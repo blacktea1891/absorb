@@ -304,6 +304,11 @@ class AppLocalizationsDe extends AppLocalizations {
   }
 
   @override
+  String libraryNoBooksWithTag(String tag) {
+    return 'No books tagged \"$tag\"';
+  }
+
+  @override
   String get libraryClearFilter => 'Filter zurücksetzen';
 
   @override
@@ -405,10 +410,16 @@ class AppLocalizationsDe extends AppLocalizations {
   String get genre => 'Genre';
 
   @override
+  String get tag => 'Tag';
+
+  @override
   String get clearFilter => 'Filter zurücksetzen';
 
   @override
   String get noGenresFound => 'Keine Genres gefunden';
+
+  @override
+  String get noTagsFound => 'No tags found';
 
   @override
   String get asc => 'AUF';

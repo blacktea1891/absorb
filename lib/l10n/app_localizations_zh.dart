@@ -295,6 +295,11 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
+  String libraryNoBooksWithTag(String tag) {
+    return 'No books tagged \"$tag\"';
+  }
+
+  @override
   String get libraryClearFilter => '清除筛选';
 
   @override
@@ -396,10 +401,16 @@ class AppLocalizationsZh extends AppLocalizations {
   String get genre => '分类';
 
   @override
+  String get tag => 'Tag';
+
+  @override
   String get clearFilter => '清除筛选';
 
   @override
   String get noGenresFound => '未找到分类';
+
+  @override
+  String get noTagsFound => 'No tags found';
 
   @override
   String get asc => '升序';

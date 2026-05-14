@@ -652,6 +652,12 @@ abstract class AppLocalizations {
   /// **'No books in \"{genre}\"'**
   String libraryNoBooksInGenre(String genre);
 
+  /// No description provided for @libraryNoBooksWithTag.
+  ///
+  /// In en, this message translates to:
+  /// **'No books tagged \"{tag}\"'**
+  String libraryNoBooksWithTag(String tag);
+
   /// No description provided for @libraryClearFilter.
   ///
   /// In en, this message translates to:
@@ -838,6 +844,12 @@ abstract class AppLocalizations {
   /// **'Genre'**
   String get genre;
 
+  /// No description provided for @tag.
+  ///
+  /// In en, this message translates to:
+  /// **'Tag'**
+  String get tag;
+
   /// No description provided for @clearFilter.
   ///
   /// In en, this message translates to:
@@ -849,6 +861,12 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'No genres found'**
   String get noGenresFound;
+
+  /// No description provided for @noTagsFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No tags found'**
+  String get noTagsFound;
 
   /// No description provided for @asc.
   ///

@@ -309,6 +309,9 @@ class PlayerSettings {
   static Future<String> getLibraryGenreFilter() => _get('libraryGenreFilter', '');
   static Future<void> setLibraryGenreFilter(String? value) => _set('libraryGenreFilter', value ?? '');
 
+  static Future<String> getLibraryTagFilter() => _get('libraryTagFilter', '');
+  static Future<void> setLibraryTagFilter(String? value) => _set('libraryTagFilter', value ?? '');
+
   static Future<int> getLibraryTab() => _get('libraryTab', 0);
   static Future<void> setLibraryTab(int value) => _set('libraryTab', value);
 

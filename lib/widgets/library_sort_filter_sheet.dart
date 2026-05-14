@@ -14,13 +14,15 @@ class SortFilterSheet extends StatefulWidget {
   final bool sortAsc;
   final LibraryFilter currentFilter;
   final String? genreFilter;
+  final String? tagFilter;
   final List<String> availableGenres;
+  final List<String> availableTags;
   final int initialTab;
   final ColorScheme cs;
   final TextTheme tt;
   final void Function(LibrarySort) onSortChanged;
   final VoidCallback onSortDirectionToggled;
-  final void Function(LibraryFilter, {String? genre}) onFilterChanged;
+  final void Function(LibraryFilter, {String? genre, String? tag}) onFilterChanged;
   final VoidCallback onClearFilter;
   final bool collapseSeries;
   final ValueChanged<bool> onCollapseSeriesChanged;
@@ -31,8 +33,9 @@ class SortFilterSheet extends StatefulWidget {
   const SortFilterSheet({
     super.key,
     required this.currentSort, required this.sortAsc,
-    required this.currentFilter, this.genreFilter,
-    required this.availableGenres, required this.initialTab,
+    required this.currentFilter, this.genreFilter, this.tagFilter,
+    required this.availableGenres, this.availableTags = const [],
+    required this.initialTab,
     required this.cs, required this.tt,
     required this.onSortChanged, required this.onSortDirectionToggled,
     required this.onFilterChanged, required this.onClearFilter,
@@ -49,6 +52,7 @@ class SortFilterSheet extends StatefulWidget {
 class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProviderStateMixin {
   late TabController _tabCtrl;
   bool _genreExpanded = false;
+  bool _tagExpanded = false;
   late bool _collapseSeries;
 
   bool get _showFilterTab => widget.libraryTab == LibraryTab.library && !widget.isPodcastLibrary;
@@ -63,6 +67,7 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
       initialIndex: _showFilterTab ? widget.initialTab.clamp(0, 1) : 0,
     );
     if (widget.currentFilter == LibraryFilter.genre) _genreExpanded = true;
+    if (widget.currentFilter == LibraryFilter.tag) _tagExpanded = true;
   }
 
   @override
@@ -121,7 +126,8 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
     if (widget.libraryTab == LibraryTab.series) return widget.onUpcomingReleases != null ? 330 : 230;
     if (widget.libraryTab == LibraryTab.authors) return 180;
     if (widget.libraryTab == LibraryTab.narrators) return 130;
-    return _genreExpanded ? 420 : (widget.isPodcastLibrary ? 200 : 400);
+    if (_genreExpanded || _tagExpanded) return 420;
+    return widget.isPodcastLibrary ? 200 : 440;
   }
 
   Widget _buildSortTab(ColorScheme cs, AppLocalizations l) {
@@ -310,6 +316,30 @@ class _SortFilterSheetState extends State<SortFilterSheet> with SingleTickerProv
                       selected: selected, selectedColor: cs.tertiary,
                       compact: true, marquee: true,
                       onTap: () => widget.onFilterChanged(LibraryFilter.genre, genre: genre),
+                    );
+                  }).toList()),
+          ),
+        SheetOption(
+          icon: Icons.local_offer_rounded,
+          label: l.tag,
+          selected: widget.currentFilter == LibraryFilter.tag,
+          selectedColor: cs.tertiary,
+          trailing: Icon(_tagExpanded ? Icons.expand_less_rounded : Icons.expand_more_rounded, size: 20, color: cs.onSurfaceVariant),
+          onTap: () => setState(() => _tagExpanded = !_tagExpanded),
+        ),
+        if (_tagExpanded)
+          Padding(
+            padding: const EdgeInsets.only(left: 16),
+            child: widget.availableTags.isEmpty
+                ? Padding(padding: const EdgeInsets.all(12),
+                    child: Text(l.noTagsFound, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)))
+                : Column(children: widget.availableTags.map((tag) {
+                    final selected = widget.currentFilter == LibraryFilter.tag && widget.tagFilter == tag;
+                    return SheetOption(
+                      icon: Icons.local_offer_outlined, label: tag,
+                      selected: selected, selectedColor: cs.tertiary,
+                      compact: true, marquee: true,
+                      onTap: () => widget.onFilterChanged(LibraryFilter.tag, tag: tag),
                     );
                   }).toList()),
           ),

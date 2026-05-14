@@ -9,6 +9,7 @@ class LibraryBooksTab extends StatelessWidget {
   final bool hasMore;
   final LibraryFilter filter;
   final String? genreFilter;
+  final String? tagFilter;
   final bool rectangleCovers;
   final double coverAspectRatio;
   final Future<void> Function() onRefresh;
@@ -36,6 +37,7 @@ class LibraryBooksTab extends StatelessWidget {
     required this.hasMore,
     required this.filter,
     this.genreFilter,
+    this.tagFilter,
     required this.rectangleCovers,
     required this.coverAspectRatio,
     required this.onRefresh,
@@ -75,6 +77,7 @@ class LibraryBooksTab extends StatelessWidget {
         LibraryFilter.inASeries => l.libraryNoSeriesFound,
         LibraryFilter.hasEbook => l.libraryNoBooksWithEbooks,
         LibraryFilter.genre => l.libraryNoBooksInGenre(genreFilter ?? l.genre.toLowerCase()),
+        LibraryFilter.tag => l.libraryNoBooksWithTag(tagFilter ?? l.tag.toLowerCase()),
         LibraryFilter.none => l.libraryNoBooks,
       };
       body = CustomScrollView(

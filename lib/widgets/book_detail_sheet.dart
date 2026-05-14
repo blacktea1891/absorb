@@ -344,6 +344,13 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     final duration = (media['duration'] as num?)?.toDouble() ?? 0;
     final seriesEntries = metadata['series'] as List<dynamic>? ?? [];
     final genres = (metadata['genres'] as List<dynamic>?)?.cast<String>() ?? [];
+    // ABS puts tags on the media object (LibraryItem.media.tags), not in
+    // metadata. Some endpoints may stash them in metadata too — fall back to
+    // that if media doesn't have them.
+    final tagsRaw = (media['tags'] as List<dynamic>?)
+        ?? (metadata['tags'] as List<dynamic>?)
+        ?? const [];
+    final tags = tagsRaw.cast<String>();
     final publisher = metadata['publisher'] as String? ?? '';
     final year = metadata['publishedYear'] as String? ?? '';
     final serverPath = _item!['path'] as String? ?? _item!['relPath'] as String? ?? '';
@@ -563,7 +570,22 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
         if (chapters.isNotEmpty) _chip(Icons.list_rounded, l.chaptersChip(chapters.length)),
         ..._audioInfoChips(media),
         if (publisher.isNotEmpty) _chip(Icons.business_rounded, publisher),
-        ...genres.take(3).map((g) => _chip(Icons.tag_rounded, g)),
+        ...genres.take(3).map((g) => _chip(
+              Icons.tag_rounded,
+              g,
+              onTap: () {
+                Navigator.of(context).pop();
+                AppShell.openLibraryWithGenreFilterGlobal(g);
+              },
+            )),
+        ...tags.take(5).map((t) => _chip(
+              Icons.local_offer_outlined,
+              t,
+              onTap: () {
+                Navigator.of(context).pop();
+                AppShell.openLibraryWithTagFilterGlobal(t);
+              },
+            )),
         if (progressData?['startedAt'] is num)
           _chip(Icons.play_circle_outline_rounded, l.startedDate(_fmtDate((progressData!['startedAt'] as num).toInt()))),
         if (progressData?['finishedAt'] is num)
@@ -779,17 +801,41 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     return '${(bytes / 1073741824).toStringAsFixed(2)} GB';
   }
 
-  Widget _chip(IconData icon, String text) {
+  Widget _chip(IconData icon, String text, {VoidCallback? onTap}) {
     final cs = Theme.of(context).colorScheme;
-    return Container(
+    final pill = Container(
       constraints: const BoxConstraints(maxWidth: 200),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: cs.onSurface.withValues(alpha: 0.08))),
+      decoration: BoxDecoration(
+        color: onTap != null
+            ? cs.tertiary.withValues(alpha: 0.10)
+            : cs.onSurface.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: onTap != null
+              ? cs.tertiary.withValues(alpha: 0.30)
+              : cs.onSurface.withValues(alpha: 0.08),
+        ),
+      ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Icon(icon, size: 12, color: cs.onSurface.withValues(alpha: 0.3)), const SizedBox(width: 4),
-        Flexible(child: Text(text, overflow: TextOverflow.ellipsis, maxLines: 1,
-          style: TextStyle(color: cs.onSurfaceVariant, fontSize: 11)))]));
+        Icon(icon,
+            size: 12,
+            color: onTap != null
+                ? cs.tertiary
+                : cs.onSurface.withValues(alpha: 0.3)),
+        const SizedBox(width: 4),
+        Flexible(
+          child: Text(text,
+              overflow: TextOverflow.ellipsis,
+              maxLines: 1,
+              style: TextStyle(
+                  color: onTap != null ? cs.tertiary : cs.onSurfaceVariant,
+                  fontSize: 11)),
+        ),
+      ]),
+    );
+    if (onTap == null) return pill;
+    return GestureDetector(onTap: onTap, child: pill);
   }
 
   String _fmtDate(int ms) {
