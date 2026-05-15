@@ -112,6 +112,8 @@
   "librarySearchEpisodes": "Episodes",
   "librarySearchSeries": "Series",
   "librarySearchAuthors": "Authors",
+  "librarySearchTags": "Tags",
+  "librarySearchGenres": "Genres",
   "librarySeriesCount": "{count} series",
   "@librarySeriesCount": { "placeholders": { "count": { "type": "int" } } },
   "libraryAuthorsCount": "{count} authors",

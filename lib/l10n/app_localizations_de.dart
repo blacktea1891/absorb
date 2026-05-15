@@ -336,6 +336,12 @@ class AppLocalizationsDe extends AppLocalizations {
   String get librarySearchAuthors => 'Autoren';
 
   @override
+  String get librarySearchTags => 'Tags';
+
+  @override
+  String get librarySearchGenres => 'Genres';
+
+  @override
   String librarySeriesCount(int count) {
     return '$count Serien';
   }

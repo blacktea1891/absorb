@@ -104,6 +104,8 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
   List<dynamic> _searchSeriesResults = [];
   List<dynamic> _searchAuthorResults = [];
   List<String> _searchNarratorResults = [];
+  List<String> _searchTagResults = [];
+  List<String> _searchGenreResults = [];
   List<Map<String, dynamic>> _searchEpisodeResults = [];
   List<String>? _allNarratorsCache;
   String? _allNarratorsCacheLibraryId;
@@ -1129,6 +1131,18 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
     _loadPage();
   }
 
+  void _applyTagFilter(String tag) {
+    clearSearch();
+    _tabController?.animateTo(0);
+    _changeFilter(LibraryFilter.tag, tag: tag);
+  }
+
+  void _applyGenreFilter(String genre) {
+    clearSearch();
+    _tabController?.animateTo(0);
+    _changeFilter(LibraryFilter.genre, genre: genre);
+  }
+
   // ── Search ──
   void _onSearchChanged(String query) {
     _debounce?.cancel();
@@ -1140,6 +1154,8 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         _searchSeriesResults = [];
         _searchAuthorResults = [];
         _searchNarratorResults = [];
+        _searchTagResults = [];
+        _searchGenreResults = [];
         _searchEpisodeResults = [];
         _hasSearched = false;
         _isSearching = false;
@@ -1176,6 +1192,18 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         }
         _searchSeriesResults = (result['series'] as List<dynamic>?) ?? [];
         _searchAuthorResults = (result['authors'] as List<dynamic>?) ?? [];
+        if (!isPodcast) {
+          final q = query.toLowerCase();
+          _searchTagResults = _availableTags
+              .where((t) => t.toLowerCase().contains(q))
+              .toList();
+          _searchGenreResults = _availableGenres
+              .where((g) => g.toLowerCase().contains(q))
+              .toList();
+        } else {
+          _searchTagResults = [];
+          _searchGenreResults = [];
+        }
         _isSearching = false;
         _hasSearched = true;
       });
@@ -2118,7 +2146,7 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
         slivers: [injector, const SliverToBoxAdapter(child: SizedBox.shrink())],
       );
     }
-    if (_searchBookResults.isEmpty && _searchSeriesResults.isEmpty && _searchAuthorResults.isEmpty && _searchNarratorResults.isEmpty && _searchEpisodeResults.isEmpty) {
+    if (_searchBookResults.isEmpty && _searchSeriesResults.isEmpty && _searchAuthorResults.isEmpty && _searchNarratorResults.isEmpty && _searchEpisodeResults.isEmpty && _searchTagResults.isEmpty && _searchGenreResults.isEmpty) {
       return CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
@@ -2248,6 +2276,53 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
                     fontWeight: FontWeight.w600, color: cs.primary)),
           ),
           ..._searchNarratorResults.map((name) => NarratorResultTile(name: name)),
+        ],
+
+        // ─── GENRES ───
+        if (_searchGenreResults.isNotEmpty) ...[
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                4,
+                (_searchBookResults.isNotEmpty ||
+                        _searchSeriesResults.isNotEmpty ||
+                        _searchAuthorResults.isNotEmpty ||
+                        _searchNarratorResults.isNotEmpty)
+                    ? 20
+                    : 8,
+                4,
+                8),
+            child: Text(l.librarySearchGenres,
+                style: tt.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600, color: cs.primary)),
+          ),
+          ..._searchGenreResults.map((name) => GenreResultTile(
+                name: name,
+                onTap: () => _applyGenreFilter(name),
+              )),
+        ],
+
+        // ─── TAGS ───
+        if (_searchTagResults.isNotEmpty) ...[
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+                4,
+                (_searchBookResults.isNotEmpty ||
+                        _searchSeriesResults.isNotEmpty ||
+                        _searchAuthorResults.isNotEmpty ||
+                        _searchNarratorResults.isNotEmpty ||
+                        _searchGenreResults.isNotEmpty)
+                    ? 20
+                    : 8,
+                4,
+                8),
+            child: Text(l.librarySearchTags,
+                style: tt.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600, color: cs.primary)),
+          ),
+          ..._searchTagResults.map((name) => TagResultTile(
+                name: name,
+                onTap: () => _applyTagFilter(name),
+              )),
         ],
     ];
 

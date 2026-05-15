@@ -327,6 +327,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get librarySearchAuthors => '作者';
 
   @override
+  String get librarySearchTags => 'Tags';
+
+  @override
+  String get librarySearchGenres => 'Genres';
+
+  @override
   String librarySeriesCount(int count) {
     return '$count 个系列';
   }

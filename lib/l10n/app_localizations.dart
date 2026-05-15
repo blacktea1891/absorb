@@ -712,6 +712,18 @@ abstract class AppLocalizations {
   /// **'Authors'**
   String get librarySearchAuthors;
 
+  /// No description provided for @librarySearchTags.
+  ///
+  /// In en, this message translates to:
+  /// **'Tags'**
+  String get librarySearchTags;
+
+  /// No description provided for @librarySearchGenres.
+  ///
+  /// In en, this message translates to:
+  /// **'Genres'**
+  String get librarySearchGenres;
+
   /// No description provided for @librarySeriesCount.
   ///
   /// In en, this message translates to:
