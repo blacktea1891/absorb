@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'overlay_toast.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import '../services/wording.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
@@ -618,7 +619,7 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
               lib.absorbingItemCache[progressKey] = Map<String, dynamic>.from(libraryItem);
               HapticFeedback.mediumImpact();
               if (context.mounted) {
-                showOverlayToast(context, l.playlistDetailAddedToAbsorbing(episodeTitle ?? title), icon: Icons.add_circle_outline_rounded);
+                showOverlayToast(context, Wording.of(context).playlistDetailAddedToAbsorbing(episodeTitle ?? title), icon: Icons.add_circle_outline_rounded);
               }
               return false;
             }

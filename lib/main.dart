@@ -26,6 +26,7 @@ import 'services/chromecast_service.dart';
 import 'services/home_widget_service.dart';
 import 'services/log_service.dart';
 import 'services/quick_actions_service.dart';
+import 'services/wording.dart';
 import 'screens/login_screen.dart';
 import 'screens/app_shell.dart';
 import 'widgets/absorb_wave_icon.dart';
@@ -125,6 +126,7 @@ void main() async {
     final savedLang = await PlayerSettings.getLanguage();
     if (savedLang.isNotEmpty) localeNotifier.value = Locale(savedLang);
     snappyTransitionsNotifier.value = await PlayerSettings.getSnappyTransitions();
+    classicWordingNotifier.value = await PlayerSettings.getClassicWording();
     PlayerSettings.showExplicitBadge = await PlayerSettings.getShowExplicitBadge();
     // Restore last cover seed color so the theme doesn't flash on startup
     {
@@ -193,6 +195,9 @@ class AbsorbApp extends StatelessWidget {
         return ValueListenableBuilder<ColorScheme?>(
           valueListenable: coverSchemeNotifier,
           builder: (context, coverScheme, _) {
+        return ValueListenableBuilder<bool>(
+          valueListenable: classicWordingNotifier,
+          builder: (context, _, __) {
         // Set system chrome to match active theme
         final isDark = currentMode == ThemeMode.dark ||
             (currentMode == ThemeMode.system &&
@@ -372,6 +377,8 @@ class AbsorbApp extends StatelessWidget {
         );
         },
         );
+        },
+        );
       },
     );
   }
@@ -431,6 +438,7 @@ class _AuthGateState extends State<AuthGate> {
     final scopedTheme = await PlayerSettings.getThemeMode();
     applyThemeMode(scopedTheme);
     snappyTransitionsNotifier.value = await PlayerSettings.getSnappyTransitions();
+    classicWordingNotifier.value = await PlayerSettings.getClassicWording();
     PlayerSettings.showExplicitBadge = await PlayerSettings.getShowExplicitBadge();
     // Restore cover seed color
     {

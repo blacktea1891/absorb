@@ -15,6 +15,7 @@ import 'package:palette_generator/palette_generator.dart';
 import '../main.dart'
     show snappyTransitionsNotifier, coverSchemeNotifier, rootNavigatorKey;
 import '../l10n/app_localizations.dart';
+import '../services/wording.dart';
 import '../services/android_auto_service.dart';
 import '../services/carplay_service.dart';
 import '../widgets/expanded_card.dart';
@@ -704,7 +705,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
       NavigationDestination(
         icon: const _AnimatedWaveIcon(size: 24, active: false),
         selectedIcon: const _AnimatedWaveIcon(size: 24, active: true),
-        label: l.appShellAbsorbingTab,
+        label: Wording.of(context).appShellAbsorbingTab,
       ),
       NavigationDestination(
         icon: const Icon(Icons.bar_chart_rounded),

@@ -25,6 +25,7 @@ import '../screens/admin_rmab_screen.dart';
 import '../screens/downloads_screen.dart';
 import '../screens/bookmarks_screen.dart';
 import '../main.dart' show applyThemeMode, applyTrustAllCerts, localeNotifier, oledNotifier, snappyTransitionsNotifier;
+import '../services/wording.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/absorb_slider.dart';
 import '../widgets/collapsible_section.dart';
@@ -84,6 +85,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _fullScreenPlayer = false;
   // card button layout is now managed in the edit sheet (more menu)
   bool _snappyTransitions = false;
+  bool _classicWording = false;
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
   String _themeMode = 'dark';
@@ -205,6 +207,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getSleepChimeVolume(),                                   // 47
       PlayerSettings.getShakeSensitivity(),                                   // 48
       PlayerSettings.getLanguage(),                                           // 49
+      PlayerSettings.getClassicWording(),                                     // 50
     ]);
     final s = results[0] as AutoRewindSettings;
     final speed = results[1] as double;
@@ -253,6 +256,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final chimeVol = results[44] as double;
     final shakeSens = results[45] as String;
     final language = results[46] as String;
+    final classicWording = results[47] as bool;
     final rmabUrl = await ScopedPrefs.getString('rmab_url');
     if (mounted) setState(() {
       _rmabUrl = rmabUrl;
@@ -281,6 +285,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _loggingEnabled = logging;
       _fullScreenPlayer = fullScreen;
       _snappyTransitions = snappyTrans;
+      _classicWording = classicWording;
       _themeMode = theme;
       _downloadLocationLabel = dlLabel;
       _totalDownloadSizeBytes = dlSize;
@@ -683,7 +688,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               segments: [
                                 ButtonSegment(value: 0, label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.startScreenHome, maxLines: 1))),
                                 ButtonSegment(value: 1, label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.startScreenLibrary, maxLines: 1))),
-                                ButtonSegment(value: 2, label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.startScreenAbsorb, maxLines: 1))),
+                                ButtonSegment(value: 2, label: FittedBox(fit: BoxFit.scaleDown, child: Text(Wording.of(context).startScreenAbsorb, maxLines: 1))),
                                 ButtonSegment(value: 3, label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.startScreenStats, maxLines: 1))),
                               ],
                               selected: {_startScreen},
@@ -725,6 +730,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         PlayerSettings.setRectangleCovers(v);
                       } : null,
                     ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    SwitchListTile(
+                      title: const Text('Classic wording'),
+                      subtitle: Text(
+                        _classicWording
+                            ? 'Using "Play", "Now Playing", "Finished"'
+                            : 'Using "Absorb", "Absorbing", "Fully Absorbed"',
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _classicWording,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _classicWording = v);
+                        PlayerSettings.setClassicWording(v);
+                        classicWordingNotifier.value = v;
+                      } : null,
+                    ),
                   ],
                 ),
                 const SizedBox(height: 16),
@@ -733,7 +753,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 CollapsibleSection(
                   key: _keyFor('Absorbing Cards'),
                   icon: Icons.style_rounded,
-                  title: l.sectionAbsorbingCards,
+                  title: Wording.of(context).sectionAbsorbingCards,
                   cs: cs,
                   isExpanded: _expandedSection == 'Absorbing Cards',
                   onExpansionChanged: (v) => _onSectionExpanded('Absorbing Cards', v),
@@ -1634,8 +1654,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     SwitchListTile(
                       title: Row(children: [
-                        Flexible(child: Text(l.deleteAbsorbedDownloads)),
-                        _infoIcon(l.deleteAbsorbedDownloadsInfoTitle, l.deleteAbsorbedDownloadsInfoContent),
+                        Flexible(child: Text(Wording.of(context).deleteAbsorbedDownloads)),
+                        _infoIcon(Wording.of(context).deleteAbsorbedDownloadsInfoTitle, l.deleteAbsorbedDownloadsInfoContent),
                       ]),
                       subtitle: Text(
                         _rollingDownloadDeleteFinished

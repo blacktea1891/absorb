@@ -16,6 +16,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../l10n/app_localizations.dart';
+import '../services/wording.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
@@ -498,10 +499,10 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                       : Icon(Icons.waves_rounded, size: 24, color: _coverScheme?.onPrimary ?? cs.onPrimary),
               label: Text(
                 showAbsorbingState
-                    ? l.absorbing
+                    ? Wording.of(context).absorbing
                     : isFinished
-                        ? l.absorbAgain
-                        : l.absorb,
+                        ? Wording.of(context).absorbAgain
+                        : Wording.of(context).absorb,
                 style: tt.titleMedium
                     ?.copyWith(fontWeight: FontWeight.w600, color: _coverScheme?.onPrimary ?? cs.onPrimary),
               ),
@@ -539,7 +540,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
               ),
               const SizedBox(width: 6),
               Text(
-                isFinished ? l.fullyAbsorbed : l.fullyAbsorbAction,
+                isFinished ? Wording.of(context).fullyAbsorbed : Wording.of(context).fullyAbsorbAction,
                 style: TextStyle(
                   color: isFinished ? Colors.green : cs.onSurfaceVariant,
                   fontSize: 12, fontWeight: FontWeight.w500,
@@ -681,14 +682,14 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                 decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
               _moreItem(cs, lib.isOnAbsorbingList(widget.itemId)
                   ? Icons.remove_circle_outline_rounded : Icons.add_circle_outline_rounded,
-                lib.isOnAbsorbingList(widget.itemId) ? l.removeFromAbsorbing : l.addToAbsorbing,
+                lib.isOnAbsorbingList(widget.itemId) ? Wording.of(context).removeFromAbsorbing : Wording.of(context).addToAbsorbing,
                 onTap: () async {
                   Navigator.pop(ctx);
                   if (lib.isOnAbsorbingList(widget.itemId)) {
                     await lib.removeFromAbsorbing(widget.itemId);
                     HapticFeedback.mediumImpact();
                     if (context.mounted) {
-                      showOverlayToast(context, l.removedFromAbsorbing, icon: Icons.remove_circle_outline_rounded);
+                      showOverlayToast(context, Wording.of(context).removedFromAbsorbing, icon: Icons.remove_circle_outline_rounded);
                     }
                   } else {
                     await lib.addToAbsorbingQueue(widget.itemId);
@@ -699,7 +700,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                     }
                     HapticFeedback.mediumImpact();
                     if (context.mounted) {
-                      showOverlayToast(context, l.addedToAbsorbing, icon: Icons.add_circle_outline_rounded);
+                      showOverlayToast(context, Wording.of(context).addedToAbsorbing, icon: Icons.add_circle_outline_rounded);
                     }
                   }
                 }),
@@ -742,10 +743,15 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                     final mediaTags =
                         ((media['tags'] as List<dynamic>?) ?? const [])
                             .cast<String>();
+                    final audioFiles =
+                        (media['audioFiles'] as List<dynamic>?) ?? const [];
+                    final rel = _item!['relPath'] as String? ?? '';
                     showEditMetadataSheet(context,
                         itemId: widget.itemId,
                         metadata: meta,
-                        tags: mediaTags);
+                        tags: mediaTags,
+                        audioFiles: audioFiles,
+                        relPath: rel);
                   }),
               if (auth.isAdmin && serverPath.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -1256,14 +1262,15 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
 
   Future<void> _markFinished(BuildContext context, AuthProvider auth, double duration) async {
     final l = AppLocalizations.of(context)!;
+    final w = Wording.of(context);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(l.markAsFullyAbsorbedQuestion),
+        title: Text(w.markAsFullyAbsorbedQuestion),
         content: Text(l.markAsFullyAbsorbedContent),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.fullyAbsorbAction)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(w.fullyAbsorbAction)),
         ],
       ),
     );

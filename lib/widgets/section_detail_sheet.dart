@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import '../services/wording.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
@@ -215,7 +216,7 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
             lib.absorbingItemCache[itemId] = Map<String, dynamic>.from(item);
             HapticFeedback.mediumImpact();
             if (context.mounted) {
-              showOverlayToast(context, l.sectionDetailAddedToAbsorbing(title),
+              showOverlayToast(context, Wording.of(context).sectionDetailAddedToAbsorbing(title),
                   icon: Icons.add_circle_outline_rounded);
             }
             return false;

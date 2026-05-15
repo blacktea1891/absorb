@@ -12,6 +12,7 @@ import '../main.dart' show oledNotifier;
 import '../widgets/absorbing_card.dart';
 import '../widgets/offline_status_icon.dart';
 import '../l10n/app_localizations.dart';
+import '../services/wording.dart';
 
 class AbsorbingScreen extends StatefulWidget {
   const AbsorbingScreen({super.key});
@@ -687,7 +688,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
           );
 
           final portraitHeader = AbsorbPageHeader(
-            title: l.absorbingTitle,
+            title: Wording.of(context).absorbingTitle,
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
             trailing: offlineIcon,
             actions: headerActions,
@@ -800,7 +801,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
           const SizedBox(height: 16),
           Text(isOffline
               ? (isPod ? l.absorbingNoDownloadedEpisodes : l.absorbingNoDownloadedBooks)
-              : (isPod ? l.absorbingNothingPlayingYet : l.absorbingNothingAbsorbingYet),
+              : (isPod ? l.absorbingNothingPlayingYet : Wording.of(context).absorbingNothingAbsorbingYet),
             style: tt.titleMedium?.copyWith(color: cs.onSurfaceVariant)),
           const SizedBox(height: 8),
           Text(isOffline

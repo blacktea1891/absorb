@@ -362,6 +362,9 @@ class PlayerSettings {
   static Future<bool> getSnappyTransitions() => _get('snappyTransitions', false);
   static Future<void> setSnappyTransitions(bool value) => _set('snappyTransitions', value);
 
+  static Future<bool> getClassicWording() => _get('classicWording', false);
+  static Future<void> setClassicWording(bool value) => _set('classicWording', value);
+
   static Future<bool> getRectangleCovers() => _get('rectangleCovers', false);
   static Future<void> setRectangleCovers(bool value) => _set('rectangleCovers', value, notify: true);
 

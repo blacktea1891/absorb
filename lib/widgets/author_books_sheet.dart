@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'overlay_toast.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
+import '../services/wording.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
@@ -525,7 +526,7 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
           lib.absorbingItemCache[bookId] = Map<String, dynamic>.from(book);
           HapticFeedback.mediumImpact();
           if (context.mounted) {
-            showOverlayToast(context, l.sectionDetailAddedToAbsorbing(bookTitle), icon: Icons.add_circle_outline_rounded);
+            showOverlayToast(context, Wording.of(context).sectionDetailAddedToAbsorbing(bookTitle), icon: Icons.add_circle_outline_rounded);
           }
           return false;
         },
