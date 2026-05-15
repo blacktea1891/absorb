@@ -681,19 +681,17 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                           // Cover image
                                           _coverUrl != null
                                               ? _isLocalCover
-                                                  ? BlurPaddedCover(child: Image.file(File(_coverUrl!), fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
-                                                      errorBuilder: (_, __, ___) => CoverPlaceholder(title: _title, author: _author)),
-                                                      blurChild: Image.file(File(_coverUrl!), fit: BoxFit.cover,
+                                                  ? BlurPaddedCover(blurChild: Image.file(File(_coverUrl!), fit: BoxFit.cover,
                                                       errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-                                                      enabled: !_rectangleCovers)
-                                                  : BlurPaddedCover(child: CachedNetworkImage(imageUrl: _coverUrl!, fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
-                                                        httpHeaders: mediaHeaders,
-                                                        placeholder: (_, __) => CoverPlaceholder(title: _title, author: _author),
-                                                        errorWidget: (_, __, ___) => CoverPlaceholder(title: _title, author: _author)),
-                                                      blurChild: CachedNetworkImage(imageUrl: _coverUrl!, fit: BoxFit.cover,
+                                                      enabled: !_rectangleCovers, child: Image.file(File(_coverUrl!), fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
+                                                      errorBuilder: (_, __, ___) => CoverPlaceholder(title: _title, author: _author)))
+                                                  : BlurPaddedCover(blurChild: CachedNetworkImage(imageUrl: _coverUrl!, fit: BoxFit.cover,
                                                         httpHeaders: mediaHeaders,
                                                         errorWidget: (_, __, ___) => const SizedBox.shrink()),
-                                                      enabled: !_rectangleCovers)
+                                                      enabled: !_rectangleCovers, child: CachedNetworkImage(imageUrl: _coverUrl!, fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
+                                                        httpHeaders: mediaHeaders,
+                                                        placeholder: (_, __) => CoverPlaceholder(title: _title, author: _author),
+                                                        errorWidget: (_, __, ___) => CoverPlaceholder(title: _title, author: _author)))
                                               : CoverPlaceholder(title: _title, author: _author),
                                           // Play/pause overlay
                                           if (_coverPlayButton && !isCastingThis && !isFinished)

@@ -791,7 +791,7 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
           auth.clearLocalOverride();
           _localProbeFailures = 0;
         } else {
-          debugPrint('[Library] Local probe miss ${_localProbeFailures}/$_localProbeFailuresToFlip');
+          debugPrint('[Library] Local probe miss $_localProbeFailures/$_localProbeFailuresToFlip');
         }
       }
     } else if (reachable) {

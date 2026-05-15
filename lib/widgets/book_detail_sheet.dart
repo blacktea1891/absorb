@@ -383,22 +383,22 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
             child: _squareCovers
                 ? (_coverUrl!.startsWith('/')
                     ? BlurPaddedCover(
-                        child: Image.file(File(_coverUrl!), fit: BoxFit.contain,
-                            errorBuilder: (_, __, ___) => const SizedBox()),
                         blurChild: Image.file(File(_coverUrl!), fit: BoxFit.cover,
                             errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+                        child: Image.file(File(_coverUrl!), fit: BoxFit.contain,
+                            errorBuilder: (_, __, ___) => const SizedBox()),
                       )
                     : BlurPaddedCover(
+                        blurChild: CachedNetworkImage(
+                          imageUrl: _coverUrl!, fit: BoxFit.cover,
+                          httpHeaders: lib.mediaHeaders,
+                          errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                        ),
                         child: CachedNetworkImage(
                           imageUrl: _coverUrl!, fit: BoxFit.contain,
                           httpHeaders: lib.mediaHeaders,
                           placeholder: (_, __) => const SizedBox(),
                           errorWidget: (_, __, ___) => const SizedBox(),
-                        ),
-                        blurChild: CachedNetworkImage(
-                          imageUrl: _coverUrl!, fit: BoxFit.cover,
-                          httpHeaders: lib.mediaHeaders,
-                          errorWidget: (_, __, ___) => const SizedBox.shrink(),
                         ),
                       ))
                 : CachedNetworkImage(

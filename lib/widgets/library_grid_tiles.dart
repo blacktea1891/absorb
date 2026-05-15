@@ -276,18 +276,18 @@ class _GridBookTileState extends State<GridBookTile> {
     }
     if (coverUrl.startsWith('/')) {
       return BlurPaddedCover(
-        child: Image.file(File(coverUrl), fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => placeholder),
         blurChild: Image.file(File(coverUrl), fit: BoxFit.cover,
             errorBuilder: (_, __ ,___) => const SizedBox.shrink()),
+        child: Image.file(File(coverUrl), fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) => placeholder),
       );
     }
     return BlurPaddedCover(
+      blurChild: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
+          httpHeaders: headers, errorWidget: (_, __, ___) => const SizedBox.shrink()),
       child: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.contain,
           httpHeaders: headers, placeholder: (_, __) => placeholder,
           errorWidget: (_, __, ___) => placeholder),
-      blurChild: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
-          httpHeaders: headers, errorWidget: (_, __, ___) => const SizedBox.shrink()),
     );
   }
 }

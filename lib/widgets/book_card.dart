@@ -395,8 +395,8 @@ class _CoverImage extends StatelessWidget {
       if (file.existsSync()) {
         return BlurPaddedCover(
           enabled: isSquare,
-          child: Image.file(file, fit: effectiveFit, errorBuilder: (_, __, ___) => _placeholder()),
           blurChild: Image.file(file, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+          child: Image.file(file, fit: effectiveFit, errorBuilder: (_, __, ___) => _placeholder()),
         );
       }
       return _placeholder();
@@ -404,18 +404,18 @@ class _CoverImage extends StatelessWidget {
 
     return BlurPaddedCover(
       enabled: isSquare,
+      blurChild: CachedNetworkImage(
+        imageUrl: coverUrl!,
+        fit: BoxFit.cover,
+        httpHeaders: httpHeaders,
+        errorWidget: (_, __, ___) => const SizedBox.shrink(),
+      ),
       child: CachedNetworkImage(
         imageUrl: coverUrl!,
         fit: effectiveFit,
         httpHeaders: httpHeaders,
         placeholder: (_, __) => _placeholder(),
         errorWidget: (_, __, ___) => _placeholder(),
-      ),
-      blurChild: CachedNetworkImage(
-        imageUrl: coverUrl!,
-        fit: BoxFit.cover,
-        httpHeaders: httpHeaders,
-        errorWidget: (_, __, ___) => const SizedBox.shrink(),
       ),
     );
   }

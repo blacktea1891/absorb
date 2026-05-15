@@ -594,7 +594,7 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
                       sectionIcon = Icons.collections_bookmark_rounded;
                     } else if (id.startsWith('genre:')) {
                       sectionIcon = Icons.label_outline_rounded;
-                      final sectionLabel = label as String;
+                      final sectionLabel = label;
                       titleTap = () => SectionDetailSheet.show(
                         context,
                         title: sectionLabel,
@@ -607,7 +607,7 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
                       // Author/series sections don't have book-shaped entities,
                       // so skip the book-oriented SectionDetailSheet for them.
                       if (type != 'authors' && type != 'series') {
-                        final sectionLabel = label as String;
+                        final sectionLabel = label;
                         titleTap = () => SectionDetailSheet.show(
                           context,
                           title: sectionLabel,
@@ -716,8 +716,8 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
     // copy of the cover (matches the absorbing card aesthetic). Both image()
     // calls share the same cached bytes by URL.
     return BlurPaddedCover(
-      child: image(fit: BoxFit.contain),
       blurChild: image(fit: BoxFit.cover),
+      child: image(fit: BoxFit.contain),
     );
   }
 
