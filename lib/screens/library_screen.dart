@@ -11,7 +11,6 @@ import '../providers/library_provider.dart';
 import '../services/api_service.dart';
 import '../services/download_service.dart';
 import '../services/audio_player_service.dart';
-import '../utils/library_filter_query.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/library_search_results.dart';
 import '../main.dart' show oledNotifier;
@@ -499,6 +498,11 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
   // widget, which calls back into _loadPage / _loadSeriesPage when the user
   // approaches the bottom of the visible scroll view.
 
+  // ABS filter format: <group>.<base64(value)>. Same encoding ApiService
+  // uses for getBooksByAuthor.
+  String _absFilter(String group, String value) =>
+      '$group.${base64Encode(utf8.encode(value))}';
+
   // ══════════════════════════════════════════════════════════════
   // LIBRARY TAB - Load a page of items
   // ══════════════════════════════════════════════════════════════
@@ -541,18 +545,17 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
 
     String? filter;
     if (_filter == LibraryFilter.inProgress) {
-      filter = LibraryFilterQuery.grouped(LibraryFilterGroup.progress, 'in-progress').queryValue;
+      filter = _absFilter('progress', 'in-progress');
     } else if (_filter == LibraryFilter.finished) {
-      filter = LibraryFilterQuery.grouped(LibraryFilterGroup.progress, 'finished').queryValue;
+      filter = _absFilter('progress', 'finished');
     } else if (_filter == LibraryFilter.notStarted) {
-      filter = LibraryFilterQuery.grouped(LibraryFilterGroup.progress, 'not-started').queryValue;
+      filter = _absFilter('progress', 'not-started');
     } else if (_filter == LibraryFilter.hasEbook) {
-      // ABS uses an `ebooks` group not in our generic enum; build manually.
-      filter = 'ebooks.${encodeFilterValue('ebook')}';
+      filter = _absFilter('ebooks', 'ebook');
     } else if (_filter == LibraryFilter.genre && _genreFilter != null) {
-      filter = LibraryFilterQuery.grouped(LibraryFilterGroup.genres, _genreFilter!).queryValue;
+      filter = _absFilter('genres', _genreFilter!);
     } else if (_filter == LibraryFilter.tag && _tagFilter != null) {
-      filter = LibraryFilterQuery.grouped(LibraryFilterGroup.tags, _tagFilter!).queryValue;
+      filter = _absFilter('tags', _tagFilter!);
     }
     // Downloaded filter is client-side — handled after loading
 
