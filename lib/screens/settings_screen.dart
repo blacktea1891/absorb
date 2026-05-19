@@ -21,7 +21,6 @@ import '../screens/login_screen.dart';
 import '../screens/app_shell.dart';
 import '../services/update_checker_service.dart';
 import '../screens/admin_screen.dart';
-import '../screens/admin_rmab_screen.dart';
 import '../screens/downloads_screen.dart';
 import '../screens/bookmarks_screen.dart';
 import '../main.dart' show applyThemeMode, applyTrustAllCerts, localeNotifier, oledNotifier, snappyTransitionsNotifier;
@@ -33,6 +32,7 @@ import '../widgets/overlay_toast.dart';
 import '../widgets/tips_sheet.dart';
 import '../widgets/feature_hint.dart';
 import '../widgets/welcome_sheet.dart';
+import '../widgets/rmab_config_sheet.dart';
 import '../l10n/app_localizations.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -97,7 +97,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _localServerController;
   bool _trustAllCerts = false;
   bool _includePreReleases = false;
-  String? _rmabUrl;
+  String? _rmabBaseUrl;
+  String? _rmabApiToken;
   bool _loaded = false;
   String _downloadLocationLabel = 'App Internal Storage (Default)';
   bool _canPickDownloadLocation = false;
@@ -257,9 +258,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final shakeSens = results[45] as String;
     final language = results[46] as String;
     final classicWording = results[47] as bool;
-    final rmabUrl = await ScopedPrefs.getString('rmab_url');
+    final rmabBaseUrl = await ScopedPrefs.getString(kRmabBaseUrlKey);
+    final rmabApiToken = await ScopedPrefs.getString(kRmabApiTokenKey);
     if (mounted) setState(() {
-      _rmabUrl = rmabUrl;
+      _rmabBaseUrl = rmabBaseUrl;
+      _rmabApiToken = rmabApiToken;
       _rewindSettings = s;
       _defaultSpeed = speed;
       _wifiOnlyDownloads = wifiOnly;
@@ -2130,34 +2133,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     ListTile(
                       leading: Icon(Icons.menu_book_rounded, color: cs.primary),
-                      title: Row(children: [
-                        Flexible(child: Text(l.adminRmab)),
-                        _infoIcon(l.adminRmab, l.adminRmabSettingsInfo),
-                      ]),
+                      title: Text(l.adminRmab),
                       subtitle: Text(
-                        (_rmabUrl ?? '').isNotEmpty ? l.adminRmabConnected : l.adminRmabAskAdmin,
+                        ((_rmabBaseUrl ?? '').isNotEmpty && (_rmabApiToken ?? '').isNotEmpty)
+                            ? l.adminRmabConnected
+                            : l.adminRmabAskAdmin,
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                      trailing: (_rmabUrl ?? '').isNotEmpty
-                          ? PopupMenuButton<String>(
-                              icon: Icon(Icons.more_vert_rounded, color: cs.onSurfaceVariant),
-                              onSelected: (v) {
-                                if (v == 'edit') _showRmabSettingsDialog();
-                                if (v == 'remove') _clearRmabSettings();
-                              },
-                              itemBuilder: (_) => [
-                                PopupMenuItem(value: 'edit', child: Text(l.edit)),
-                                PopupMenuItem(value: 'remove', child: Text(l.remove)),
-                              ],
-                            )
-                          : Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
-                      onTap: () {
-                        if ((_rmabUrl ?? '').isNotEmpty) {
-                          Navigator.push(context, MaterialPageRoute(
-                            builder: (_) => AdminRmabScreen(url: _rmabUrl!)));
-                        } else {
-                          _showRmabSettingsDialog();
-                        }
-                      },
+                      trailing: Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                      onTap: _openRmabSheetFromSettings,
                     ),
                   ],
                 ),
@@ -2947,70 +2930,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _showRmabSettingsDialog() async {
+  Future<void> _openRmabSheetFromSettings() async {
     final l = AppLocalizations.of(context)!;
-    final controller = TextEditingController(text: _rmabUrl ?? '');
-    String? err;
-
-    final saved = await showDialog<String?>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) => AlertDialog(
-        title: Text(l.adminRmabUrlTitle),
-        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(l.adminRmabUrlHelpUser, style: Theme.of(ctx).textTheme.bodySmall),
-          const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            autofocus: true,
-            keyboardType: TextInputType.url,
-            autocorrect: false,
-            decoration: InputDecoration(
-              hintText: l.adminRmabUrlHint,
-              errorText: err,
-              border: const OutlineInputBorder(),
-            ),
-          ),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, null), child: Text(l.cancel)),
-          TextButton(
-            onPressed: () {
-              final v = controller.text.trim();
-              if (v.isEmpty) { setLocal(() => err = l.adminRmabInvalidUrl); return; }
-              final u = Uri.tryParse(v);
-              if (u == null || !(u.scheme == 'http' || u.scheme == 'https') || u.host.isEmpty) {
-                setLocal(() => err = l.adminRmabInvalidUrl);
-                return;
-              }
-              Navigator.pop(ctx, v);
-            },
-            child: Text(l.save),
-          ),
-        ],
-      )),
-    );
-
-    if (saved == null) return;
-    await ScopedPrefs.setString('rmab_url', saved);
-    if (!mounted) return;
-    setState(() => _rmabUrl = saved);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(l.adminRmabSaved),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    ));
-  }
-
-  Future<void> _clearRmabSettings() async {
-    final l = AppLocalizations.of(context)!;
-    await ScopedPrefs.remove('rmab_url');
-    if (!mounted) return;
-    setState(() => _rmabUrl = null);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(l.adminRmabRemoved),
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-    ));
+    final isAdmin = context.read<AuthProvider>().isAdmin;
+    final result =
+        await showRmabConfigSheet(context, isAdminContext: isAdmin);
+    if (!mounted || result == null) return;
+    if (result.changed || result.disconnected) {
+      final base = await ScopedPrefs.getString(kRmabBaseUrlKey);
+      final token = await ScopedPrefs.getString(kRmabApiTokenKey);
+      if (!mounted) return;
+      setState(() {
+        _rmabBaseUrl = base;
+        _rmabApiToken = token;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.disconnected
+            ? l.rmabConfigDisconnectedSnackbar
+            : l.rmabConfigSavedSnackbar),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      ));
+    }
   }
 
   void _confirmLogout(BuildContext context) {

@@ -1651,6 +1651,193 @@ class AppLocalizationsZh extends AppLocalizations {
       'ReadMeABook 是一个用于请求和下载有声书的自托管服务，需要由您的服务器管理员安装和设置。';
 
   @override
+  String get rmabConfigTitle => 'Connect ReadMeABook';
+
+  @override
+  String get rmabConfigExplainerAdmin =>
+      'ReadMeABook is a self-hosted service for requesting audiobooks. Generate an API token in RMAB under Profile, API Tokens, then paste the server URL and token below. Absorb doesn\'t host or download any content, it just sends requests to your server.';
+
+  @override
+  String get rmabConfigExplainerUser =>
+      'ReadMeABook is a self-hosted service for requesting audiobooks. Ask your server admin for the RMAB URL and an API token. Absorb doesn\'t host or download any content, it just sends requests to your server.';
+
+  @override
+  String get rmabConfigLearnMore => 'Learn more about ReadMeABook';
+
+  @override
+  String get rmabConfigBaseUrlLabel => 'RMAB server URL';
+
+  @override
+  String get rmabConfigBaseUrlHint => 'https://rmab.example.com';
+
+  @override
+  String get rmabConfigTokenLabel => 'API token';
+
+  @override
+  String get rmabConfigTokenHint => 'rmab_...';
+
+  @override
+  String get rmabConfigConnect => 'Connect';
+
+  @override
+  String get rmabConfigDisconnect => 'Disconnect';
+
+  @override
+  String get rmabConfigOpenWebView => 'Open in browser view';
+
+  @override
+  String rmabConfigConnectedAs(String name) {
+    return 'Connected as $name';
+  }
+
+  @override
+  String get rmabConfigErrorInvalidUrl => 'Enter a valid http(s) URL';
+
+  @override
+  String get rmabConfigErrorMissingToken => 'Enter your API token';
+
+  @override
+  String get rmabConfigErrorUnauthorized => 'Token rejected by server';
+
+  @override
+  String get rmabConfigErrorForbidden =>
+      'This token isn\'t allowed for that action';
+
+  @override
+  String get rmabConfigErrorNetwork => 'Couldn\'t reach RMAB. Check the URL.';
+
+  @override
+  String get rmabConfigErrorGeneric => 'Couldn\'t connect';
+
+  @override
+  String get rmabConfigSavedSnackbar => 'ReadMeABook connected';
+
+  @override
+  String get rmabConfigDisconnectedSnackbar => 'ReadMeABook disconnected';
+
+  @override
+  String get rmabRequestCta => 'Request via ReadMeABook';
+
+  @override
+  String get rmabSearchHeader => 'Request via ReadMeABook';
+
+  @override
+  String get rmabSearchHint => 'Search by title or author';
+
+  @override
+  String get rmabSearchEmpty => 'No matches on your ReadMeABook server';
+
+  @override
+  String get rmabSearchError => 'Couldn\'t search ReadMeABook';
+
+  @override
+  String get rmabSearchPrompt => 'Type a title or author to search';
+
+  @override
+  String get rmabSearchFooterPrompt => 'Looking for something else?';
+
+  @override
+  String rmabSearchFooterCta(String query) {
+    return 'Search ReadMeABook for \"$query\"';
+  }
+
+  @override
+  String get rmabBookDetailExplainer =>
+      'This request will be sent through your ReadMeABook server. The admin will review and process it. You can track it under My Requests on the ReadMeABook tile.';
+
+  @override
+  String get rmabBookAlreadyAvailable => 'Already in your library';
+
+  @override
+  String get rmabBookAlreadyRequested => 'Already requested';
+
+  @override
+  String get rmabRequestSubmitting => 'Submitting…';
+
+  @override
+  String get rmabRequestSent => 'Request sent';
+
+  @override
+  String get rmabRequestErrorAlreadyAvailable => 'Already in your library';
+
+  @override
+  String get rmabRequestErrorBeingProcessed => 'Already being processed';
+
+  @override
+  String get rmabRequestErrorDuplicate => 'You\'ve already requested this';
+
+  @override
+  String get rmabRequestErrorValidation => 'Couldn\'t send the request';
+
+  @override
+  String get rmabRequestErrorUserNotFound =>
+      'Token user no longer exists. Reconnect ReadMeABook.';
+
+  @override
+  String get rmabRequestErrorIgnored => 'This book is on your ignore list';
+
+  @override
+  String get rmabRequestErrorGeneric => 'Couldn\'t send the request';
+
+  @override
+  String get rmabRequestErrorTokenRejected =>
+      'Token rejected by server. Reconnect ReadMeABook.';
+
+  @override
+  String get rmabMyRequestsTab => 'My Requests';
+
+  @override
+  String get rmabSetupTab => 'Setup';
+
+  @override
+  String get rmabMyRequestsEmpty => 'You haven\'t requested any books yet';
+
+  @override
+  String get rmabMyRequestsError => 'Couldn\'t load requests';
+
+  @override
+  String get rmabMyRequestsRefresh => 'Refresh';
+
+  @override
+  String get rmabRequestDetailTitle => 'Request details';
+
+  @override
+  String get rmabRequestDetailStatus => 'Status';
+
+  @override
+  String get rmabRequestDetailRequestedOn => 'Requested on';
+
+  @override
+  String get rmabRequestDetailCompletedOn => 'Completed on';
+
+  @override
+  String get rmabRequestDetailProgress => 'Progress';
+
+  @override
+  String get rmabStatusActive => 'In progress';
+
+  @override
+  String get rmabStatusWaiting => 'Waiting';
+
+  @override
+  String get rmabStatusAvailable => 'Available';
+
+  @override
+  String get rmabStatusDownloaded => 'Downloaded';
+
+  @override
+  String get rmabStatusFailed => 'Failed';
+
+  @override
+  String get rmabStatusCancelled => 'Cancelled';
+
+  @override
+  String get rmabStatusDenied => 'Denied';
+
+  @override
+  String get rmabStatusUnknown => 'Unknown';
+
+  @override
   String narratedBy(String narrator) {
     return '朗读者: $narrator';
   }

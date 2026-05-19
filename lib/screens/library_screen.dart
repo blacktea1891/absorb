@@ -24,7 +24,10 @@ import 'app_shell.dart';
 import 'upcoming_releases_screen.dart';
 import '../widgets/audible_series_sheet.dart' show showAudibleRegionPicker;
 import '../widgets/offline_status_icon.dart';
+import '../widgets/rmab_config_sheet.dart' show kRmabBaseUrlKey, kRmabApiTokenKey;
+import '../widgets/rmab_search_results_sheet.dart';
 import '../widgets/scroll_reveal.dart';
+import '../services/scoped_prefs.dart';
 import '../l10n/app_localizations.dart';
 
 /// Responsive grid column count based on available width.
@@ -65,6 +68,7 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
   // ── Search state ──
   final _searchController = TextEditingController();
   final _focusNode = FocusNode();
+  bool _rmabConfigured = false;
   /// GlobalKey on the SearchBar so its Element (and the TextField + focus
   /// inside) survives the tree swap when `_isInSearchMode` flips. Without
   /// this, typing the first character unmounts the tabbed tree, the
@@ -204,6 +208,19 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) AppShell.notifyScreenReady(1);
     });
+    _loadRmabConfigured();
+  }
+
+  Future<void> _loadRmabConfigured() async {
+    final base = await ScopedPrefs.getString(kRmabBaseUrlKey);
+    final token = await ScopedPrefs.getString(kRmabApiTokenKey);
+    if (!mounted) return;
+    final next =
+        (base ?? '').isNotEmpty && (token ?? '').isNotEmpty;
+    debugPrint('[RMAB] library: _rmabConfigured=$next');
+    if (next != _rmabConfigured) {
+      setState(() => _rmabConfigured = next);
+    }
   }
 
   void _initTabController() {
@@ -2147,6 +2164,8 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
       );
     }
     if (_searchBookResults.isEmpty && _searchSeriesResults.isEmpty && _searchAuthorResults.isEmpty && _searchNarratorResults.isEmpty && _searchEpisodeResults.isEmpty && _searchTagResults.isEmpty && _searchGenreResults.isEmpty) {
+      final libProv = context.read<LibraryProvider>();
+      final showRmabCta = _rmabConfigured && !libProv.isPodcastLibrary;
       return CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
@@ -2161,6 +2180,22 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
                   const SizedBox(height: 12),
                   Text(l.libraryNoResults,
                       style: tt.bodyLarge?.copyWith(color: cs.onSurfaceVariant)),
+                  if (showRmabCta) ...[
+                    const SizedBox(height: 20),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.menu_book_rounded, size: 18),
+                      label: Text(l.rmabRequestCta),
+                      onPressed: () {
+                        final q = _searchController.text.trim();
+                        debugPrint(
+                            '[RMAB] library CTA tapped (query="$q")');
+                        showRmabSearchResultsSheet(
+                          context,
+                          initialQuery: q,
+                        );
+                      },
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -2323,6 +2358,55 @@ class LibraryScreenState extends State<LibraryScreen> with TickerProviderStateMi
                 name: name,
                 onTap: () => _applyTagFilter(name),
               )),
+        ],
+        // ─── RMAB FOOTER (when results exist + RMAB configured) ───
+        if (_rmabConfigured && !isPodcast) ...[
+          Padding(
+            padding: const EdgeInsets.only(top: 28),
+            child: Divider(color: cs.outlineVariant.withValues(alpha: 0.4)),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 12, 4, 4),
+            child: Text(
+              l.rmabSearchFooterPrompt,
+              style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+            ),
+          ),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () {
+                final q = _searchController.text.trim();
+                debugPrint(
+                    '[RMAB] library footer CTA tapped (query="$q")');
+                showRmabSearchResultsSheet(
+                  context,
+                  initialQuery: q,
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 4, vertical: 12),
+                child: Row(children: [
+                  Icon(Icons.menu_book_rounded,
+                      size: 20, color: cs.primary),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      l.rmabSearchFooterCta(
+                          _searchController.text.trim()),
+                      style: tt.bodyMedium?.copyWith(
+                          color: cs.primary,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  Icon(Icons.arrow_forward_rounded,
+                      size: 18, color: cs.primary),
+                ]),
+              ),
+            ),
+          ),
         ],
     ];
 
