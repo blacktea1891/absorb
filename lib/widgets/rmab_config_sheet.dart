@@ -537,14 +537,21 @@ class _SetupForm extends StatelessWidget {
           const SizedBox(height: 8),
           const Divider(height: 24),
           Row(children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: state._connecting ? null : state._openWebView,
-                icon: const Icon(Icons.open_in_browser_rounded, size: 18),
-                label: Text(l.rmabConfigOpenWebView),
+            // The "Open in browser view" button is only useful for reaching
+            // RMAB's admin-only surfaces (torrent picker, settings, etc.)
+            // that aren't on the API allowlist. Regular users don't need it
+            // — the native flows already cover request + status.
+            if (state.widget.isAdminContext) ...[
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: state._connecting ? null : state._openWebView,
+                  icon: const Icon(Icons.open_in_browser_rounded, size: 18),
+                  label: Text(l.rmabConfigOpenWebView),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
+              const SizedBox(width: 12),
+            ] else
+              const Spacer(),
             TextButton(
               onPressed: state._connecting ? null : state._disconnect,
               style: TextButton.styleFrom(foregroundColor: cs.error),
