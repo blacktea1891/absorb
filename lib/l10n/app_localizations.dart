@@ -3175,7 +3175,7 @@ abstract class AppLocalizations {
   /// No description provided for @rmabConfigExplainerAdmin.
   ///
   /// In en, this message translates to:
-  /// **'ReadMeABook is a self-hosted service for requesting audiobooks. Generate an API token in RMAB under Profile, API Tokens, then paste the server URL and token below. Absorb doesn\'t host or download any content, it just sends requests to your server.'**
+  /// **'ReadMeABook is a self-hosted service for requesting audiobooks. Generate an API token in RMAB under Admin Dashboard > Settings > API, then paste the server URL and token below. Absorb doesn\'t host or download any content, it just sends requests to your server.'**
   String get rmabConfigExplainerAdmin;
 
   /// No description provided for @rmabConfigExplainerUser.

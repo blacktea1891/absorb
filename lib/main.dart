@@ -1,5 +1,11 @@
 import 'dart:io';
 import 'dart:ui';
+// Flutter 3.44 moved CupertinoPageTransitionsBuilder from material.dart to
+// cupertino.dart. Older SDKs (incl. local) still re-export it from material,
+// so the lint flags this as unnecessary, but Codemagic's stable channel
+// needs the explicit cupertino import to compile.
+// ignore: unnecessary_import
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -235,17 +241,9 @@ class AbsorbApp extends StatelessWidget {
           brightness: Brightness.light,
         );
 
-            // Non-const intentionally. Codemagic's build image rejects
-            // `CupertinoPageTransitionsBuilder()` as a constant expression
-            // even though it's const-callable on a current Flutter stable
-            // checkout. Allocating PageTransitionsTheme on each MaterialApp
-            // rebuild is a negligible cost and sidesteps the SDK mismatch.
-            // ignore: prefer_const_constructors
-            final pageTransition = PageTransitionsTheme(
+            const pageTransition = PageTransitionsTheme(
               builders: {
-                // ignore: prefer_const_constructors
                 TargetPlatform.android: CupertinoPageTransitionsBuilder(),
-                // ignore: prefer_const_constructors
                 TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
               },
             );
