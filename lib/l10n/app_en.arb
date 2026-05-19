@@ -587,7 +587,7 @@
   "adminRmabSettingsInfo": "ReadMeABook is a self-hosted service for requesting and downloading audiobooks. It must be installed and set up by your server admin.",
 
   "rmabConfigTitle": "Connect ReadMeABook",
-  "rmabConfigExplainerAdmin": "ReadMeABook is a self-hosted service for requesting audiobooks. Generate an API token in RMAB under Profile, API Tokens, then paste the server URL and token below. Absorb doesn't host or download any content, it just sends requests to your server.",
+  "rmabConfigExplainerAdmin": "ReadMeABook is a self-hosted service for requesting audiobooks. Generate an API token in RMAB under Admin Dashboard > Settings > API, then paste the server URL and token below. Absorb doesn't host or download any content, it just sends requests to your server.",
   "rmabConfigExplainerUser": "ReadMeABook is a self-hosted service for requesting audiobooks. Ask your server admin for the RMAB URL and an API token. Absorb doesn't host or download any content, it just sends requests to your server.",
   "rmabConfigLearnMore": "Learn more about ReadMeABook",
   "rmabConfigBaseUrlLabel": "RMAB server URL",
