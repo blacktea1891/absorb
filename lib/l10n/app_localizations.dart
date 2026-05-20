@@ -1651,13 +1651,13 @@ abstract class AppLocalizations {
   /// No description provided for @mergeLibraries.
   ///
   /// In en, this message translates to:
-  /// **'Merge libraries'**
+  /// **'Unified Absorbing page'**
   String get mergeLibraries;
 
   /// No description provided for @mergeLibrariesInfoTitle.
   ///
   /// In en, this message translates to:
-  /// **'Merge Libraries'**
+  /// **'Unified Absorbing Page'**
   String get mergeLibrariesInfoTitle;
 
   /// No description provided for @mergeLibrariesInfoContent.

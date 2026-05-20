@@ -846,10 +846,10 @@ class AppLocalizationsEn extends AppLocalizations {
   String get whenAbsorbedAutoRelease => 'Auto-release';
 
   @override
-  String get mergeLibraries => 'Merge libraries';
+  String get mergeLibraries => 'Unified Absorbing page';
 
   @override
-  String get mergeLibrariesInfoTitle => 'Merge Libraries';
+  String get mergeLibrariesInfoTitle => 'Unified Absorbing Page';
 
   @override
   String get mergeLibrariesInfoContent =>
