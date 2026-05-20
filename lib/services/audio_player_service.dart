@@ -11,6 +11,7 @@ import 'api_service.dart';
 import 'download_service.dart';
 import 'playback_history_service.dart' hide PlaybackEvent;
 import 'progress_sync_service.dart';
+import 'sync_logic.dart';
 import 'sleep_timer_service.dart';
 import 'equalizer_service.dart';
 import 'android_auto_service.dart';
@@ -1879,7 +1880,8 @@ class AudioPlayerService extends ChangeNotifier {
             // truth, we just haven't shipped it to the server yet.
             bool useServer = false;
             final hasPending = await _progressSync.hasPendingSync(pKey);
-            if (localTs > 0 && !hasPending) {
+            final gap = startTime - serverPos;
+            if (localTs > 0 && !hasPending && gap <= SyncLogic.localAheadSafetySeconds) {
               try {
                 final serverProgress = await _api!.getItemProgress(pKey);
                 final serverLastUpdate = (serverProgress?['lastUpdate'] as num?)?.toInt() ?? 0;
@@ -1893,6 +1895,8 @@ class AudioPlayerService extends ChangeNotifier {
             if (!useServer) {
               if (hasPending) {
                 debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (pending sync)');
+              } else if (gap > SyncLogic.localAheadSafetySeconds) {
+                debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (gap ${gap.toStringAsFixed(1)}s exceeds safety threshold)');
               } else {
                 debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local');
               }
@@ -2278,10 +2282,13 @@ class AudioPlayerService extends ChangeNotifier {
       // Skip the staleness override if we have a pending local sync: the
       // server's lastUpdate can be newer than the local timestamp for reasons
       // unrelated to listening progress, so trusting it would clobber offline
-      // playback we haven't shipped yet.
+      // playback we haven't shipped yet. Also skip if local is meaningfully
+      // ahead of server - a multi-minute gap is real listening progress, not
+      // a save race.
       bool useServer = false;
       final hasPending = await _progressSync.hasPendingSync(pKey);
-      if (localTs > 0 && !hasPending) {
+      final gap = startTime - serverPos;
+      if (localTs > 0 && !hasPending && gap <= SyncLogic.localAheadSafetySeconds) {
         try {
           final serverProgress = await api.getItemProgress(pKey);
           final serverLastUpdate = (serverProgress?['lastUpdate'] as num?)?.toInt() ?? 0;
@@ -2295,6 +2302,8 @@ class AudioPlayerService extends ChangeNotifier {
       if (!useServer) {
         if (hasPending) {
           debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (pending sync)');
+        } else if (gap > SyncLogic.localAheadSafetySeconds) {
+          debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (gap ${gap.toStringAsFixed(1)}s exceeds safety threshold)');
         } else {
           debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local');
         }
@@ -2946,6 +2955,37 @@ class AudioPlayerService extends ChangeNotifier {
             final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
                 .getBool('manual_offline_mode') ?? false;
 
+            // If we're online but lost the playback session (e.g. pause-
+            // timeout closed it and _resumeServerSync silently failed when
+            // playback resumed), recreate it before the accumulator branch.
+            // Without this the offline accumulator fills for hours and gets
+            // dumped later as one phantom session with startTime==lastTime.
+            if (!manualOffline &&
+                !_isOfflineMode &&
+                _playbackSessionId == null &&
+                _api != null &&
+                _currentItemId != null &&
+                !_recreatingSession) {
+              _recreatingSession = true;
+              try {
+                final sessionData = _currentEpisodeId != null
+                    ? await _api!.startEpisodePlaybackSession(
+                        _currentItemId!, _currentEpisodeId!)
+                    : await _api!.startPlaybackSession(_currentItemId!);
+                if (sessionData != null) {
+                  _playbackSessionId = sessionData['id'] as String?;
+                  if (_playbackSessionId != null) {
+                    debugPrint('[Player] Recreated session in sync tick: '
+                        '$_playbackSessionId');
+                  }
+                }
+              } catch (e) {
+                debugPrint('[Player] Session recreate in sync tick failed: $e');
+              } finally {
+                _recreatingSession = false;
+              }
+            }
+
             if (manualOffline || _isOfflineMode || _playbackSessionId == null) {
               // Offline or no session - accumulate listening time locally
               final progressKey = _currentEpisodeId != null
@@ -3274,6 +3314,7 @@ class AudioPlayerService extends ChangeNotifier {
   bool _syncRecoveryInProgress = false;
   bool _positionSyncInProgress = false;
   int _positionSyncFailures = 0;
+  bool _recreatingSession = false;
 
   Future<void> _syncToServer(Duration pos, {int? timeListenedOverride}) async {
     if (_api == null || _playbackSessionId == null) return;
@@ -3502,6 +3543,7 @@ class AudioPlayerService extends ChangeNotifier {
   /// Runs in the background so play() returns instantly.
   void _resumeServerSync() async {
     if (_api == null || _currentItemId == null) return;
+    if (_recreatingSession) return;
     final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
         .getBool('manual_offline_mode') ?? false;
     if (manualOffline || _isOfflineMode) {
@@ -3512,6 +3554,7 @@ class AudioPlayerService extends ChangeNotifier {
     // (e.g. jumped to a different chapter) — respect the intentional seek.
     final skipOverride = _seekedWhilePaused;
     _seekedWhilePaused = false;
+    _recreatingSession = true;
     try {
       if (_playbackSessionId == null) {
         // Session expired - re-create it
@@ -3550,6 +3593,8 @@ class AudioPlayerService extends ChangeNotifier {
       _lastAutoRewindAmount = 0;
     } catch (e) {
       debugPrint('[Player] Failed to check server progress on resume: $e');
+    } finally {
+      _recreatingSession = false;
     }
   }
 
