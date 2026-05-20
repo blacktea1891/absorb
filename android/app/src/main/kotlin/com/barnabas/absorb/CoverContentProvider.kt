@@ -40,6 +40,7 @@ class CoverContentProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         val itemId = extractItemId(uri) ?: return null
         val context = context ?: return null
+        invalidateStaleCacheIfNeeded(context, itemId, uri)
         val coverFile = findCoverFile(context, itemId)
         if (coverFile != null) {
             return ParcelFileDescriptor.open(coverFile, ParcelFileDescriptor.MODE_READ_ONLY)
@@ -70,6 +71,7 @@ class CoverContentProvider : ContentProvider() {
     ): Cursor? {
         val itemId = extractItemId(uri) ?: return null
         val context = context ?: return null
+        invalidateStaleCacheIfNeeded(context, itemId, uri)
         val coverFile = findCoverFile(context, itemId)
             ?: fetchAndCache(context, itemId)
             ?: return null
@@ -201,6 +203,22 @@ class CoverContentProvider : ContentProvider() {
         val pattern = "\"$key\"\\s*:\\s*\"([^\"]+)\""
         val match = Regex(pattern).find(json)
         return match?.groupValues?.get(1)
+    }
+
+    // If the URI carries a `ts` query param newer than the aa_covers file's
+    // mtime, drop the file so the next lookup re-fetches from the server.
+    // Downloaded covers are owned by the download pipeline, not touched here.
+    private fun invalidateStaleCacheIfNeeded(
+        context: android.content.Context,
+        itemId: String,
+        uri: Uri
+    ) {
+        val tsParam = uri.getQueryParameter("ts")?.toLongOrNull() ?: return
+        val cacheFile = File(context.cacheDir, "aa_covers/$itemId.jpg")
+        if (cacheFile.exists() && cacheFile.lastModified() < tsParam) {
+            Log.d(TAG, "Invalidating stale cover cache for $itemId (file=${cacheFile.lastModified()} < ts=$tsParam)")
+            cacheFile.delete()
+        }
     }
 
     // ── Helpers ──

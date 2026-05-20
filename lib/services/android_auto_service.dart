@@ -349,10 +349,36 @@ class AndroidAutoService {
   /// Must match the authority registered in AndroidManifest.xml.
   static const _coverAuthority = 'com.barnabas.absorb.covers';
 
+  // Per-item updatedAt; appended to cover URIs so AA/CarPlay see a new URL
+  // when a cover changes and refetch instead of serving the cached bitmap.
+  static final Map<String, int> _itemUpdatedAt = {};
+
   /// Build a content:// URI for a locally cached cover image.
-  /// Android Auto requires content:// URIs — file:// won't work.
-  static String localCoverUri(String itemId) =>
-      'content://$_coverAuthority/cover/$itemId';
+  /// Android Auto requires content:// URIs, file:// won't work.
+  static String localCoverUri(String itemId) {
+    final ts = _itemUpdatedAt[itemId];
+    final base = 'content://$_coverAuthority/cover/$itemId';
+    return ts != null ? '$base?ts=$ts' : base;
+  }
+
+  /// Record a fresh server-side updatedAt for an item. Called from the socket
+  /// `item_updated` handler so AA/CarPlay reload covers when they change.
+  static void notifyItemUpdated(String itemId, int updatedAt) {
+    final prev = _itemUpdatedAt[itemId];
+    if (prev == updatedAt) return;
+    _itemUpdatedAt[itemId] = updatedAt;
+    try {
+      onServerDataChanged?.call();
+    } catch (e) {
+      debugPrint('[AutoBrowse] notifyItemUpdated listener threw: $e');
+    }
+    if (Platform.isAndroid) {
+      try {
+        // ignore: deprecated_member_use
+        AudioServiceBackground.notifyChildrenChanged(AutoMediaIds.root);
+      } catch (_) {}
+    }
+  }
 
   Future<void> _refreshDownloaded() async {
     final ds = DownloadService();
@@ -978,8 +1004,7 @@ class AndroidAutoService {
 
     try {
       final results = await api.getBooksBySeries(libraryId, seriesId);
-      return results
-          .whereType<Map<String, dynamic>>()
+      return _sortBySeriesSequence(results, seriesId)
           .map((item) => _libraryItemToEntry(item, api))
           .whereType<AutoBookEntry>()
           .map((e) => e.toMediaItem())
@@ -988,6 +1013,38 @@ class AndroidAutoService {
       debugPrint('[AutoBrowse] Error fetching series books: $e');
       return [];
     }
+  }
+
+  /// Sort raw library items by their sequence within the given series.
+  /// The server's `sort=media.metadata.series.sequence` param sorts as a
+  /// string, so "10" lands before "2". Books missing a sequence go last.
+  static final _leadingNumberRe = RegExp(r'^[\d.]+');
+  List<Map<String, dynamic>> _sortBySeriesSequence(
+      List<dynamic> results, String seriesId) {
+    final maps = results.whereType<Map<String, dynamic>>().toList();
+    double seqFor(Map<String, dynamic> item) {
+      final media = item['media'] as Map<String, dynamic>? ?? const {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? const {};
+      final raw = metadata['series'];
+      final seriesList = raw is List
+          ? raw.whereType<Map<String, dynamic>>()
+          : raw is Map<String, dynamic>
+              ? [raw]
+              : const <Map<String, dynamic>>[];
+      for (final s in seriesList) {
+        if (s['id'] != seriesId) continue;
+        final match = _leadingNumberRe
+            .firstMatch((s['sequence'] ?? '').toString().trim());
+        if (match != null) {
+          final parsed = double.tryParse(match.group(0)!);
+          if (parsed != null) return parsed;
+        }
+      }
+      return double.maxFinite;
+    }
+
+    maps.sort((a, b) => seqFor(a).compareTo(seqFor(b)));
+    return maps;
   }
 
   Future<List<MediaItem>> _fetchAuthorBooks(String authorId, String libraryId) async {
@@ -1212,8 +1269,7 @@ class AndroidAutoService {
     if (api == null) return [];
     try {
       final results = await api.getBooksBySeries(libraryId, seriesId);
-      return results
-          .whereType<Map<String, dynamic>>()
+      return _sortBySeriesSequence(results, seriesId)
           .map((item) => _libraryItemToEntry(item, api))
           .whereType<AutoBookEntry>()
           .toList();

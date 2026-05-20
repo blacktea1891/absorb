@@ -964,7 +964,12 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     // Update cover cache buster timestamp
     final id = data['id'] as String?;
     final ts = data['updatedAt'] as num?;
-    if (id != null && ts != null) _itemUpdatedAt[id] = ts.toInt();
+    if (id != null && ts != null) {
+      _itemUpdatedAt[id] = ts.toInt();
+      // Mirror into AA/CarPlay so the next browse-tree refresh hands out a
+      // ts-suffixed cover URI and the native cover cache can invalidate.
+      AndroidAutoService.notifyItemUpdated(id, ts.toInt());
+    }
     if (id != null) {
       final coverPath = (data['media'] as Map<String, dynamic>?)?['coverPath'] as String?;
       registerHasCover(id, coverPath != null && coverPath.isNotEmpty);
