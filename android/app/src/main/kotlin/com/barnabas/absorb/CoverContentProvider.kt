@@ -40,14 +40,17 @@ class CoverContentProvider : ContentProvider() {
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
         val itemId = extractItemId(uri) ?: return null
         val context = context ?: return null
+        val ts = uri.getQueryParameter("ts")
         invalidateStaleCacheIfNeeded(context, itemId, uri)
         val coverFile = findCoverFile(context, itemId)
         if (coverFile != null) {
+            Log.d(TAG, "openFile $itemId ts=$ts served=${coverFile.path} mtime=${coverFile.lastModified()}")
             return ParcelFileDescriptor.open(coverFile, ParcelFileDescriptor.MODE_READ_ONLY)
         }
 
         // Not available locally — try fetching from the server and caching
         val cached = fetchAndCache(context, itemId) ?: return null
+        Log.d(TAG, "openFile $itemId ts=$ts fetched=${cached.path} mtime=${cached.lastModified()}")
         return ParcelFileDescriptor.open(cached, ParcelFileDescriptor.MODE_READ_ONLY)
     }
 
@@ -215,9 +218,13 @@ class CoverContentProvider : ContentProvider() {
     ) {
         val tsParam = uri.getQueryParameter("ts")?.toLongOrNull() ?: return
         val cacheFile = File(context.cacheDir, "aa_covers/$itemId.jpg")
-        if (cacheFile.exists() && cacheFile.lastModified() < tsParam) {
-            Log.d(TAG, "Invalidating stale cover cache for $itemId (file=${cacheFile.lastModified()} < ts=$tsParam)")
-            cacheFile.delete()
+        if (cacheFile.exists()) {
+            if (cacheFile.lastModified() < tsParam) {
+                Log.d(TAG, "Invalidating stale aa_covers for $itemId (file=${cacheFile.lastModified()} < ts=$tsParam)")
+                cacheFile.delete()
+            } else {
+                Log.d(TAG, "aa_covers fresh for $itemId (file=${cacheFile.lastModified()} >= ts=$tsParam)")
+            }
         }
     }
 

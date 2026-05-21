@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform;
+import 'dart:io' show File, Platform;
 import 'package:audio_service/audio_service.dart';
 
 import 'package:flutter/foundation.dart';
@@ -203,7 +203,29 @@ class AutoLibraryEntry {
 class AndroidAutoService {
   static final AndroidAutoService _instance = AndroidAutoService._();
   factory AndroidAutoService() => _instance;
-  AndroidAutoService._();
+  AndroidAutoService._() {
+    DownloadService().addListener(_onDownloadsChanged);
+  }
+
+  Timer? _downloadsRefreshDebounce;
+  void _onDownloadsChanged() {
+    // Coalesce bursts (multiple state ticks during a download).
+    _downloadsRefreshDebounce?.cancel();
+    _downloadsRefreshDebounce = Timer(const Duration(milliseconds: 500), () async {
+      await _refreshDownloaded();
+      _childrenCache.remove(AutoMediaIds.downloads);
+      _childrenCache.remove(AutoMediaIds.root);
+      if (Platform.isAndroid) {
+        try {
+          // ignore: deprecated_member_use
+          await AudioServiceBackground.notifyChildrenChanged(AutoMediaIds.downloads);
+        } catch (_) {}
+      }
+      try {
+        onServerDataChanged?.call();
+      } catch (_) {}
+    });
+  }
 
   // ── Cached data ──
   List<AutoBookEntry> _continueListening = [];
@@ -376,9 +398,10 @@ class AndroidAutoService {
   /// Must match the authority registered in AndroidManifest.xml.
   static const _coverAuthority = 'com.barnabas.absorb.covers';
 
-  // Per-item updatedAt; appended to cover URIs so AA/CarPlay see a new URL
-  // when a cover changes and refetch instead of serving the cached bitmap.
+  // Per-item updatedAt for cover ?ts= cache busting on AA/CarPlay.
   static final Map<String, int> _itemUpdatedAt = {};
+
+  static int? coverTsFor(String itemId) => _itemUpdatedAt[itemId];
 
   /// Build a content:// URI for a locally cached cover image.
   /// Android Auto requires content:// URIs, file:// won't work.
@@ -388,15 +411,11 @@ class AndroidAutoService {
     return ts != null ? '$base?ts=$ts' : base;
   }
 
-  /// Record a fresh server-side updatedAt for an item. Called from the socket
-  /// `item_updated` handler so AA/CarPlay reload covers when they change.
   static void notifyItemUpdated(String itemId, int updatedAt) {
     final prev = _itemUpdatedAt[itemId];
     if (prev == updatedAt) return;
     _itemUpdatedAt[itemId] = updatedAt;
-    // The cached MediaItem lists embed the old cover URI, so any list could
-    // be stale. Clear them; AA will reload on the next browse and pick up the
-    // new ts-suffixed URI.
+    // Children cache holds old cover URIs.
     _instance._childrenCache.clear();
     try {
       onServerDataChanged?.call();
@@ -438,16 +457,24 @@ class AndroidAutoService {
         episodeId = dl.itemId.substring(37);
       }
 
-      // Use show ID for podcast episode covers so the CoverContentProvider
-      // can fall back to /api/items/<showId>/cover on the server.
+      // Podcast episode covers use the show ID so the provider can fall back
+      // to /api/items/<showId>/cover.
       final coverKey = isEpisode ? showId! : dl.itemId;
-      // iOS CarPlay can't load Android content:// URIs - use the local
-      // cover file directly. Android Auto requires content:// (file://
-      // doesn't work for it). Falls back to the content URI on iOS too if
-      // there's no local file path so behavior degrades gracefully.
+      if (dl.localCoverPath != null && dl.localCoverPath!.isNotEmpty) {
+        try {
+          final f = File(dl.localCoverPath!);
+          if (f.existsSync()) {
+            final ms = f.lastModifiedSync().millisecondsSinceEpoch;
+            final prev = _itemUpdatedAt[coverKey];
+            if (prev == null || ms > prev) _itemUpdatedAt[coverKey] = ms;
+          }
+        } catch (_) {}
+      }
       String coverUrl;
       if (Platform.isIOS && dl.localCoverPath != null && dl.localCoverPath!.isNotEmpty) {
         coverUrl = Uri.file(dl.localCoverPath!).toString();
+        final ts = _itemUpdatedAt[coverKey];
+        if (ts != null) coverUrl = '$coverUrl?ts=$ts';
       } else {
         coverUrl = localCoverUri(coverKey);
       }
@@ -713,6 +740,9 @@ class AndroidAutoService {
       Map<String, dynamic> item, ApiService api) {
     final id = item['id'] as String?;
     if (id == null) return null;
+
+    final updatedAt = (item['updatedAt'] as num?)?.toInt();
+    if (updatedAt != null) _itemUpdatedAt[id] = updatedAt;
 
     final media = item['media'] as Map<String, dynamic>?;
     final metadata = media?['metadata'] as Map<String, dynamic>? ?? {};
@@ -1229,7 +1259,7 @@ class AndroidAutoService {
   Future<String?> getCoverHttpUrl(String itemId) async {
     final api = await getApi();
     if (api == null) return null;
-    return api.getCoverUrl(itemId);
+    return api.getCoverUrl(itemId, updatedAt: _itemUpdatedAt[itemId]);
   }
 
   /// Fetch books for a library, returning raw entries.
@@ -1367,10 +1397,12 @@ class AndroidAutoService {
           if (item is! Map<String, dynamic>) continue;
           final id = item['id'] as String?;
           if (id == null) continue;
+          final updatedAt = (item['updatedAt'] as num?)?.toInt();
+          if (updatedAt != null) _itemUpdatedAt[id] = updatedAt;
           final media = item['media'] as Map<String, dynamic>?;
           final metadata = media?['metadata'] as Map<String, dynamic>? ?? {};
           final title = metadata['title'] as String? ?? 'Unknown';
-          allShows.add((id: id, title: title, coverUrl: api.getCoverUrl(id)));
+          allShows.add((id: id, title: title, coverUrl: api.getCoverUrl(id, updatedAt: updatedAt)));
         }
         final total = (result['total'] as num?)?.toInt() ?? 0;
         if (allShows.length >= total || results.length < pageSize) break;
@@ -1390,6 +1422,8 @@ class AndroidAutoService {
     try {
       final fullItem = await api.getLibraryItem(showId);
       if (fullItem == null) return [];
+      final showUpdatedAt = (fullItem['updatedAt'] as num?)?.toInt();
+      if (showUpdatedAt != null) _itemUpdatedAt[showId] = showUpdatedAt;
       final media = fullItem['media'] as Map<String, dynamic>?;
       final metadata = media?['metadata'] as Map<String, dynamic>? ?? {};
       final showTitle = metadata['title'] as String? ?? 'Podcast';
@@ -1410,7 +1444,7 @@ class AndroidAutoService {
           title: ep['title'] as String? ?? 'Episode',
           author: showTitle,
           duration: (ep['duration'] as num?)?.toDouble() ?? 0,
-          coverUrl: api.getCoverUrl(showId),
+          coverUrl: api.getCoverUrl(showId, updatedAt: showUpdatedAt),
           chapters: ep['chapters'] as List<dynamic>? ?? [],
           episodeId: epId,
           showId: showId,
