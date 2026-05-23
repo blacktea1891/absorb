@@ -20,6 +20,7 @@ import '../services/scoped_prefs.dart';
 import '../screens/login_screen.dart';
 import '../screens/app_shell.dart';
 import '../services/update_checker_service.dart';
+import '../widgets/update_dialog.dart';
 import '../screens/admin_screen.dart';
 import '../screens/downloads_screen.dart';
 import '../screens/bookmarks_screen.dart';
@@ -2393,30 +2394,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         );
                         return;
                       }
-                      showDialog(
-                        context: context,
-                        builder: (ctx) => AlertDialog(
-                          title: Text(info.isPreRelease ? l.preReleaseAvailable : l.updateAvailable),
-                          content: Text(l.updateDialogContent(
-                            info.isPreRelease ? l.updateKindPreRelease : l.updateKindVersion,
-                            info.latestVersion,
-                            info.currentVersion,
-                          )),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(ctx),
-                              child: Text(l.later),
-                            ),
-                            FilledButton(
-                              onPressed: () {
-                                Navigator.pop(ctx);
-                                launchUrl(Uri.parse(info.downloadUrl), mode: LaunchMode.externalApplication);
-                              },
-                              child: Text(l.downloadButton),
-                            ),
-                          ],
-                        ),
-                      );
+                      await UpdateDialog.show(context, info);
                     },
                     icon: const Icon(Icons.system_update_rounded, size: 16),
                     label: Text(l.checkForUpdate),
