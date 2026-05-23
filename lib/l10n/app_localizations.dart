@@ -1714,18 +1714,6 @@ abstract class AppLocalizations {
   /// **'Your absorbing cards act as a playlist. When one finishes, the next non-finished card auto-plays. Add items with the \"Add to Absorbing\" button on a book or episode and reorder from the absorbing screen.'**
   String get queueModeInfoManualDesc;
 
-  /// No description provided for @queueModeInfoAutoAbsorb.
-  ///
-  /// In en, this message translates to:
-  /// **'Auto Absorb'**
-  String get queueModeInfoAutoAbsorb;
-
-  /// No description provided for @queueModeInfoAutoAbsorbDesc.
-  ///
-  /// In en, this message translates to:
-  /// **'Automatically absorbs the next book in a series or the next episode in a podcast show.'**
-  String get queueModeInfoAutoAbsorbDesc;
-
   /// No description provided for @queueModeOff.
   ///
   /// In en, this message translates to:
@@ -1975,7 +1963,7 @@ abstract class AppLocalizations {
   /// No description provided for @chapterBarrierSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Don\'t rewind past the start of the current chapter'**
+  /// **'Don\'t auto-rewind past the start of the current chapter'**
   String get chapterBarrierSubtitle;
 
   /// No description provided for @rewindInstant.
@@ -4723,7 +4711,7 @@ abstract class AppLocalizations {
   /// No description provided for @welcomeAbsorbingIntro.
   ///
   /// In en, this message translates to:
-  /// **'We use \"absorb\" in place of \"play\" and \"listen\".'**
+  /// **'We use \"absorb\" in place of \"play\" and \"listen\". Prefer the classic wording? Switch it in Settings.'**
   String get welcomeAbsorbingIntro;
 
   /// No description provided for @welcomeAbsorbingTabBullet.
@@ -4939,7 +4927,7 @@ abstract class AppLocalizations {
   /// No description provided for @queueModeMergedSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Playback stops, manual queue, or auto-absorbs next item'**
+  /// **'Playback stops, manual queue, or auto-plays next item'**
   String get queueModeMergedSubtitle;
 
   /// No description provided for @queueModeSeriesLabel.
@@ -5278,6 +5266,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Download'**
   String get downloadButton;
+
+  /// No description provided for @updateDownloading.
+  ///
+  /// In en, this message translates to:
+  /// **'Downloading update...'**
+  String get updateDownloading;
+
+  /// No description provided for @updateInstallPermissionDenied.
+  ///
+  /// In en, this message translates to:
+  /// **'Install permission denied. Enable \"Install unknown apps\" for Absorb in system settings.'**
+  String get updateInstallPermissionDenied;
+
+  /// No description provided for @updateOpeningInBrowser.
+  ///
+  /// In en, this message translates to:
+  /// **'In-app update failed, opening browser'**
+  String get updateOpeningInBrowser;
 
   /// No description provided for @libraryCountOne.
   ///

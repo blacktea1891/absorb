@@ -884,13 +884,6 @@ class AppLocalizationsEn extends AppLocalizations {
       'Your absorbing cards act as a playlist. When one finishes, the next non-finished card auto-plays. Add items with the \"Add to Absorbing\" button on a book or episode and reorder from the absorbing screen.';
 
   @override
-  String get queueModeInfoAutoAbsorb => 'Auto Absorb';
-
-  @override
-  String get queueModeInfoAutoAbsorbDesc =>
-      'Automatically absorbs the next book in a series or the next episode in a podcast show.';
-
-  @override
   String get queueModeOff => 'Off';
 
   @override
@@ -1032,7 +1025,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get chapterBarrierSubtitle =>
-      'Don\'t rewind past the start of the current chapter';
+      'Don\'t auto-rewind past the start of the current chapter';
 
   @override
   String get rewindInstant => 'Instant';
@@ -2552,7 +2545,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get welcomeAbsorbingIntro =>
-      'We use \"absorb\" in place of \"play\" and \"listen\".';
+      'We use \"absorb\" in place of \"play\" and \"listen\". Prefer the classic wording? Switch it in Settings.';
 
   @override
   String get welcomeAbsorbingTabBullet =>
@@ -2671,7 +2664,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get queueModeMergedSubtitle =>
-      'Playback stops, manual queue, or auto-absorbs next item';
+      'Playback stops, manual queue, or auto-plays next item';
 
   @override
   String get queueModeSeriesLabel => 'Series';
@@ -2879,6 +2872,16 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get downloadButton => 'Download';
+
+  @override
+  String get updateDownloading => 'Downloading update...';
+
+  @override
+  String get updateInstallPermissionDenied =>
+      'Install permission denied. Enable \"Install unknown apps\" for Absorb in system settings.';
+
+  @override
+  String get updateOpeningInBrowser => 'In-app update failed, opening browser';
 
   @override
   String libraryCountOne(int count) {

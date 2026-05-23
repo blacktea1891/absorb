@@ -861,12 +861,6 @@ class AppLocalizationsZh extends AppLocalizations {
       '你的收听卡片将作为播放列表使用。当一个播放完成时，会自动播放下一个未完成的卡片。通过书籍或单集详情页的\"添加至正在收听\"按钮添加项目，并在收听界面重新排序。';
 
   @override
-  String get queueModeInfoAutoAbsorb => '自动续听';
-
-  @override
-  String get queueModeInfoAutoAbsorbDesc => '自动收听系列中的下一本书或播客中的下一集。';
-
-  @override
   String get queueModeOff => '关闭';
 
   @override
@@ -2594,7 +2588,7 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get queueModeMergedSubtitle =>
-      'Playback stops, manual queue, or auto-absorbs next item';
+      'Playback stops, manual queue, or auto-plays next item';
 
   @override
   String get queueModeSeriesLabel => 'Series';
@@ -2802,6 +2796,16 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get downloadButton => 'Download';
+
+  @override
+  String get updateDownloading => 'Downloading update...';
+
+  @override
+  String get updateInstallPermissionDenied =>
+      'Install permission denied. Enable \"Install unknown apps\" for Absorb in system settings.';
+
+  @override
+  String get updateOpeningInBrowser => 'In-app update failed, opening browser';
 
   @override
   String libraryCountOne(int count) {

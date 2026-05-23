@@ -297,8 +297,6 @@
   "queueModeInfoOffDesc": "Die Wiedergabe stoppt, wenn das aktuelle Buch oder die Episode endet.",
   "queueModeInfoManual": "Manuelle Warteschlange",
   "queueModeInfoManualDesc": "Deine Absorbing-Karten funktionieren wie eine Playlist. Wenn eine endet, läuft die nächste noch nicht beendete Karte automatisch weiter. Füge Inhalte über den Button \"Zu Absorbing hinzufügen\" bei einem Buch oder einer Episode hinzu und sortiere sie auf dem Absorbing-Bildschirm um.",
-  "queueModeInfoAutoAbsorb": "Auto Absorb",
-  "queueModeInfoAutoAbsorbDesc": "Absorbt automatisch das nächste Buch einer Serie oder die nächste Episode eines Podcasts.",
   "queueModeOff": "Aus",
   "queueModeManual": "Manuell",
   "queueModeAuto": "Auto",

@@ -11,7 +11,6 @@ import '../services/scoped_prefs.dart';
 import '../widgets/absorb_page_header.dart';
 import '../main.dart' show oledNotifier, rootNavigatorKey;
 import '../widgets/absorbing_card.dart';
-import '../widgets/feature_hint.dart';
 import '../widgets/offline_status_icon.dart';
 import '../widgets/overlay_toast.dart';
 import '../widgets/series_books_sheet.dart';
@@ -1223,12 +1222,6 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
               ),
             ]),
           ),
-        FeatureHint(
-          prefKey: 'hint_playlist_queue_mode',
-          message: l.queueModePlaylistHint,
-          icon: Icons.playlist_play_rounded,
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        ),
         if (_queueMode == 'auto_next' && !widget.isPodcast && _seriesId != null)
           _modeHeaderButton(
             cs, tt,

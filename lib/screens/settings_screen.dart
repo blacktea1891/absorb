@@ -968,7 +968,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     const SizedBox(height: 12),
                                     Text(l.queueModeInfoManual, style: const TextStyle(fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 4),
-                                    Text(l.queueModeInfoManualDesc),
+                                    Text(Wording.of(ctx).queueModeInfoManualDesc),
                                     const SizedBox(height: 12),
                                     Text(l.queueModeInfoSeries, style: const TextStyle(fontWeight: FontWeight.w600)),
                                     const SizedBox(height: 4),

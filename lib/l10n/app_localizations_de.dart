@@ -892,13 +892,6 @@ class AppLocalizationsDe extends AppLocalizations {
       'Deine Absorbing-Karten funktionieren wie eine Playlist. Wenn eine endet, läuft die nächste noch nicht beendete Karte automatisch weiter. Füge Inhalte über den Button \"Zu Absorbing hinzufügen\" bei einem Buch oder einer Episode hinzu und sortiere sie auf dem Absorbing-Bildschirm um.';
 
   @override
-  String get queueModeInfoAutoAbsorb => 'Auto Absorb';
-
-  @override
-  String get queueModeInfoAutoAbsorbDesc =>
-      'Absorbt automatisch das nächste Buch einer Serie oder die nächste Episode eines Podcasts.';
-
-  @override
   String get queueModeOff => 'Aus';
 
   @override
@@ -2905,6 +2898,16 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get downloadButton => 'Herunterladen';
+
+  @override
+  String get updateDownloading => 'Downloading update...';
+
+  @override
+  String get updateInstallPermissionDenied =>
+      'Install permission denied. Enable \"Install unknown apps\" for Absorb in system settings.';
+
+  @override
+  String get updateOpeningInBrowser => 'In-app update failed, opening browser';
 
   @override
   String libraryCountOne(int count) {
