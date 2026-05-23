@@ -430,13 +430,14 @@ class UpcomingReleasesService extends ChangeNotifier {
             updated['sort'] = result.upcomingBooks[i]['sort'] ?? '0';
             updated['allAsins'] = result.upcomingBooks[i]['allAsins'] ?? <String>[asin];
 
-            if (ownedInLibrary) {
-              // No longer missing - user has it. Drop from upcoming.
-              result.upcomingBooks.removeAt(i);
-            } else if (_isUpcoming(updated)) {
+            if (_isUpcoming(updated)) {
               result.upcomingBooks[i] = updated;
             } else {
+              // Release date has passed - move to recent so it stays
+              // visible as either Added (in library) or Missing.
               result.upcomingBooks.removeAt(i);
+              updated['_owned'] = ownedInLibrary;
+              result.recentBooks.add(updated);
             }
             break;
           }
