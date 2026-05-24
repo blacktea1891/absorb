@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'audio_player_service.dart';
 import 'api_service.dart';
 import 'download_service.dart';
+import 'wear_player_service.dart';
 
 const String _androidWidgetName = 'NowPlayingWidget';
 const String _androidWidgetCompactName = 'NowPlayingWidgetCompact';
@@ -188,6 +189,17 @@ class HomeWidgetService {
         case '/skip_forward':
           _handleSkipForward();
           break;
+        case '/play_item':
+          // Triggered by WearPlayerCommandListenerService when the watch
+          // taps an item in Continue Listening. Unconditional — replaces
+          // any current session (the watch already knows what it picked).
+          final itemId = uri.queryParameters['itemId'];
+          final rawEpisode = uri.queryParameters['episodeId'];
+          final episodeId = (rawEpisode == null || rawEpisode.isEmpty) ? null : rawEpisode;
+          if (itemId != null && itemId.isNotEmpty) {
+            _handlePlayItem(itemId, episodeId);
+          }
+          break;
       }
     }
   }
@@ -212,6 +224,92 @@ class HomeWidgetService {
     debugPrint('[WidgetDebug] _handleSkipForward hasBook=${player.hasBook}');
     if (!player.hasBook) return;
     player.skipForward();
+  }
+
+  /// Start playback of a specific item. Used by the watch's Continue
+  /// Listening tap → WearPlayerCommandListenerService → /play_item URI.
+  /// Always plays (no toggle path) — the watch already chose which book
+  /// it wants and the user expects an immediate switch.
+  Future<void> _handlePlayItem(String itemId, String? episodeId) async {
+    debugPrint('[HomeWidget] _handlePlayItem itemId=$itemId episodeId=$episodeId');
+    final player = AudioPlayerService();
+
+    final prefs = await SharedPreferences.getInstance();
+    final serverUrl = prefs.getString('server_url');
+    final token = prefs.getString('token');
+    if (serverUrl == null || token == null) {
+      debugPrint('[HomeWidget] play_item: no session in prefs');
+      return;
+    }
+    final refreshToken = prefs.getString('refresh_token');
+
+    Map<String, String>? customHeaders;
+    final headersJson = prefs.getString('custom_headers');
+    if (headersJson != null) {
+      try {
+        customHeaders =
+            Map<String, String>.from(jsonDecode(headersJson) as Map);
+      } catch (_) {}
+    }
+
+    final api = ApiService(
+      baseUrl: serverUrl,
+      token: token,
+      refreshToken: refreshToken,
+      isLegacyToken: refreshToken == null,
+      customHeaders: customHeaders ?? const {},
+    );
+
+    try {
+      final fullItem = await api.getLibraryItem(itemId);
+      if (fullItem == null) {
+        debugPrint('[HomeWidget] play_item: getLibraryItem returned null');
+        return;
+      }
+      final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      final title = metadata['title'] as String? ?? '';
+      final author = metadata['authorName'] as String? ?? '';
+      final coverUrl = api.getCoverUrl(itemId);
+      final duration = (media['duration'] is num)
+          ? (media['duration'] as num).toDouble()
+          : 0.0;
+      final chapters = (media['chapters'] as List<dynamic>?) ?? [];
+
+      if (episodeId != null) {
+        final episodes = (media['episodes'] as List<dynamic>?) ?? [];
+        final episode = episodes.cast<Map<String, dynamic>>().firstWhere(
+              (e) => e['id'] == episodeId,
+              orElse: () => <String, dynamic>{},
+            );
+        final epTitle = episode['title'] as String? ?? title;
+        final epDuration =
+            (episode['duration'] as num?)?.toDouble() ?? duration;
+        await player.playItem(
+          api: api,
+          itemId: itemId,
+          title: epTitle,
+          author: title,
+          coverUrl: coverUrl,
+          totalDuration: epDuration,
+          chapters: const [],
+          episodeId: episodeId,
+          episodeTitle: epTitle,
+        );
+      } else {
+        await player.playItem(
+          api: api,
+          itemId: itemId,
+          title: title,
+          author: author,
+          coverUrl: coverUrl,
+          totalDuration: duration,
+          chapters: chapters,
+        );
+      }
+    } catch (e) {
+      debugPrint('[HomeWidget] play_item failed: $e');
+    }
   }
 
   Future<void> _handlePlayPause() async {
@@ -417,6 +515,33 @@ class HomeWidgetService {
     }
 
     await _updateAllWidgets();
+    _pushToWear(player, hasBook, skipBack, skipForward);
+  }
+
+  /// Mirror the same snapshot we just wrote to the home widget to the
+  /// paired Wear OS companion. No-op off Android / when no watch is
+  /// connected; cost is negligible (one MethodChannel call).
+  void _pushToWear(
+    AudioPlayerService player,
+    bool hasBook,
+    int skipBack,
+    int skipForward,
+  ) {
+    if (!Platform.isAndroid) return;
+    final chapterTitle = player.currentChapter?['title'] as String?;
+    WearPlayerService.instance.publish(
+      hasBook: hasBook,
+      itemId: hasBook ? player.currentItemId : null,
+      title: hasBook ? player.currentTitle : null,
+      author: hasBook ? player.currentAuthor : null,
+      chapter: hasBook ? chapterTitle : null,
+      isPlaying: player.isPlaying,
+      positionMs: player.position.inMilliseconds,
+      durationMs: (player.totalDuration * 1000).round(),
+      speed: player.speed.toDouble(),
+      skipBackSec: skipBack,
+      skipForwardSec: skipForward,
+    );
   }
 
   /// Phase 1.1: write everything the iOS native player core needs to resume

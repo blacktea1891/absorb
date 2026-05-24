@@ -11,6 +11,7 @@ import '../services/session_cache.dart';
 import '../services/socket_service.dart';
 import '../services/user_account_service.dart';
 import '../services/home_widget_service.dart';
+import '../services/wear_auth_service.dart';
 import '../l10n/app_localizations.dart';
 import '../main.dart' show scaffoldMessengerKey, rootNavigatorKey;
 
@@ -190,7 +191,27 @@ class AuthProvider extends ChangeNotifier {
     }
     // Push new token to socket
     SocketService().updateToken(_accessToken!);
+    // Keep the paired Wear OS app's cached token in sync.
+    _pushSessionToWear();
     notifyListeners();
+  }
+
+  /// Push the current session to the paired Wear OS app (if any). Safe
+  /// to call unconditionally — the service is a no-op on non-Android
+  /// platforms and when no watch is connected.
+  void _pushSessionToWear() {
+    final url = _serverUrl;
+    final token = _accessToken;
+    if (url == null || token == null) return;
+    WearAuthService.instance.publish(
+      serverUrl: url,
+      accessToken: token,
+      refreshToken: _refreshToken,
+      username: _username ?? '',
+      userId: _userId,
+      isLegacyToken: _isLegacyToken,
+      customHeaders: _customHeaders,
+    );
   }
 
   void _onAuthExpired() {
@@ -334,6 +355,7 @@ class AuthProvider extends ChangeNotifier {
     }
 
     debugPrint('[Auth] tryRestoreSession done, isAuthenticated=$isAuthenticated (${sw.elapsedMilliseconds}ms)');
+    if (isAuthenticated) _pushSessionToWear();
     _isLoading = false;
     notifyListeners();
   }
@@ -456,6 +478,7 @@ class AuthProvider extends ChangeNotifier {
     await HomeWidgetService().clearStats();
     HomeWidgetService().refreshStats(force: true);
 
+    _pushSessionToWear();
     _isLoading = false;
     notifyListeners();
     return true;
@@ -542,6 +565,7 @@ class AuthProvider extends ChangeNotifier {
     await HomeWidgetService().clearStats();
     HomeWidgetService().refreshStats(force: true);
 
+    _pushSessionToWear();
     _isLoading = false;
     notifyListeners();
     return true;
@@ -629,6 +653,7 @@ class AuthProvider extends ChangeNotifier {
     await HomeWidgetService().clearStats();
     HomeWidgetService().refreshStats(force: true);
 
+    _pushSessionToWear();
     _isLoading = false;
     notifyListeners();
     return true;
@@ -795,6 +820,9 @@ class AuthProvider extends ChangeNotifier {
       await prefs.remove('default_library_id');
     } catch (_) {}
 
+    // Sign the paired watch out too.
+    WearAuthService.instance.clear();
+
     notifyListeners();
   }
 
@@ -922,6 +950,7 @@ class AuthProvider extends ChangeNotifier {
       }
     }
     _fetchServerVersion(activeServerUrl!);
+    _pushSessionToWear();
     notifyListeners();
     return true;
   }

@@ -85,4 +85,10 @@ flutter {
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
+
+    // Wearable Data Layer — pushes ABS session credentials to the
+    // paired Wear OS app so the watch can sign in without the user
+    // typing anything on the watch keyboard.
+    implementation("com.google.android.gms:play-services-wearable:19.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 }

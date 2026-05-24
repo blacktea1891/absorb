@@ -150,6 +150,35 @@
                 android:resource="@xml/stats_widget_info" />
         </receiver>
 
+        <!-- Bridge to the AbsorbWear watch app: receives sync requests and
+             sign-out events sent from the watch over the Wearable Data Layer. -->
+        <service
+            android:name=".WearAuthListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/absorb/auth" />
+            </intent-filter>
+        </service>
+
+        <!-- Receives play-pause / skip-back / skip-forward commands sent
+             from the AbsorbWear watch and forwards them to the audio
+             session as MediaButton broadcasts. -->
+        <service
+            android:name=".WearPlayerCommandListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:scheme="wear"
+                    android:host="*"
+                    android:pathPrefix="/absorb/player/cmd" />
+            </intent-filter>
+        </service>
+
     </application>
 
     <queries>
