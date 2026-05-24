@@ -7,6 +7,7 @@ import '../widgets/rmab_config_sheet.dart';
 import '../l10n/app_localizations.dart';
 import 'admin_users_screen.dart';
 import 'admin_podcasts_screen.dart';
+import 'admin_email_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -153,6 +154,16 @@ class _AdminScreenState extends State<AdminScreen> {
                             },
                           ),
                         if (_hasPodcastLibrary) const SizedBox(height: 10),
+                        _navButton(cs, tt,
+                          icon: Icons.email_rounded,
+                          label: l.adminEmail,
+                          subtitle: l.adminEmailSubtitle,
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => AdminEmailScreen(users: _users)));
+                          },
+                        ),
+                        const SizedBox(height: 10),
                         if (_hasRmab) _rmabTile(cs, tt) else _rmabAddRow(cs, tt),
                       ]),
                     ),

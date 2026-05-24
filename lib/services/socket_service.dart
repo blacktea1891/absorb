@@ -56,6 +56,11 @@ class SocketService {
   /// Payload: serialized Task object including action and data.libraryItemId.
   void Function(Map<String, dynamic> data)? onEncodeFinished;
 
+  /// Called when ereader devices change. Server emits this both for the
+  /// per-user update (always) and admin-wide updates (only to admins).
+  /// Payload shape: { ereaderDevices: [...] } already filtered for this user.
+  void Function(List<Map<String, dynamic>> devices)? onEreaderDevicesUpdated;
+
   /// Update the stored token (e.g. after a JWT refresh) and re-auth if connected.
   void updateToken(String newToken) {
     _token = newToken;
@@ -157,6 +162,16 @@ class SocketService {
         }
       });
 
+      // Ereader device list changed (admin-wide or per-user). Payload carries
+      // the list already filtered for this connection's user.
+      _socket!.on('ereader-devices-updated', (data) {
+        if (data is! Map) return;
+        final raw = data['ereaderDevices'] as List<dynamic>?;
+        if (raw == null) return;
+        debugPrint('[Socket] ereader-devices-updated (${raw.length} devices)');
+        onEreaderDevicesUpdated?.call(raw.cast<Map<String, dynamic>>());
+      });
+
       _socket!.onDisconnect((reason) {
         final duration = _connectedAt != null
             ? DateTime.now().difference(_connectedAt!).inSeconds
@@ -197,6 +212,7 @@ class SocketService {
     onUserUpdated = null;
     onReconnectFailed = null;
     onEncodeFinished = null;
+    onEreaderDevicesUpdated = null;
   }
 
   /// Disconnect the socket but keep callbacks and credentials so we can
@@ -280,6 +296,13 @@ class SocketService {
         if (data is Map<String, dynamic> && data['action'] == 'encode-m4b') {
           onEncodeFinished?.call(data);
         }
+      });
+
+      _socket!.on('ereader-devices-updated', (data) {
+        if (data is! Map) return;
+        final raw = data['ereaderDevices'] as List<dynamic>?;
+        if (raw == null) return;
+        onEreaderDevicesUpdated?.call(raw.cast<Map<String, dynamic>>());
       });
 
       _socket!.onDisconnect((reason) {

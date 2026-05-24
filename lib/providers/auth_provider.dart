@@ -25,6 +25,10 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _userJson;
   Map<String, dynamic>? _serverSettings;
   String? _serverVersion;
+  // Ereader devices come on the login response (top-level, NOT inside user).
+  // /api/me doesn't include them, so cache to prefs so the list survives
+  // cold restarts until the next login.
+  List<Map<String, dynamic>> _ereaderDevices = const [];
   bool __serverReachable = true;
   bool get _serverReachable => __serverReachable;
   set _serverReachable(bool value) {
@@ -79,6 +83,81 @@ class AuthProvider extends ChangeNotifier {
     if (isAdmin) return true;
     final perms = _userJson?['permissions'] as Map<String, dynamic>?;
     return perms?['update'] == true;
+  }
+
+  /// True when the server will accept a destructive call from this user.
+  /// Root has `permissions.delete = true` by default; admins do NOT (they
+  /// need root to grant it explicitly), so most delete actions are
+  /// effectively root-only on a fresh install.
+  bool get canDelete {
+    final perms = _userJson?['permissions'] as Map<String, dynamic>?;
+    return perms?['delete'] == true;
+  }
+
+  /// E-reader devices the current user is allowed to send ebooks to.
+  /// Populated from the login response (top-level `ereaderDevices`, NOT
+  /// nested inside the user object) and persisted across restarts since
+  /// /api/me doesn't include them.
+  List<Map<String, dynamic>> get ereaderDevices => _ereaderDevices;
+
+  /// Replace the cached ereader devices list and persist it. Call this
+  /// after an admin edit so the book detail sheet sees fresh devices
+  /// without waiting for a re-login.
+  Future<void> setEreaderDevices(List<Map<String, dynamic>> devices) async {
+    _ereaderDevices = List<Map<String, dynamic>>.from(devices);
+    await _persistEreaderDevices();
+    notifyListeners();
+  }
+
+  Future<void> _persistEreaderDevices() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_ereaderDevices.isEmpty) {
+        await prefs.remove('ereader_devices');
+      } else {
+        await prefs.setString('ereader_devices', jsonEncode(_ereaderDevices));
+      }
+    } catch (e) {
+      debugPrint('[Auth] _persistEreaderDevices error: $e');
+    }
+  }
+
+  Future<void> _restoreEreaderDevices() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('ereader_devices');
+      if (raw == null || raw.isEmpty) return;
+      final list = jsonDecode(raw) as List<dynamic>;
+      _ereaderDevices = list.cast<Map<String, dynamic>>();
+    } catch (e) {
+      debugPrint('[Auth] _restoreEreaderDevices error: $e');
+    }
+  }
+
+  /// Apply the same access filter ABS uses server-side. Used after an
+  /// admin updates the full device list to figure out what THIS user can
+  /// still see.
+  List<Map<String, dynamic>> filterDevicesForCurrentUser(
+      List<Map<String, dynamic>> all) {
+    final id = _userId;
+    final type = _userJson?['type'] as String? ?? 'user';
+    final isAdminLike = type == 'admin' || type == 'root';
+    return all.where((d) {
+      final opt = d['availabilityOption'] as String? ?? 'adminOrUp';
+      switch (opt) {
+        case 'adminOrUp':
+          return isAdminLike;
+        case 'userOrUp':
+          return isAdminLike || type == 'user';
+        case 'guestOrUp':
+          return true;
+        case 'specificUsers':
+          final users = (d['users'] as List<dynamic>?) ?? const [];
+          return id != null && users.contains(id);
+        default:
+          return false;
+      }
+    }).toList();
   }
 
   ApiService? get apiService {
@@ -144,6 +223,9 @@ class AuthProvider extends ChangeNotifier {
       final savedRefreshToken = prefs.getString('refresh_token');
       final savedUsername = prefs.getString('username');
       final savedLibraryId = prefs.getString('default_library_id');
+      // Restore ereader devices alongside other session data. /api/me doesn't
+      // return them, so without this they'd stay empty until next login.
+      await _restoreEreaderDevices();
 
       debugPrint('[Auth] saved credentials: url=${savedUrl != null}, token=${savedToken != null}, refreshToken=${savedRefreshToken != null}');
 
@@ -211,14 +293,36 @@ class AuthProvider extends ChangeNotifier {
               onTokensRefreshed: _onTokensRefreshed,
               onAuthExpired: _onAuthExpired,
             );
-            final me = await api.getMe();
-            if (me != null) {
-              _userJson = me;
-              _userId = me['id'] as String?;
+            // Prefer /api/authorize over /api/me because it returns the
+            // full login payload (including ereaderDevices) — /api/me drops
+            // those extras. Fall back to /api/me if authorize fails (older
+            // server versions).
+            final auth = await api.authorize();
+            if (auth != null) {
+              final user = auth['user'] as Map<String, dynamic>?;
+              if (user != null) {
+                _userJson = user;
+                _userId = user['id'] as String?;
+              }
+              final devicesRaw = auth['ereaderDevices'] as List<dynamic>?;
+              if (devicesRaw != null) {
+                _ereaderDevices = devicesRaw.cast<Map<String, dynamic>>();
+                await _persistEreaderDevices();
+              }
+              final sSettings = auth['serverSettings'] as Map<String, dynamic>?;
+              if (sSettings != null) _serverSettings = sSettings;
+              final defaultLib = auth['userDefaultLibraryId'] as String?;
+              if (defaultLib != null) _defaultLibraryId = defaultLib;
             } else {
-              debugPrint('[Auth] /me returned null (token may be invalid)');
+              final me = await api.getMe();
+              if (me != null) {
+                _userJson = me;
+                _userId = me['id'] as String?;
+              } else {
+                debugPrint('[Auth] /me returned null (token may be invalid)');
+              }
             }
-            debugPrint('[Auth] /me done (${sw.elapsedMilliseconds}ms)');
+            debugPrint('[Auth] authorize/me done (${sw.elapsedMilliseconds}ms)');
           } catch (_) {}
           _fetchServerVersion(activeServerUrl!);
         }
@@ -302,6 +406,10 @@ class AuthProvider extends ChangeNotifier {
     _userJson = user;
     _serverSettings = result['serverSettings'] as Map<String, dynamic>?;
     _customHeaders = customHeaders;
+    // Ereader devices come at the top level of the login response.
+    final devicesRaw = result['ereaderDevices'] as List<dynamic>?;
+    _ereaderDevices = devicesRaw?.cast<Map<String, dynamic>>() ?? const [];
+    await _persistEreaderDevices();
 
     // Try to get version from login response first, fall back to /status
     final loginVersion = result['serverVersion'] as String?
@@ -477,6 +585,9 @@ class AuthProvider extends ChangeNotifier {
     _userJson = user;
     _serverSettings = result['serverSettings'] as Map<String, dynamic>?;
     _serverReachable = true;
+    final devicesRaw = result['ereaderDevices'] as List<dynamic>?;
+    _ereaderDevices = devicesRaw?.cast<Map<String, dynamic>>() ?? const [];
+    await _persistEreaderDevices();
 
     // Try to get version from response first, fall back to /status
     final oidcVersion = result['serverVersion'] as String?
@@ -668,6 +779,8 @@ class AuthProvider extends ChangeNotifier {
     _serverSettings = null;
     _serverVersion = null;
     _errorMessage = null;
+    _ereaderDevices = const [];
+    await _persistEreaderDevices();
 
     try {
       if (logoutServer != null && logoutUser != null) {
@@ -771,10 +884,24 @@ class AuthProvider extends ChangeNotifier {
         onTokensRefreshed: _onTokensRefreshed,
         onAuthExpired: _onAuthExpired,
       );
-      final me = await api.getMe();
-      if (me != null) {
-        _userJson = me;
-        _userId = me['id'] as String?;
+      final auth = await api.authorize();
+      if (auth != null) {
+        final user = auth['user'] as Map<String, dynamic>?;
+        if (user != null) {
+          _userJson = user;
+          _userId = user['id'] as String?;
+        }
+        final devicesRaw = auth['ereaderDevices'] as List<dynamic>?;
+        if (devicesRaw != null) {
+          _ereaderDevices = devicesRaw.cast<Map<String, dynamic>>();
+          await _persistEreaderDevices();
+        }
+      } else {
+        final me = await api.getMe();
+        if (me != null) {
+          _userJson = me;
+          _userId = me['id'] as String?;
+        }
       }
     } catch (_) {
       _serverReachable = false;

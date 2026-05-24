@@ -982,10 +982,11 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     ));
     if (yes != true) return;
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
-    final ok = await api.deleteLibraryItem(_podcastId);
+    final status = await api.deleteLibraryItem(_podcastId);
     if (mounted) {
       final l2 = AppLocalizations.of(context)!;
-      if (ok) { _msg(l2.adminPodcastsRemovedShow(_title)); widget.onChanged(); Navigator.pop(context); }
+      if (status == 200) { _msg(l2.adminPodcastsRemovedShow(_title)); widget.onChanged(); Navigator.pop(context); }
+      else if (status == 403) _msg(l2.deletePermissionRequired);
       else _msg(l2.adminPodcastsFailedRemoveShow);
     }
   }
@@ -1070,12 +1071,13 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     if (yes != true) return;
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
     setState(() => _deleting.add(episodeId));
-    final ok = await api.deletePodcastEpisode(_podcastId, episodeId);
+    final status = await api.deletePodcastEpisode(_podcastId, episodeId);
     if (mounted) {
       final l2 = AppLocalizations.of(context)!;
       setState(() => _deleting.remove(episodeId));
-      _msg(ok ? l2.adminPodcastsDeleted : l2.adminPodcastsFailed);
-      if (ok) { _reloadItem(); widget.onChanged(); }
+      if (status == 200) { _msg(l2.adminPodcastsDeleted); _reloadItem(); widget.onChanged(); }
+      else if (status == 403) _msg(l2.deletePermissionRequired);
+      else _msg(l2.adminPodcastsFailed);
     }
   }
 
@@ -1112,7 +1114,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
                   }
                 }),
               ),
-            if (auth.isRoot)
+            if (auth.isAdmin)
               IconButton(icon: Icon(Icons.delete_outline_rounded, color: Colors.red.shade300, size: 22), tooltip: l.adminPodcastsRemoveShowTooltip, onPressed: _removeShow),
           ])),
 
@@ -1202,12 +1204,16 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     final ids = Set<String>.from(_selectedDownloadedIds);
     setState(() => _selectedDownloadedIds.clear());
     int deleted = 0;
+    bool forbidden = false;
     for (final id in ids) {
-      final ok = await api.deletePodcastEpisode(_podcastId, id);
-      if (ok) deleted++;
+      final status = await api.deletePodcastEpisode(_podcastId, id);
+      if (status == 200) deleted++;
+      else if (status == 403) { forbidden = true; break; }
     }
     if (mounted) {
-      _msg(AppLocalizations.of(context)!.adminPodcastsDeletedEpisodes(deleted));
+      final l2 = AppLocalizations.of(context)!;
+      if (forbidden && deleted == 0) _msg(l2.deletePermissionRequired);
+      else _msg(l2.adminPodcastsDeletedEpisodes(deleted));
       _reloadItem();
       widget.onChanged();
     }
@@ -1857,7 +1863,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
   }
 
   void _showEpisodeDetail(Map<String, dynamic> ep, bool alreadyDownloaded) {
-    final isRoot = context.read<AuthProvider>().isRoot;
+    final canDownload = context.read<AuthProvider>().isAdmin;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1866,7 +1872,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
       builder: (_) => _EpisodeDetailSheet(
         episode: ep,
         alreadyDownloaded: alreadyDownloaded,
-        canDownload: isRoot,
+        canDownload: canDownload,
         onDownload: () {
           Navigator.pop(context);
           _downloadEpisode(ep);

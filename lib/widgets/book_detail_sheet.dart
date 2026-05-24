@@ -711,7 +711,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                     Navigator.pop(ctx);
                     PlaylistPickerSheet.show(context, widget.itemId);
                   }),
-              if (!lib.isOffline && !lib.isPodcastLibrary && auth.isRoot)
+              if (!lib.isOffline && !lib.isPodcastLibrary && auth.isAdmin)
                 _moreItem(cs, Icons.collections_bookmark_rounded, l.addToCollection,
                   onTap: () {
                     Navigator.pop(ctx);
@@ -721,6 +721,12 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                 _moreItem(cs, _ebookSaved ? Icons.download_done_rounded : Icons.save_alt_rounded,
                   _ebookSaved ? l.downloadEbookAgain : l.downloadEbook,
                   onTap: () { Navigator.pop(ctx); _saveEbook(context, auth, ebookFile, title); }),
+              if (ebookFile != null && auth.ereaderDevices.isNotEmpty)
+                _moreItem(cs, Icons.send_to_mobile_rounded, l.sendToEreader,
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _sendToEreader(context, auth);
+                  }),
               if (progress > 0 || isFinished)
                 _moreItem(cs, Icons.restart_alt_rounded, l.resetProgress,
                   onTap: () { Navigator.pop(ctx); _resetProgress(context, auth, duration); }),
@@ -1215,6 +1221,77 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     } finally {
       if (mounted) setState(() => _ebookSaving = false);
     }
+  }
+
+  Future<void> _sendToEreader(BuildContext context, AuthProvider auth) async {
+    final api = auth.apiService;
+    final devices = auth.ereaderDevices;
+    if (api == null || devices.isEmpty) return;
+    final l = AppLocalizations.of(context)!;
+
+    String? deviceName;
+    if (devices.length == 1) {
+      deviceName = devices.first['name'] as String?;
+    } else {
+      deviceName = await _pickEreaderDevice(context, devices);
+    }
+    if (deviceName == null || !context.mounted) return;
+
+    showOverlayToast(context, l.sendingToEreader(deviceName),
+        icon: Icons.send_to_mobile_rounded);
+
+    final ok = await api.sendEBookToDevice(
+      libraryItemId: widget.itemId,
+      deviceName: deviceName,
+    );
+    if (!context.mounted) return;
+    if (ok) {
+      showOverlayToast(context, l.sendToEreaderSuccess(deviceName),
+          icon: Icons.check_circle_outline_rounded);
+    } else {
+      showOverlayToast(context, l.sendToEreaderFailed,
+          icon: Icons.error_outline_rounded);
+    }
+  }
+
+  Future<String?> _pickEreaderDevice(
+      BuildContext context, List<Map<String, dynamic>> devices) {
+    final cs = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context)!;
+    return showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(l.pickEreaderDevice,
+                  style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
+                    color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+              ),
+              ...devices.map((d) {
+                final name = d['name'] as String? ?? '';
+                final email = d['email'] as String? ?? '';
+                return ListTile(
+                  leading: Icon(Icons.send_to_mobile_rounded, color: cs.onSurfaceVariant),
+                  title: Text(name),
+                  subtitle: Text(email, style: TextStyle(color: cs.onSurface.withValues(alpha: 0.5))),
+                  onTap: () => Navigator.pop(ctx, name),
+                );
+              }),
+            ]),
+          ),
+        );
+      },
+    );
   }
 
   Future<void> _startAbsorb(BuildContext context, {required AuthProvider auth, required String title, required String author, required String? coverUrl, required double duration, required List<dynamic> chapters}) async {

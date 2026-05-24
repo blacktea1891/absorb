@@ -1560,6 +1560,13 @@ class AudioPlayerService extends ChangeNotifier {
       return 'Player failed to initialize';
     }
 
+    // Alpha: catalog every playItem caller so we can find the phantom
+    // resume that fires after an AA disconnect without going through
+    // Handler.play() / Service.play(). Strip before next beta.
+    debugPrint('[PlayItemEntry] itemId=$itemId episodeId=$episodeId '
+        'startTime=$startTime forceStartTime=$forceStartTime\n'
+        'Caller:\n${StackTrace.current}');
+
     // Don't start local playback while casting
     final cast = ChromecastService();
     if (cast.isCasting) {

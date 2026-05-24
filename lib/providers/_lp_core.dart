@@ -1450,17 +1450,19 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     return false;
   }
 
-  Future<bool> deleteCollection(String collectionId) async {
-    if (_api == null) return false;
-    final ok = await _api!.deleteCollection(collectionId);
-    if (ok) {
+  /// Returns HTTP status code from the server (0 on exception, 200 on
+  /// success, 403 when caller lacks the `delete` permission flag).
+  Future<int> deleteCollection(String collectionId) async {
+    if (_api == null) return 0;
+    final status = await _api!.deleteCollection(collectionId);
+    if (status == 200) {
       _collections = _collections.where((c) => (c as Map)['id'] != collectionId).toList();
       _hiddenSectionIds.remove('collection:$collectionId');
       _sectionOrder.remove('collection:$collectionId');
       await _saveSectionPrefs();
       notifyListeners();
     }
-    return ok;
+    return status;
   }
 
   // ── Section customization ──

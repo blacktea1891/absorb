@@ -690,7 +690,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
 
                 // ── Admin Controls ──
-                if (auth.isRoot)
+                if (auth.isAdmin)
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                     child: Material(

@@ -101,6 +101,7 @@ class HomeWidgetService {
 
     // Check if the app was cold-started from a widget tap
     final launchUri = await HomeWidget.initiallyLaunchedFromHomeWidget();
+    debugPrint('[HomeWidget] initiallyLaunchedFromHomeWidget=$launchUri');
     if (launchUri != null) {
       _onWidgetClicked(launchUri);
     }
@@ -216,7 +217,8 @@ class HomeWidgetService {
   Future<void> _handlePlayPause() async {
     final player = AudioPlayerService();
     debugPrint(
-        '[WidgetDebug] _handlePlayPause hasBook=${player.hasBook} isPlaying=${player.isPlaying}');
+        '[WidgetDebug] _handlePlayPause hasBook=${player.hasBook} isPlaying=${player.isPlaying}\n'
+        'Caller:\n${StackTrace.current}');
 
     // When there's an active session the widget uses a MediaSession media button
     // instead of launching the app, so this path is only hit for cold resume.

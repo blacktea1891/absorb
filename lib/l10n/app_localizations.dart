@@ -4594,6 +4594,18 @@ abstract class AppLocalizations {
   /// **'Are you sure you want to delete this collection?'**
   String get deleteCollectionContent;
 
+  /// No description provided for @deleteCollectionFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t delete the collection'**
+  String get deleteCollectionFailed;
+
+  /// No description provided for @deletePermissionRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete permission required. Ask the root admin to grant you the delete permission.'**
+  String get deletePermissionRequired;
+
   /// No description provided for @playlistNotFound.
   ///
   /// In en, this message translates to:
@@ -5284,6 +5296,234 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'In-app update failed, opening browser'**
   String get updateOpeningInBrowser;
+
+  /// No description provided for @sendToEreader.
+  ///
+  /// In en, this message translates to:
+  /// **'Send to E-Reader'**
+  String get sendToEreader;
+
+  /// No description provided for @sendingToEreader.
+  ///
+  /// In en, this message translates to:
+  /// **'Sending to {device}...'**
+  String sendingToEreader(String device);
+
+  /// No description provided for @sendToEreaderSuccess.
+  ///
+  /// In en, this message translates to:
+  /// **'Sent to {device}'**
+  String sendToEreaderSuccess(String device);
+
+  /// No description provided for @sendToEreaderFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t send the ebook'**
+  String get sendToEreaderFailed;
+
+  /// No description provided for @pickEreaderDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a device'**
+  String get pickEreaderDevice;
+
+  /// No description provided for @adminEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get adminEmail;
+
+  /// No description provided for @adminEmailSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'SMTP and e-reader devices'**
+  String get adminEmailSubtitle;
+
+  /// No description provided for @smtpSection.
+  ///
+  /// In en, this message translates to:
+  /// **'SMTP'**
+  String get smtpSection;
+
+  /// No description provided for @smtpSetupGuide.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup guide'**
+  String get smtpSetupGuide;
+
+  /// No description provided for @smtpHost.
+  ///
+  /// In en, this message translates to:
+  /// **'Host'**
+  String get smtpHost;
+
+  /// No description provided for @smtpPort.
+  ///
+  /// In en, this message translates to:
+  /// **'Port'**
+  String get smtpPort;
+
+  /// No description provided for @smtpSecure.
+  ///
+  /// In en, this message translates to:
+  /// **'Secure'**
+  String get smtpSecure;
+
+  /// No description provided for @smtpRejectUnauthorized.
+  ///
+  /// In en, this message translates to:
+  /// **'Reject unauthorized TLS'**
+  String get smtpRejectUnauthorized;
+
+  /// No description provided for @smtpUser.
+  ///
+  /// In en, this message translates to:
+  /// **'Username'**
+  String get smtpUser;
+
+  /// No description provided for @smtpPass.
+  ///
+  /// In en, this message translates to:
+  /// **'Password'**
+  String get smtpPass;
+
+  /// No description provided for @smtpFromAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'From address'**
+  String get smtpFromAddress;
+
+  /// No description provided for @smtpTestAddress.
+  ///
+  /// In en, this message translates to:
+  /// **'Test address'**
+  String get smtpTestAddress;
+
+  /// No description provided for @smtpSendTest.
+  ///
+  /// In en, this message translates to:
+  /// **'Send test'**
+  String get smtpSendTest;
+
+  /// No description provided for @smtpSaveSettings.
+  ///
+  /// In en, this message translates to:
+  /// **'Save'**
+  String get smtpSaveSettings;
+
+  /// No description provided for @smtpSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Email settings saved'**
+  String get smtpSaved;
+
+  /// No description provided for @smtpSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save email settings'**
+  String get smtpSaveFailed;
+
+  /// No description provided for @smtpTestSent.
+  ///
+  /// In en, this message translates to:
+  /// **'Test email sent'**
+  String get smtpTestSent;
+
+  /// No description provided for @smtpTestFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Test email failed'**
+  String get smtpTestFailed;
+
+  /// No description provided for @ereaderDevicesTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'E-Reader devices'**
+  String get ereaderDevicesTitle;
+
+  /// No description provided for @ereaderDevicesEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No devices yet. Add one below.'**
+  String get ereaderDevicesEmpty;
+
+  /// No description provided for @addEreaderDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Add device'**
+  String get addEreaderDevice;
+
+  /// No description provided for @editEreaderDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit device'**
+  String get editEreaderDevice;
+
+  /// No description provided for @deleteEreaderDevice.
+  ///
+  /// In en, this message translates to:
+  /// **'Delete'**
+  String get deleteEreaderDevice;
+
+  /// No description provided for @ereaderDeviceName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get ereaderDeviceName;
+
+  /// No description provided for @ereaderDeviceEmail.
+  ///
+  /// In en, this message translates to:
+  /// **'Email'**
+  String get ereaderDeviceEmail;
+
+  /// No description provided for @ereaderAvailability.
+  ///
+  /// In en, this message translates to:
+  /// **'Who can use this device'**
+  String get ereaderAvailability;
+
+  /// No description provided for @ereaderAvailAdminOrUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Admins only'**
+  String get ereaderAvailAdminOrUp;
+
+  /// No description provided for @ereaderAvailUserOrUp.
+  ///
+  /// In en, this message translates to:
+  /// **'All users'**
+  String get ereaderAvailUserOrUp;
+
+  /// No description provided for @ereaderAvailGuestOrUp.
+  ///
+  /// In en, this message translates to:
+  /// **'Everyone'**
+  String get ereaderAvailGuestOrUp;
+
+  /// No description provided for @ereaderAvailSpecificUsers.
+  ///
+  /// In en, this message translates to:
+  /// **'Specific users'**
+  String get ereaderAvailSpecificUsers;
+
+  /// No description provided for @ereaderSpecificUsersN.
+  ///
+  /// In en, this message translates to:
+  /// **'Specific users ({count})'**
+  String ereaderSpecificUsersN(int count);
+
+  /// No description provided for @ereaderDevicesSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Devices saved'**
+  String get ereaderDevicesSaved;
+
+  /// No description provided for @ereaderDevicesSaveFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t save devices'**
+  String get ereaderDevicesSaveFailed;
 
   /// No description provided for @libraryCountOne.
   ///

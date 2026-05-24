@@ -388,6 +388,25 @@ class ApiService {
     return url;
   }
 
+  /// POST /api/authorize - validates the current token and returns the same
+  /// payload shape as /login: { user, userDefaultLibraryId, serverSettings,
+  /// ereaderDevices, Source }. Use on cold-start restore when you need the
+  /// top-level extras (especially ereaderDevices, since /api/me drops them).
+  Future<Map<String, dynamic>?> authorize() async {
+    try {
+      final response = await _authPost(
+        Uri.parse('$_cleanBaseUrl/api/authorize'),
+        timeout: const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+      debugPrint('[API] authorize failed: ${response.statusCode}');
+    } catch (e) {
+      debugPrint('[API] authorize error: $e');
+    }
+    return null;
+  }
+
   /// Get current user info including all mediaProgress.
   Future<Map<String, dynamic>?> getMe() async {
     try {
@@ -1174,6 +1193,75 @@ class ApiService {
       );
       return r.statusCode == 200;
     } catch (e) { debugPrint('deleteBookmark error: $e'); }
+    return false;
+  }
+
+  // ─── Email / E-Reader ──────────────────────────────────────────────
+
+  /// Send the ebook file for [libraryItemId] to a configured ereader.
+  /// POST /api/emails/send-ebook-to-device  body: { libraryItemId, deviceName }
+  Future<bool> sendEBookToDevice({
+    required String libraryItemId,
+    required String deviceName,
+  }) async {
+    try {
+      final r = await _authPost(
+        Uri.parse('$_cleanBaseUrl/api/emails/send-ebook-to-device'),
+        body: jsonEncode({'libraryItemId': libraryItemId, 'deviceName': deviceName}),
+      );
+      return r.statusCode == 200;
+    } catch (e) { debugPrint('[API] sendEBookToDevice error: $e'); }
+    return false;
+  }
+
+  /// GET /api/emails/settings (admin only)
+  Future<Map<String, dynamic>?> getEmailSettings() async {
+    try {
+      final r = await _authGet(Uri.parse('$_cleanBaseUrl/api/emails/settings'));
+      if (r.statusCode != 200) return null;
+      final body = jsonDecode(r.body);
+      if (body is Map<String, dynamic>) {
+        // ABS wraps the settings in `settings` on this endpoint.
+        final settings = body['settings'];
+        if (settings is Map<String, dynamic>) return settings;
+        return body;
+      }
+      return null;
+    } catch (e) { debugPrint('[API] getEmailSettings error: $e'); }
+    return null;
+  }
+
+  /// PATCH /api/emails/settings (admin only)
+  Future<bool> updateEmailSettings(Map<String, dynamic> patch) async {
+    try {
+      final r = await _authPatch(
+        Uri.parse('$_cleanBaseUrl/api/emails/settings'),
+        body: jsonEncode(patch),
+      );
+      return r.statusCode == 200;
+    } catch (e) { debugPrint('[API] updateEmailSettings error: $e'); }
+    return false;
+  }
+
+  /// POST /api/emails/test (admin only)
+  Future<bool> sendTestEmail() async {
+    try {
+      final r = await _authPost(Uri.parse('$_cleanBaseUrl/api/emails/test'));
+      return r.statusCode == 200;
+    } catch (e) { debugPrint('[API] sendTestEmail error: $e'); }
+    return false;
+  }
+
+  /// Replace the full ereader devices list (admin only).
+  /// POST /api/emails/ereader-devices  body: { ereaderDevices: [{name, email, availabilityOption, users}, ...] }
+  Future<bool> updateEReaderDevices(List<Map<String, dynamic>> devices) async {
+    try {
+      final r = await _authPost(
+        Uri.parse('$_cleanBaseUrl/api/emails/ereader-devices'),
+        body: jsonEncode({'ereaderDevices': devices}),
+      );
+      return r.statusCode == 200;
+    } catch (e) { debugPrint('[API] updateEReaderDevices error: $e'); }
     return false;
   }
 
@@ -2084,25 +2172,28 @@ class ApiService {
   }
 
   /// Delete a podcast episode
-  Future<bool> deletePodcastEpisode(String podcastId, String episodeId) async {
+  /// Returns the HTTP status code (0 on exception). 200 = success;
+  /// 403 = caller lacks the `delete` permission flag on the server. Callers
+  /// should surface 403 with a "needs delete permission" message.
+  Future<int> deletePodcastEpisode(String podcastId, String episodeId) async {
     try {
       final r = await _authDelete(
         Uri.parse('$_cleanBaseUrl/api/podcasts/$podcastId/episode/$episodeId'),
       );
-      return r.statusCode == 200;
+      return r.statusCode;
     } catch (e) { debugPrint('deletePodcastEpisode error: $e'); }
-    return false;
+    return 0;
   }
 
-  /// Delete a library item (e.g. remove a podcast show)
-  Future<bool> deleteLibraryItem(String itemId) async {
+  /// Delete a library item (e.g. remove a podcast show). See [deletePodcastEpisode] for status semantics.
+  Future<int> deleteLibraryItem(String itemId) async {
     try {
       final r = await _authDelete(
         Uri.parse('$_cleanBaseUrl/api/items/$itemId'),
       );
-      return r.statusCode == 200;
+      return r.statusCode;
     } catch (e) { debugPrint('deleteLibraryItem error: $e'); }
-    return false;
+    return 0;
   }
 
   // ── Playlists ──────────────────────────────────────────────────────────
@@ -2304,15 +2395,17 @@ class ApiService {
     return null;
   }
 
-  /// DELETE /api/collections/:id
-  Future<bool> deleteCollection(String collectionId) async {
+  /// DELETE /api/collections/:id. Returns the HTTP status code
+  /// (0 on exception). 200 = success; 403 = caller lacks the `delete`
+  /// permission flag on the server.
+  Future<int> deleteCollection(String collectionId) async {
     try {
       final resp = await _authDelete(
         Uri.parse('$_cleanBaseUrl/api/collections/$collectionId'),
         timeout: const Duration(seconds: 10));
-      return resp.statusCode == 200;
+      return resp.statusCode;
     } catch (_) {}
-    return false;
+    return 0;
   }
 
   /// POST /api/collections/:id/books

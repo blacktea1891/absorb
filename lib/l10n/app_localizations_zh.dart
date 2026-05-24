@@ -2411,6 +2411,13 @@ class AppLocalizationsZh extends AppLocalizations {
   String get deleteCollectionContent => '你确定要删除此收藏集吗？';
 
   @override
+  String get deleteCollectionFailed => 'Couldn\'t delete the collection';
+
+  @override
+  String get deletePermissionRequired =>
+      'Delete permission required. Ask the root admin to grant you the delete permission.';
+
+  @override
   String get playlistNotFound => '未找到播放列表';
 
   @override
@@ -2806,6 +2813,126 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String get updateOpeningInBrowser => 'In-app update failed, opening browser';
+
+  @override
+  String get sendToEreader => 'Send to E-Reader';
+
+  @override
+  String sendingToEreader(String device) {
+    return 'Sending to $device...';
+  }
+
+  @override
+  String sendToEreaderSuccess(String device) {
+    return 'Sent to $device';
+  }
+
+  @override
+  String get sendToEreaderFailed => 'Couldn\'t send the ebook';
+
+  @override
+  String get pickEreaderDevice => 'Pick a device';
+
+  @override
+  String get adminEmail => 'Email';
+
+  @override
+  String get adminEmailSubtitle => 'SMTP and e-reader devices';
+
+  @override
+  String get smtpSection => 'SMTP';
+
+  @override
+  String get smtpSetupGuide => 'Setup guide';
+
+  @override
+  String get smtpHost => 'Host';
+
+  @override
+  String get smtpPort => 'Port';
+
+  @override
+  String get smtpSecure => 'Secure';
+
+  @override
+  String get smtpRejectUnauthorized => 'Reject unauthorized TLS';
+
+  @override
+  String get smtpUser => 'Username';
+
+  @override
+  String get smtpPass => 'Password';
+
+  @override
+  String get smtpFromAddress => 'From address';
+
+  @override
+  String get smtpTestAddress => 'Test address';
+
+  @override
+  String get smtpSendTest => 'Send test';
+
+  @override
+  String get smtpSaveSettings => 'Save';
+
+  @override
+  String get smtpSaved => 'Email settings saved';
+
+  @override
+  String get smtpSaveFailed => 'Couldn\'t save email settings';
+
+  @override
+  String get smtpTestSent => 'Test email sent';
+
+  @override
+  String get smtpTestFailed => 'Test email failed';
+
+  @override
+  String get ereaderDevicesTitle => 'E-Reader devices';
+
+  @override
+  String get ereaderDevicesEmpty => 'No devices yet. Add one below.';
+
+  @override
+  String get addEreaderDevice => 'Add device';
+
+  @override
+  String get editEreaderDevice => 'Edit device';
+
+  @override
+  String get deleteEreaderDevice => 'Delete';
+
+  @override
+  String get ereaderDeviceName => 'Name';
+
+  @override
+  String get ereaderDeviceEmail => 'Email';
+
+  @override
+  String get ereaderAvailability => 'Who can use this device';
+
+  @override
+  String get ereaderAvailAdminOrUp => 'Admins only';
+
+  @override
+  String get ereaderAvailUserOrUp => 'All users';
+
+  @override
+  String get ereaderAvailGuestOrUp => 'Everyone';
+
+  @override
+  String get ereaderAvailSpecificUsers => 'Specific users';
+
+  @override
+  String ereaderSpecificUsersN(int count) {
+    return 'Specific users ($count)';
+  }
+
+  @override
+  String get ereaderDevicesSaved => 'Devices saved';
+
+  @override
+  String get ereaderDevicesSaveFailed => 'Couldn\'t save devices';
 
   @override
   String libraryCountOne(int count) {

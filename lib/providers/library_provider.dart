@@ -167,6 +167,12 @@ class LibraryProvider extends ChangeNotifier
           socket.onUserUpdated = _onRemoteUserUpdated;
           socket.onReconnectFailed = _onSocketReconnectFailed;
           socket.onEncodeFinished = _onEncodeFinished;
+          socket.onEreaderDevicesUpdated = (devices) {
+            // Admin broadcasts deliver the FULL unfiltered list; the per-user
+            // emit is already filtered. Run the same filter here either way -
+            // it's a no-op on an already-filtered list.
+            auth.setEreaderDevices(auth.filterDevicesForCurrentUser(devices));
+          };
           socket.connect(auth.serverUrl!, auth.token!, customHeaders: auth.customHeaders);
         }
         debugPrint('[Library] Calling loadLibraries()');
