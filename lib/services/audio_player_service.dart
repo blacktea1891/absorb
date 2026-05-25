@@ -1351,6 +1351,13 @@ class AudioPlayerService extends ChangeNotifier {
       // app as the Now Playing app and shows lock screen / Control Center controls.
       avAudioSessionCategory: AVAudioSessionCategory.playback,
       avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+      // longFormAudio policy marks Absorb as a "primary long-form audio" app.
+      // Without it iOS revokes background audio privileges the moment audio
+      // output briefly stops (e.g. between books in auto-advance), so the next
+      // track plays silently and lock screen controls vanish. AudioBooth uses
+      // the same policy. GH #244.
+      avAudioSessionRouteSharingPolicy:
+          AVAudioSessionRouteSharingPolicy.longFormAudio,
       avAudioSessionCategoryOptions: Platform.isIOS
           ? AVAudioSessionCategoryOptions.none
           : AVAudioSessionCategoryOptions.duckOthers,
