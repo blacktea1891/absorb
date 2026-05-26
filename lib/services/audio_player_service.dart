@@ -1094,6 +1094,10 @@ class AudioPlayerService extends ChangeNotifier {
               'ios.silenceHint=${info["secondaryAudioShouldBeSilencedHint"]}',
               'ios.route=[$outputs]',
               'ios.sampleRate=${info["sampleRate"]}',
+              'ios.npHasInfo=${info["nowPlayingHasInfo"]}',
+              'ios.npTitle="${info["nowPlayingTitle"]}"',
+              'ios.npRate=${info["nowPlayingRate"]}',
+              'ios.npElapsed=${info["nowPlayingElapsed"]}',
             ]);
           }
         } catch (e) {

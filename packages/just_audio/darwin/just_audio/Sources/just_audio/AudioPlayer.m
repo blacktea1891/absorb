@@ -1033,6 +1033,33 @@
     _playing = YES;
     _player.rate = _speed;
     [self updatePosition];
+    if (@available(macOS 10.12, iOS 10.0, *)) {
+        NSString *tcsName;
+        switch (_player.timeControlStatus) {
+            case AVPlayerTimeControlStatusPaused: tcsName = @"paused"; break;
+            case AVPlayerTimeControlStatusWaitingToPlayAtSpecifiedRate: tcsName = @"waiting"; break;
+            case AVPlayerTimeControlStatusPlaying: tcsName = @"playing"; break;
+            default: tcsName = @"unknown"; break;
+        }
+        NSString *reasonName = @"none";
+        AVPlayerWaitingReason reason = _player.reasonForWaitingToPlay;
+        if (reason == AVPlayerWaitingToMinimizeStallsReason) reasonName = @"minimizeStalls";
+        else if (reason == AVPlayerWaitingWhileEvaluatingBufferingRateReason) reasonName = @"evaluatingBuffer";
+        else if (reason == AVPlayerWaitingWithNoItemToPlayReason) reasonName = @"noItem";
+        else if (reason != nil) reasonName = (NSString *)reason;
+        NSString *errDesc = _player.error ? _player.error.localizedDescription : @"none";
+        NSString *itemErrDesc = _player.currentItem.error ? _player.currentItem.error.localizedDescription : @"none";
+        NSString *itemStatus;
+        switch (_player.currentItem.status) {
+            case AVPlayerItemStatusReadyToPlay: itemStatus = @"readyToPlay"; break;
+            case AVPlayerItemStatusFailed: itemStatus = @"failed"; break;
+            case AVPlayerItemStatusUnknown: itemStatus = @"unknown"; break;
+            default: itemStatus = @"other"; break;
+        }
+        NSString *line = [NSString stringWithFormat:@"[JustAudio] play() post-rate: tcs=%@ rate=%.2f waitReason=%@ itemStatus=%@ err=%@ itemErr=%@", tcsName, _player.rate, reasonName, itemStatus, errDesc, itemErrDesc];
+        NSLog(@"%@", line);
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"JustAudioDiag" object:nil userInfo:@{@"message": line}];
+    }
     if (@available(macOS 10.12, iOS 10.0, *)) {}
     else {
         if (_bufferUnconfirmed && !_player.currentItem.playbackBufferFull) {

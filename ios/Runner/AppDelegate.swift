@@ -80,7 +80,93 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
       AbsorbPlayerCore.logSink?("[NativeCore] Registered as AppIntent dependency")
     }
 
+    registerAudioSessionObservers()
+
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+
+  private func registerAudioSessionObservers() {
+    let nc = NotificationCenter.default
+    nc.addObserver(
+      forName: AVAudioSession.routeChangeNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] note in
+      let reasonRaw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+      let reason = AVAudioSession.RouteChangeReason(rawValue: reasonRaw)
+      let reasonName: String
+      switch reason {
+      case .unknown: reasonName = "unknown"
+      case .newDeviceAvailable: reasonName = "newDeviceAvailable"
+      case .oldDeviceUnavailable: reasonName = "oldDeviceUnavailable"
+      case .categoryChange: reasonName = "categoryChange"
+      case .override: reasonName = "override"
+      case .wakeFromSleep: reasonName = "wakeFromSleep"
+      case .noSuitableRouteForCategory: reasonName = "noSuitableRouteForCategory"
+      case .routeConfigurationChange: reasonName = "routeConfigurationChange"
+      default: reasonName = "raw=\(reasonRaw)"
+      }
+      let outputs = AVAudioSession.sharedInstance().currentRoute.outputs
+        .map { "\($0.portType.rawValue):\($0.portName)" }
+        .joined(separator: ",")
+      self?.logToFlutter("[AudioSession] routeChange reason=\(reasonName) outputs=[\(outputs)]")
+    }
+
+    nc.addObserver(
+      forName: AVAudioSession.interruptionNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] note in
+      let typeRaw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt ?? 99
+      let type = AVAudioSession.InterruptionType(rawValue: typeRaw)
+      let typeName: String
+      switch type {
+      case .began: typeName = "began"
+      case .ended: typeName = "ended"
+      default: typeName = "raw=\(typeRaw)"
+      }
+      var details: [String] = ["type=\(typeName)"]
+      if let optionsRaw = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt {
+        let opts = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
+        details.append("shouldResume=\(opts.contains(.shouldResume))")
+      }
+      if #available(iOS 14.5, *) {
+        if let reasonRaw = note.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt {
+          details.append("reasonRaw=\(reasonRaw)")
+        }
+      }
+      self?.logToFlutter("[AudioSession] interruption \(details.joined(separator: " "))")
+    }
+
+    nc.addObserver(
+      forName: AVAudioSession.mediaServicesWereResetNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      self?.logToFlutter("[AudioSession] mediaServicesWereReset")
+    }
+
+    nc.addObserver(
+      forName: AVAudioSession.silenceSecondaryAudioHintNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] note in
+      let typeRaw = note.userInfo?[AVAudioSessionSilenceSecondaryAudioHintTypeKey] as? UInt ?? 99
+      self?.logToFlutter("[AudioSession] silenceSecondaryAudioHint type=\(typeRaw)")
+    }
+
+    // The patched just_audio fork posts JustAudioDiag notifications with
+    // AVPlayer state snapshots (timeControlStatus, rate, reasonForWaitingToPlay,
+    // error) right after each play() call. Forward them to the in-app log.
+    nc.addObserver(
+      forName: Notification.Name("JustAudioDiag"),
+      object: nil,
+      queue: .main
+    ) { [weak self] note in
+      if let msg = note.userInfo?["message"] as? String {
+        self?.logToFlutter(msg)
+      }
+    }
   }
 
   /// Forwards a log line to the Dart LogService via the widget channel so it
@@ -239,6 +325,10 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
             "type": port.portType.rawValue,
           ]
         }
+        let npInfo = MPNowPlayingInfoCenter.default().nowPlayingInfo
+        let npTitle = npInfo?[MPMediaItemPropertyTitle] as? String
+        let npRate = npInfo?[MPNowPlayingInfoPropertyPlaybackRate] as? Double
+        let npElapsed = npInfo?[MPNowPlayingInfoPropertyElapsedPlaybackTime] as? Double
         let info: [String: Any] = [
           "category": session.category.rawValue,
           "mode": session.mode.rawValue,
@@ -251,6 +341,10 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
           "inputs": inputs,
           "sampleRate": session.sampleRate,
           "ioBufferDuration": session.ioBufferDuration,
+          "nowPlayingHasInfo": npInfo != nil,
+          "nowPlayingTitle": npTitle ?? "",
+          "nowPlayingRate": npRate ?? -1,
+          "nowPlayingElapsed": npElapsed ?? -1,
         ]
         result(info)
 

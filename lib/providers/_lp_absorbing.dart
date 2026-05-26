@@ -603,31 +603,55 @@ mixin _AbsorbingMixin on ChangeNotifier, _StateMixin, _CoreMixin {
     }
 
     final merged = await PlayerSettings.getMergeAbsorbingLibraries();
+    final bookMode = await PlayerSettings.getBookQueueMode();
+    final podMode = await PlayerSettings.getPodcastQueueMode();
 
     final finishedCached = _absorbingItemCache[finishedKey];
     final finishedLibId = finishedCached?['libraryId'] as String?;
-    // GH #241: queue mode is per-media-type (podcastQueueMode vs bookQueueMode),
-    // so a podcast finishing must only advance to another podcast — never a book
-    // (whose own queue mode might be "off").
     final finishedIsPodcast = finishedKey.length > 36;
 
     final finishedIdx = _absorbingBookIds.indexOf(finishedKey);
     final startIdx = finishedIdx >= 0 ? finishedIdx + 1 : 0;
 
+    debugPrint('[Queue] _manualQueueAdvance: finished=$finishedKey '
+        '(${finishedIsPodcast ? "podcast" : "book"}, lib=$finishedLibId) '
+        'merged=$merged bookMode=$bookMode podMode=$podMode '
+        'queueLen=${_absorbingBookIds.length} startIdx=$startIdx');
+
     for (int i = startIdx; i < _absorbingBookIds.length; i++) {
       final key = _absorbingBookIds[i];
-      if ((this as LibraryProvider).isItemFinishedByKey(key)) continue;
+      if ((this as LibraryProvider).isItemFinishedByKey(key)) {
+        debugPrint('[Queue]   [$i] $key SKIP - already finished');
+        continue;
+      }
 
       final candidateIsPodcast = key.length > 36;
-      if (candidateIsPodcast != finishedIsPodcast) continue;
+      final candidateMode = candidateIsPodcast ? podMode : bookMode;
+      if (candidateMode == 'off') {
+        debugPrint('[Queue]   [$i] $key SKIP - ${candidateIsPodcast ? "podcast" : "book"} mode is off');
+        continue;
+      }
+
+      if (!merged && candidateIsPodcast != finishedIsPodcast) {
+        debugPrint('[Queue]   [$i] $key SKIP - cross-type (unified off, finished=${finishedIsPodcast ? "podcast" : "book"} candidate=${candidateIsPodcast ? "podcast" : "book"})');
+        continue;
+      }
 
       final cached = _absorbingItemCache[key];
-      if (cached == null) continue;
+      if (cached == null) {
+        debugPrint('[Queue]   [$i] $key SKIP - no cache entry');
+        continue;
+      }
 
       if (!merged && finishedLibId != null) {
         final candidateLibId = cached['libraryId'] as String?;
-        if (candidateLibId != null && candidateLibId != finishedLibId) continue;
+        if (candidateLibId != null && candidateLibId != finishedLibId) {
+          debugPrint('[Queue]   [$i] $key SKIP - cross-library (finished=$finishedLibId candidate=$candidateLibId)');
+          continue;
+        }
       }
+
+      debugPrint('[Queue]   [$i] $key PICK - ${candidateIsPodcast ? "podcast" : "book"} (lib=${cached['libraryId']})');
 
       final media = cached['media'] as Map<String, dynamic>? ?? {};
       final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
@@ -1183,17 +1207,49 @@ mixin _AbsorbingMixin on ChangeNotifier, _StateMixin, _CoreMixin {
     }
 
     if (mode == 'manual') {
+      final bookMode = await PlayerSettings.getBookQueueMode();
+      final podMode = await PlayerSettings.getPodcastQueueMode();
+      final merged = await PlayerSettings.getMergeAbsorbingLibraries();
+      final currentLibId =
+          _absorbingItemCache[currentItemId]?['libraryId'] as String?;
       final idx = _absorbingBookIds.indexOf(currentItemId);
       final start = idx >= 0 ? idx + 1 : 0;
+      debugPrint('[Queue] peekUpNext: current=$currentItemId '
+          '(${isPodCurrent ? "podcast" : "book"}, lib=$currentLibId) '
+          'merged=$merged bookMode=$bookMode podMode=$podMode '
+          'queueLen=${_absorbingBookIds.length} startIdx=$start');
       for (var i = start; i < _absorbingBookIds.length; i++) {
         final key = _absorbingBookIds[i];
-        if (self.isItemFinishedByKey(key)) continue;
-        // Match _manualQueueAdvance: only same-type items are eligible.
-        if ((key.length > 36) != isPodCurrent) continue;
+        if (self.isItemFinishedByKey(key)) {
+          debugPrint('[Queue]   peek [$i] $key SKIP - already finished');
+          continue;
+        }
+        final candidateIsPodcast = key.length > 36;
+        final candidateMode = candidateIsPodcast ? podMode : bookMode;
+        if (candidateMode == 'off') {
+          debugPrint('[Queue]   peek [$i] $key SKIP - ${candidateIsPodcast ? "podcast" : "book"} mode is off');
+          continue;
+        }
+        if (!merged && candidateIsPodcast != isPodCurrent) {
+          debugPrint('[Queue]   peek [$i] $key SKIP - cross-type (unified off)');
+          continue;
+        }
         final cached = _absorbingItemCache[key];
-        if (cached == null) continue;
+        if (cached == null) {
+          debugPrint('[Queue]   peek [$i] $key SKIP - no cache entry');
+          continue;
+        }
+        if (!merged && currentLibId != null) {
+          final candidateLibId = cached['libraryId'] as String?;
+          if (candidateLibId != null && candidateLibId != currentLibId) {
+            debugPrint('[Queue]   peek [$i] $key SKIP - cross-library (current=$currentLibId candidate=$candidateLibId)');
+            continue;
+          }
+        }
+        debugPrint('[Queue]   peek [$i] $key PICK - ${candidateIsPodcast ? "podcast" : "book"} (lib=${cached['libraryId']})');
         return _entryTitle(cached);
       }
+      debugPrint('[Queue]   peek: no eligible item found');
       return null;
     }
 
