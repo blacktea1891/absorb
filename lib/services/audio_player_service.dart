@@ -1082,12 +1082,19 @@ class AudioPlayerService extends ChangeNotifier {
   Future<void> setVolume(double v) async => _player?.setVolume(v);
 
   static const _eqChannelForDiag = MethodChannel('com.absorb.equalizer');
+  static const _queueAdvancerChannel = MethodChannel('com.absorb.queue_advancer');
 
   void _resetPreBufferState() {
     _activeConcatSource = null;
     _currentBookTrackCount = 0;
     _nextBookPreloading = false;
     _preloadedNextBook = null;
+    if (Platform.isIOS) {
+      _queueAdvancerChannel.invokeMethod('clear').catchError((Object e) {
+        debugPrint('[QueueAdvance] clear failed: $e');
+        return null;
+      });
+    }
   }
 
   void _maybePreloadNextBook() {
@@ -1158,11 +1165,35 @@ class AudioPlayerService extends ChangeNotifier {
       }
       _preloadedNextBook = next;
       debugPrint('[PreBuffer] Pre-loaded next item: ${next['title']} ($nextItemId)');
+
+      if (Platform.isIOS) {
+        unawaited(_primeNativeQueueAdvancer(next));
+      }
     } catch (e, st) {
       debugPrint('[PreBuffer] Failed: $e\n$st');
     }
     // _nextBookPreloading stays true regardless of outcome — single attempt per
     // play session. Reset happens in _resetPreBufferState on the next playItem.
+  }
+
+  Future<void> _primeNativeQueueAdvancer(Map<String, dynamic> next) async {
+    try {
+      String? coverPath;
+      final itemId = next['itemId'] as String?;
+      if (itemId != null) {
+        final local = DownloadService().getInfo(itemId).localCoverPath;
+        if (local != null && local.isNotEmpty) coverPath = local;
+      }
+      final ok = await _queueAdvancerChannel.invokeMethod<bool>('prepareNext', {
+        'title': next['title'] ?? '',
+        'artist': next['author'] ?? '',
+        'durationS': (next['duration'] as num?)?.toDouble() ?? 0,
+        'coverPath': coverPath,
+      });
+      debugPrint('[PreBuffer] native prepareNext returned $ok');
+    } catch (e) {
+      debugPrint('[PreBuffer] native prepareNext failed: $e');
+    }
   }
 
   void _onAutoQueueAdvanced() {
@@ -1205,6 +1236,10 @@ class AudioPlayerService extends ChangeNotifier {
         duration: _totalDuration,
         elapsed: 0));
 
+    if (Platform.isIOS) {
+      unawaited(_iosAutoAdvanceKick());
+    }
+
     // Notify LibraryProvider via auto-queue-specific callback (skipAutoAdvance
     // inside markFinishedLocally — next item is already playing, no playItem).
     if (oldKey != null) {
@@ -1214,6 +1249,35 @@ class AudioPlayerService extends ChangeNotifier {
 
     notifyListeners();
     _autoQueueAdvancing = false;
+  }
+
+  Future<void> _iosAutoAdvanceKick() async {
+    final speed = _player?.speed ?? 1.0;
+    try {
+      await (await AudioSession.instance).setActive(true);
+    } catch (e) {
+      debugPrint('[QueueAdvance] setActive failed: $e');
+    }
+    // Only run the native pause+play kick when backgrounded. In foreground the
+    // AVQueuePlayer auto-advance already produces audio, and the kick would
+    // glitch playback for no benefit.
+    if (_isBackgrounded) {
+      try {
+        await _queueAdvancerChannel.invokeMethod<bool>('commitAdvance', {
+          'speed': speed,
+        });
+      } catch (e) {
+        debugPrint('[QueueAdvance] commitAdvance failed: $e');
+      }
+    }
+    try {
+      await _player?.setSpeed(speed);
+    } catch (e) {
+      debugPrint('[QueueAdvance] setSpeed kick failed: $e');
+    }
+    Future.delayed(const Duration(milliseconds: 300), () {
+      _handler?.refreshPlaybackState();
+    });
   }
 
   Future<void> _primeNowPlaying({

@@ -666,6 +666,13 @@
                   forKeyPath:@"currentItem"
                      options:NSKeyValueObservingOptionNew
                      context:nil];
+        // Hand the AVQueuePlayer to host-app native code so it can drive
+        // queue transitions directly (avoids AVQueuePlayer auto-advance
+        // losing background audio output).
+        [[NSNotificationCenter defaultCenter]
+            postNotificationName:@"AbsorbJustAudioPlayerReady"
+                          object:nil
+                        userInfo:@{@"player": _player, @"playerId": _playerId}];
         // TODO: learn about the different ways to define weakSelf.
         //__weak __typeof__(self) weakSelf = self;
         //typeof(self) __weak weakSelf = self;
@@ -1392,6 +1399,10 @@
         if (@available(macOS 10.12, iOS 10.0, *)) {
             [_player removeObserver:self forKeyPath:@"timeControlStatus"];
         }
+        [[NSNotificationCenter defaultCenter]
+            postNotificationName:@"AbsorbJustAudioPlayerReleased"
+                          object:nil
+                        userInfo:@{@"playerId": _playerId}];
         _player = nil;
     }
     // Untested:
