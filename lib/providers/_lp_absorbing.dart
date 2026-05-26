@@ -1163,6 +1163,84 @@ mixin _AbsorbingMixin on ChangeNotifier, _StateMixin, _CoreMixin {
     return metadata['title'] as String?;
   }
 
+  /// Returns metadata for the item that would auto-advance next in manual
+  /// queue mode, formatted for AudioPlayerService's pre-buffer mechanism.
+  /// Returns null when nothing's queued, mode isn't manual, or the next item
+  /// isn't downloaded (MVP only pre-buffers local files).
+  Future<Map<String, dynamic>?> peekNextQueueItemForPreBuffer(
+      String currentItemId) async {
+    final self = this as LibraryProvider;
+    final isPodCurrent = currentItemId.length > 36;
+    final mode = isPodCurrent
+        ? await PlayerSettings.getPodcastQueueMode()
+        : await PlayerSettings.getBookQueueMode();
+    if (mode != 'manual') return null;
+
+    final bookMode = await PlayerSettings.getBookQueueMode();
+    final podMode = await PlayerSettings.getPodcastQueueMode();
+    final merged = await PlayerSettings.getMergeAbsorbingLibraries();
+    final currentLibId =
+        _absorbingItemCache[currentItemId]?['libraryId'] as String?;
+    final idx = _absorbingBookIds.indexOf(currentItemId);
+    final start = idx >= 0 ? idx + 1 : 0;
+
+    for (var i = start; i < _absorbingBookIds.length; i++) {
+      final key = _absorbingBookIds[i];
+      if (self.isItemFinishedByKey(key)) continue;
+      final candidateIsPodcast = key.length > 36;
+      final candidateMode = candidateIsPodcast ? podMode : bookMode;
+      if (candidateMode == 'off') continue;
+      if (!merged && candidateIsPodcast != isPodCurrent) continue;
+      final cached = _absorbingItemCache[key];
+      if (cached == null) continue;
+      if (!merged && currentLibId != null) {
+        final candidateLibId = cached['libraryId'] as String?;
+        if (candidateLibId != null && candidateLibId != currentLibId) continue;
+      }
+
+      final localPaths = DownloadService().getLocalPaths(key);
+      if (localPaths == null || localPaths.isEmpty) {
+        debugPrint('[PreBuffer] Next item $key not downloaded, skip');
+        return null;
+      }
+      if (localPaths.length != 1) {
+        debugPrint('[PreBuffer] Next item $key is multi-track, skip (MVP)');
+        return null;
+      }
+
+      final itemIdRaw = candidateIsPodcast ? key.substring(0, 36) : key;
+      final episodeIdRaw = candidateIsPodcast ? key.substring(37) : null;
+      final media = cached['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      final title = candidateIsPodcast
+          ? ((cached['recentEpisode'] as Map<String, dynamic>?)?['title']
+                  as String? ??
+              metadata['title'] as String? ??
+              '')
+          : (metadata['title'] as String? ?? '');
+      final author = metadata['authorName'] as String? ?? '';
+      final duration = candidateIsPodcast
+          ? (((cached['recentEpisode'] as Map<String, dynamic>?)?['duration']
+                          as num?)
+                      ?.toDouble() ??
+                  (media['duration'] as num?)?.toDouble() ??
+                  0)
+          : ((media['duration'] as num?)?.toDouble() ?? 0);
+      final chapters = (media['chapters'] as List<dynamic>?) ?? const [];
+      return {
+        'itemId': itemIdRaw,
+        'episodeId': episodeIdRaw,
+        'title': title,
+        'author': author,
+        'coverUrl': getCoverUrl(itemIdRaw),
+        'duration': duration,
+        'chapters': chapters,
+        'localPaths': localPaths,
+      };
+    }
+    return null;
+  }
+
   /// Returns a short label describing what would play next given the current
   /// queue mode and player state, or null when nothing is queued. Used by the
   /// "Up next: ..." chip under the queue-mode pill on the absorbing page.

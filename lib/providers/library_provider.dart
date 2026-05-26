@@ -32,6 +32,13 @@ class LibraryProvider extends ChangeNotifier
     // Flutter UI wasn't foregrounded yet (e.g. Android Auto cold-start,
     // where updateAuth may not run until much later).
     AudioPlayerService.setOnBookFinishedCallback(markFinishedLocally);
+    AudioPlayerService.setOnAutoQueueAdvancedCallback((oldItemId) {
+      // Pre-buffer auto-advance already loaded and started the next item.
+      // Mark the old one finished WITHOUT triggering normal auto-advance
+      // (which would call playItem again and rebuild the source).
+      markFinishedLocally(oldItemId, skipAutoAdvance: true);
+    });
+    AudioPlayerService.setOnPeekNextItemCallback(peekNextQueueItemForPreBuffer);
     AudioPlayerService.setOnPlayStartedCallback((key) {
       Future.delayed(const Duration(seconds: 30), () {
         final stillPlaying = AudioPlayerService().isPlaying;

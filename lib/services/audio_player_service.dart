@@ -809,6 +809,27 @@ class AudioPlayerService extends ChangeNotifier {
     _onBookFinishedCallback = cb;
   }
 
+  // Pre-buffer callback. AudioPlayerService asks LibraryProvider for the next
+  // manual-queue item ~15s before current ends, so the next AVQueuePlayer item
+  // is already in the queue when the current one finishes. iOS auto-advances
+  // natively (no fresh setAudioSource in background, so iOS keeps granting
+  // audio output). The map must contain at least: itemId, title, author,
+  // duration, and either localPaths or audioTracks.
+  static Future<Map<String, dynamic>?> Function(String currentItemId)? _onPeekNextItemCallback;
+  static void setOnPeekNextItemCallback(
+      Future<Map<String, dynamic>?> Function(String)? cb) {
+    _onPeekNextItemCallback = cb;
+  }
+
+  // Fired when the AVQueuePlayer natively auto-advances from the current item
+  // to a pre-buffered next item. LibraryProvider uses this to mark the old
+  // item finished WITHOUT triggering its normal auto-advance flow (which would
+  // call playItem and rebuild the source, defeating the pre-buffer).
+  static void Function(String oldItemId)? _onAutoQueueAdvancedCallback;
+  static void setOnAutoQueueAdvancedCallback(void Function(String)? cb) {
+    _onAutoQueueAdvancedCallback = cb;
+  }
+
   static void drainPendingBookFinished() {
     final cb = _onBookFinishedCallback;
     final pending = _pendingBookFinishedKey;
@@ -900,6 +921,17 @@ class AudioPlayerService extends ChangeNotifier {
   SharedPreferences? _prefs;
   StreamSubscription? _syncSub;
   StreamSubscription? _completionSub;
+
+  // ── Pre-buffer next book in queue (iOS background auto-advance fix) ──
+  // iOS denies background audio output to freshly-loaded AVPlayerItems.
+  // Workaround: append the next book to the live ConcatenatingAudioSource
+  // ~15s before current ends. AVQueuePlayer auto-advances natively, audio
+  // engine stays continuous, iOS keeps granting output.
+  ConcatenatingAudioSource? _activeConcatSource;
+  int _currentBookTrackCount = 0;
+  bool _nextBookPreloading = false;
+  Map<String, dynamic>? _preloadedNextBook;
+  bool _autoQueueAdvancing = false;
   Timer? _bgSaveTimer;
   Timer? _pauseStopTimer;
   static const _pauseStopTimeout = Duration(minutes: 10);
@@ -1050,6 +1082,139 @@ class AudioPlayerService extends ChangeNotifier {
   Future<void> setVolume(double v) async => _player?.setVolume(v);
 
   static const _eqChannelForDiag = MethodChannel('com.absorb.equalizer');
+
+  void _resetPreBufferState() {
+    _activeConcatSource = null;
+    _currentBookTrackCount = 0;
+    _nextBookPreloading = false;
+    _preloadedNextBook = null;
+  }
+
+  void _maybePreloadNextBook() {
+    if (_nextBookPreloading) return;
+    if (_preloadedNextBook != null) return;
+    if (_activeConcatSource == null) return;
+    if (_currentBookTrackCount == 0) return;
+    if (_totalDuration <= 0) return;
+    final remaining = _totalDuration - _lastKnownPositionSec;
+    if (remaining <= 0 || remaining > 15) return;
+    if (_currentItemId == null) return;
+    final cb = _onPeekNextItemCallback;
+    if (cb == null) return;
+
+    _nextBookPreloading = true;
+    final currentId = _currentEpisodeId != null
+        ? '$_currentItemId-$_currentEpisodeId'
+        : _currentItemId!;
+    unawaited(_preloadNextBookAsync(cb, currentId));
+  }
+
+  Future<void> _preloadNextBookAsync(
+      Future<Map<String, dynamic>?> Function(String) cb, String currentId) async {
+    try {
+      final next = await cb(currentId);
+      if (next == null) {
+        debugPrint('[PreBuffer] No next item to preload');
+        return;
+      }
+      final nextItemId = next['itemId'] as String?;
+      if (nextItemId == null) {
+        debugPrint('[PreBuffer] Next item has no itemId');
+        return;
+      }
+      // Build audio source for the next item.
+      final localPaths = (next['localPaths'] as List<dynamic>?)?.cast<String>();
+      final audioTracks = next['audioTracks'] as List<dynamic>?;
+      final audioHeaders = next['audioHeaders'] as Map<String, String>?;
+
+      List<AudioSource>? nextTrackSources;
+      if (localPaths != null && localPaths.isNotEmpty) {
+        nextTrackSources =
+            localPaths.map((p) => AudioSource.file(p) as AudioSource).toList();
+      } else if (audioTracks != null && audioTracks.isNotEmpty) {
+        nextTrackSources = audioTracks
+            .map((t) => AudioSource.uri(
+                  Uri.parse((t as Map<String, dynamic>)['url'] as String),
+                  headers: audioHeaders,
+                ) as AudioSource)
+            .toList();
+      }
+      if (nextTrackSources == null || nextTrackSources.isEmpty) {
+        debugPrint('[PreBuffer] No playable sources for next item');
+        return;
+      }
+      if (nextTrackSources.length != 1) {
+        debugPrint('[PreBuffer] Next item is multi-track, skipping (MVP supports single-track only)');
+        return;
+      }
+
+      final concat = _activeConcatSource;
+      if (concat == null) {
+        debugPrint('[PreBuffer] Concat source went away mid-preload');
+        return;
+      }
+      for (final s in nextTrackSources) {
+        await concat.add(s);
+      }
+      _preloadedNextBook = next;
+      debugPrint('[PreBuffer] Pre-loaded next item: ${next['title']} ($nextItemId)');
+    } catch (e, st) {
+      debugPrint('[PreBuffer] Failed: $e\n$st');
+    }
+    // _nextBookPreloading stays true regardless of outcome — single attempt per
+    // play session. Reset happens in _resetPreBufferState on the next playItem.
+  }
+
+  void _onAutoQueueAdvanced() {
+    final next = _preloadedNextBook;
+    if (next == null) return;
+    if (_autoQueueAdvancing) return;
+    _autoQueueAdvancing = true;
+    debugPrint('[PreBuffer] Auto-queue advanced to ${next['title']}');
+
+    final oldItemId = _currentItemId;
+    final oldEpisodeId = _currentEpisodeId;
+    final oldKey = oldEpisodeId != null ? '$oldItemId-$oldEpisodeId' : oldItemId;
+
+    // Promote next book's metadata to current state
+    _currentItemId = next['itemId'] as String?;
+    _currentEpisodeId = next['episodeId'] as String?;
+    _currentTitle = next['title'] as String?;
+    _currentAuthor = next['author'] as String?;
+    _currentCoverUrl = next['coverUrl'] as String?;
+    _totalDuration = (next['duration'] as num?)?.toDouble() ?? 0;
+    _chapters = (next['chapters'] as List<dynamic>?) ?? [];
+    _handler?.updateChaptersQueue(_chapters);
+    _trackStartOffsets = [0.0, _totalDuration];
+    _currentTrackIndex = 0;
+    _playbackSessionId = null;
+    _lastKnownPositionSec = 0;
+    _lastNotifiedChapterIndex = -1;
+    _currentBookTrackCount = 1;
+    _preloadedNextBook = null;
+    _nextBookPreloading = false;
+
+    // Push new media item to update Now Playing / lock screen
+    final initChapter = _initChapterInfo(0);
+    _pushMediaItem(_currentItemId!, _currentTitle ?? '', _currentAuthor ?? '',
+        _currentCoverUrl, _totalDuration,
+        chapter: initChapter);
+    unawaited(_primeNowPlaying(
+        title: _currentTitle ?? '',
+        artist: _currentAuthor ?? '',
+        duration: _totalDuration,
+        elapsed: 0));
+
+    // Notify LibraryProvider via auto-queue-specific callback (skipAutoAdvance
+    // inside markFinishedLocally — next item is already playing, no playItem).
+    if (oldKey != null) {
+      final cb = _onAutoQueueAdvancedCallback;
+      if (cb != null) cb(oldKey);
+    }
+
+    notifyListeners();
+    _autoQueueAdvancing = false;
+  }
 
   Future<void> _primeNowPlaying({
     required String title,
@@ -1215,9 +1380,21 @@ class AudioPlayerService extends ChangeNotifier {
   /// Subscribe to track index changes for multi-file playback.
   void _subscribeTrackIndex() {
     _indexSub?.cancel();
-    if (_player == null || _trackStartOffsets.length <= 1) return;
+    if (_player == null) return;
     _indexSub = _player!.currentIndexStream.listen((index) {
-      if (index != null) {
+      if (index == null) return;
+      // Pre-buffer auto-advance: if the queue has grown past the current
+      // book's tracks and AVQueuePlayer has stepped into the pre-loaded
+      // next book's range, fire the book transition.
+      if (_currentBookTrackCount > 0 &&
+          index >= _currentBookTrackCount &&
+          _preloadedNextBook != null) {
+        debugPrint('[PreBuffer] currentIndex=$index crossed book boundary at $_currentBookTrackCount');
+        _onAutoQueueAdvanced();
+        return;
+      }
+      // Within-book multi-track advance (existing behavior).
+      if (_trackStartOffsets.length > 1) {
         final clamped = index.clamp(0, _trackStartOffsets.length - 2);
         if (clamped != _currentTrackIndex) {
           _lastIndexAdvanceTime = DateTime.now();
@@ -1999,15 +2176,10 @@ class AudioPlayerService extends ChangeNotifier {
         _trackStartOffsets = [0.0]; // single file fallback
       }
 
-      AudioSource source;
-      if (localPaths.length == 1) {
-        source = AudioSource.file(localPaths.first);
-      } else {
-        final sources = localPaths
-            .map((p) => AudioSource.file(p) as AudioSource)
-            .toList();
-        source = ConcatenatingAudioSource(children: sources);
-      }
+      final trackSources = localPaths
+          .map((p) => AudioSource.file(p) as AudioSource)
+          .toList();
+      final source = ConcatenatingAudioSource(children: trackSources);
 
       await _configureAudioSession();
       try {
@@ -2016,7 +2188,10 @@ class AudioPlayerService extends ChangeNotifier {
       } catch (e) {
         debugPrint('[Player] Pre-source setActive failed (local): $e');
       }
+      _resetPreBufferState();
       await _player!.setAudioSource(source);
+      _activeConcatSource = source;
+      _currentBookTrackCount = trackSources.length;
 
       // If the saved position is at (or past) the end, restart from the beginning
       if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
@@ -2108,21 +2283,14 @@ class AudioPlayerService extends ChangeNotifier {
       _buildTrackOffsets(audioTracks);
       _captureStreamUrls(audioTracks, api);
       AudioSource source;
-      if (audioTracks.length == 1) {
-        final track = audioTracks.first as Map<String, dynamic>;
+      final trackSources = <AudioSource>[];
+      for (final t in audioTracks) {
+        final track = t as Map<String, dynamic>;
         final contentUrl = track['contentUrl'] as String? ?? '';
         final fullUrl = api.buildTrackUrl(contentUrl);
-        source = AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders);
-      } else {
-        final sources = <AudioSource>[];
-        for (final t in audioTracks) {
-          final track = t as Map<String, dynamic>;
-          final contentUrl = track['contentUrl'] as String? ?? '';
-          final fullUrl = api.buildTrackUrl(contentUrl);
-          sources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
-        }
-        source = ConcatenatingAudioSource(children: sources);
+        trackSources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
       }
+      source = ConcatenatingAudioSource(children: trackSources);
 
       await _configureAudioSession();
       try {
@@ -2131,7 +2299,10 @@ class AudioPlayerService extends ChangeNotifier {
       } catch (e) {
         debugPrint('[Player] Pre-source setActive failed (cached-session): $e');
       }
+      _resetPreBufferState();
       await _player!.setAudioSource(source);
+      _activeConcatSource = source as ConcatenatingAudioSource;
+      _currentBookTrackCount = trackSources.length;
 
       if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
       if (startTime > 0) {
@@ -2370,22 +2541,14 @@ class AudioPlayerService extends ChangeNotifier {
       // Build audio source - one source per track file
       _buildTrackOffsets(audioTracks);
       _captureStreamUrls(audioTracks, api);
-      AudioSource source;
-      if (audioTracks.length == 1) {
-        final track = audioTracks.first as Map<String, dynamic>;
+      final trackSources = <AudioSource>[];
+      for (final t in audioTracks) {
+        final track = t as Map<String, dynamic>;
         final contentUrl = track['contentUrl'] as String? ?? '';
         final fullUrl = api.buildTrackUrl(contentUrl);
-        source = AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders);
-      } else {
-        final sources = <AudioSource>[];
-        for (final t in audioTracks) {
-          final track = t as Map<String, dynamic>;
-          final contentUrl = track['contentUrl'] as String? ?? '';
-          final fullUrl = api.buildTrackUrl(contentUrl);
-          sources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
-        }
-        source = ConcatenatingAudioSource(children: sources);
+        trackSources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
       }
+      final source = ConcatenatingAudioSource(children: trackSources);
 
       await _configureAudioSession();
       try {
@@ -2394,7 +2557,10 @@ class AudioPlayerService extends ChangeNotifier {
       } catch (e) {
         debugPrint('[Player] Pre-source setActive failed (stream): $e');
       }
+      _resetPreBufferState();
       await _player!.setAudioSource(source);
+      _activeConcatSource = source;
+      _currentBookTrackCount = trackSources.length;
 
       // If the saved position is at (or past) the end, restart from the beginning
       if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
@@ -2928,6 +3094,8 @@ class AudioPlayerService extends ChangeNotifier {
         }
       }
       if (posSec > 0) _lastKnownPositionSec = posSec;
+
+      _maybePreloadNextBook();
 
       if (sec <= 0) return;
 
