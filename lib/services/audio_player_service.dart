@@ -1209,6 +1209,18 @@ class AudioPlayerService extends ChangeNotifier {
         debugPrint('[PreBuffer] Next item has no itemId');
         return;
       }
+      // Resolve the next book's resume position once and stash it on the map
+      // so commitAdvance, Now Playing, and _onAutoQueueAdvanced all agree.
+      double startS = 0;
+      final progressKey = next['episodeId'] != null
+          ? '$nextItemId-${next['episodeId']}'
+          : nextItemId;
+      final saved = await _progressSync.getLocal(progressKey);
+      if (saved != null && !(saved['isFinished'] as bool? ?? false)) {
+        startS = (saved['currentTime'] as num?)?.toDouble() ?? 0;
+      }
+      next['startS'] = startS;
+
       // Build audio source for the next item.
       final localPaths = (next['localPaths'] as List<dynamic>?)?.cast<String>();
       final audioTracks = next['audioTracks'] as List<dynamic>?;
@@ -1281,16 +1293,7 @@ class AudioPlayerService extends ChangeNotifier {
         if (local != null && local.isNotEmpty) coverPath = local;
       }
 
-      double startS = 0;
-      if (itemId != null) {
-        final progressKey = next['episodeId'] != null
-            ? '$itemId-${next['episodeId']}'
-            : itemId;
-        final local = await _progressSync.getLocal(progressKey);
-        if (local != null && !(local['isFinished'] as bool? ?? false)) {
-          startS = (local['currentTime'] as num?)?.toDouble() ?? 0;
-        }
-      }
+      final startS = (next['startS'] as num?)?.toDouble() ?? 0;
 
       final ok = await _queueAdvancerChannel.invokeMethod<bool>('prepareNext', {
         'url': url,
@@ -1333,14 +1336,15 @@ class AudioPlayerService extends ChangeNotifier {
     _trackStartOffsets = [0.0, _totalDuration];
     _currentTrackIndex = 0;
     _playbackSessionId = null;
-    _lastKnownPositionSec = 0;
+    final startS = (next['startS'] as num?)?.toDouble() ?? 0;
+    _lastKnownPositionSec = startS;
     _lastNotifiedChapterIndex = -1;
     _currentBookTrackCount = 1;
     _preloadedNextBook = null;
     _nextBookPreloading = false;
 
     // Push new media item to update Now Playing / lock screen
-    final initChapter = _initChapterInfo(0);
+    final initChapter = _initChapterInfo(startS);
     _pushMediaItem(_currentItemId!, _currentTitle ?? '', _currentAuthor ?? '',
         _currentCoverUrl, _totalDuration,
         chapter: initChapter);
@@ -1348,7 +1352,7 @@ class AudioPlayerService extends ChangeNotifier {
         title: _currentTitle ?? '',
         artist: _currentAuthor ?? '',
         duration: _totalDuration,
-        elapsed: 0));
+        elapsed: startS));
 
     if (Platform.isIOS) {
       unawaited(_iosAutoAdvanceKick());

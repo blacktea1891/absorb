@@ -916,10 +916,9 @@
         //IndexedPlayerItem *oldPlayerItem = (IndexedPlayerItem *)change[NSKeyValueChangeOldKey];
         if (![playerItem isKindOfClass:[IndexedPlayerItem class]]) {
             // Host-app code replaced currentItem with a vanilla AVPlayerItem.
-            // Mark our internal index invalid and stop tracking until the host
-            // calls load again.
-            _index = -1;
-            [self broadcastPlaybackEvent];
+            // Leave our internal index alone and don't broadcast — sending
+            // currentIndex=-1 would crash the Dart event handler that
+            // dereferences it into the audio-source array.
             return;
         }
         if (playerItem.status == AVPlayerItemStatusFailed) {
@@ -936,8 +935,7 @@
         } else {
             int expectedIndex = [self indexForItem:playerItem];
             if (expectedIndex < 0) {
-                _index = -1;
-                [self broadcastPlaybackEvent];
+                // Foreign item swapped in; skip broadcasting an invalid index.
                 return;
             }
             if (_index != expectedIndex) {
