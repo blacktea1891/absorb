@@ -1168,6 +1168,7 @@ class AudioPlayerService extends ChangeNotifier {
     _currentBookTrackCount = 0;
     _nextBookPreloading = false;
     _preloadedNextBook = null;
+    _iosResyncPending = false;
     if (Platform.isIOS) {
       _queueAdvancerChannel.invokeMethod('clear').catchError((Object e) {
         debugPrint('[QueueAdvance] clear failed: $e');
@@ -1263,6 +1264,16 @@ class AudioPlayerService extends ChangeNotifier {
       List<dynamic>? audioTracks,
       Map<String, String>? audioHeaders) async {
     try {
+      String? url;
+      bool isLocal = false;
+      if (localPaths != null && localPaths.isNotEmpty) {
+        url = localPaths.first;
+        isLocal = true;
+      } else if (audioTracks != null && audioTracks.isNotEmpty) {
+        url = (audioTracks.first as Map<String, dynamic>)['url'] as String?;
+      }
+      if (url == null || url.isEmpty) return false;
+
       String? coverPath;
       final itemId = next['itemId'] as String?;
       if (itemId != null) {
@@ -1282,6 +1293,9 @@ class AudioPlayerService extends ChangeNotifier {
       }
 
       final ok = await _queueAdvancerChannel.invokeMethod<bool>('prepareNext', {
+        'url': url,
+        'isLocal': isLocal,
+        'headers': audioHeaders ?? <String, String>{},
         'title': next['title'] ?? '',
         'artist': next['author'] ?? '',
         'durationS': (next['duration'] as num?)?.toDouble() ?? 0,
@@ -1351,6 +1365,11 @@ class AudioPlayerService extends ChangeNotifier {
     _autoQueueAdvancing = false;
   }
 
+  // Set when native commitAdvance swaps in a foreign AVPlayerItem. just_audio
+  // sees _index = -1 from then on; we need to rebuild its source the next
+  // time the app is foregrounded so position and pause work normally.
+  bool _iosResyncPending = false;
+
   Future<void> _iosAutoAdvanceKick() async {
     final speed = _player?.speed ?? 1.0;
     try {
@@ -1358,14 +1377,15 @@ class AudioPlayerService extends ChangeNotifier {
     } catch (e) {
       debugPrint('[QueueAdvance] setActive failed: $e');
     }
-    // Only run the native pause+play kick when backgrounded. In foreground the
-    // AVQueuePlayer auto-advance already produces audio, and the kick would
-    // glitch playback for no benefit.
     if (_isBackgrounded) {
       try {
-        await _queueAdvancerChannel.invokeMethod<bool>('commitAdvance', {
+        final ok = await _queueAdvancerChannel.invokeMethod<bool>('commitAdvance', {
           'speed': speed,
         });
+        if (ok == true) {
+          _iosResyncPending = true;
+          debugPrint('[QueueAdvance] native commit succeeded, resync armed');
+        }
       } catch (e) {
         debugPrint('[QueueAdvance] commitAdvance failed: $e');
       }
@@ -1378,6 +1398,41 @@ class AudioPlayerService extends ChangeNotifier {
     Future.delayed(const Duration(milliseconds: 300), () {
       _handler?.refreshPlaybackState();
     });
+  }
+
+  Future<void> _iosForegroundResyncIfNeeded() async {
+    if (!_iosResyncPending) return;
+    _iosResyncPending = false;
+    final itemId = _currentItemId;
+    final api = _api;
+    if (itemId == null || api == null) {
+      debugPrint('[QueueAdvance] resync: missing item or api, skipping');
+      return;
+    }
+    double startS = 0;
+    try {
+      final pos = await _queueAdvancerChannel.invokeMethod<double>('getPositionS');
+      if (pos != null && pos > 0) startS = pos;
+    } catch (e) {
+      debugPrint('[QueueAdvance] getPositionS failed: $e');
+    }
+    debugPrint('[QueueAdvance] Resyncing just_audio for $itemId at ${startS.toStringAsFixed(1)}s');
+    try {
+      await playItem(
+        api: api,
+        itemId: itemId,
+        title: _currentTitle ?? '',
+        author: _currentAuthor ?? '',
+        coverUrl: _currentCoverUrl,
+        totalDuration: _totalDuration,
+        chapters: _chapters,
+        startTime: startS,
+        forceStartTime: true,
+        episodeId: _currentEpisodeId,
+      );
+    } catch (e) {
+      debugPrint('[QueueAdvance] resync playItem failed: $e');
+    }
   }
 
   Future<void> _primeNowPlaying({
@@ -1855,6 +1910,9 @@ class AudioPlayerService extends ChangeNotifier {
     debugPrint('[ClickDebug] App foregrounded: sincePrevPauseMs=$sincePrevPauseMs, '
         'sincePrevPlayMs=$sincePrevPlayMs, aaDisconnectSuspect=$aaDisconnectSuspect');
     service._positionSyncFailures = 0; // retry on foreground
+    if (Platform.isIOS && service._iosResyncPending) {
+      unawaited(service._iosForegroundResyncIfNeeded());
+    }
     if (!service.hasBook) return;
     final sessionAlive = service._playbackSessionId != null;
     debugPrint('[MediaSession] Foregrounded - refreshing (playing=${service.isPlaying}, session=$sessionAlive, item=${service._currentItemId})');
