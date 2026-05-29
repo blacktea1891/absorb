@@ -30,6 +30,11 @@ class MainActivity : AudioServiceActivity() {
     private var currentSessionId: Int = 0
     private var eqEnabled: Boolean = false
     private var eqLoudnessGainMb: Int = 0  // gain from EQ loudness slider
+    // Some devices (e.g. older Samsung on Android 9) have a broken audio-effect
+    // HAL that fails to initialize. Constructing AudioEffects against it during
+    // playback can crash the process natively, which Kotlin can't catch. Once
+    // init proves the engine is unavailable, skip attaching native effects.
+    private var effectsAvailable: Boolean = true
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -191,6 +196,7 @@ class MainActivity : AudioServiceActivity() {
             val maxLevel = bandRange[1] / 100.0
             tempEq.release()
 
+            effectsAvailable = true
             Log.d(TAG, "init: $numBands bands, frequencies=$frequencies, range=[$minLevel, $maxLevel]dB")
             result.success(mapOf(
                 "bands" to numBands,
@@ -199,6 +205,7 @@ class MainActivity : AudioServiceActivity() {
                 "maxLevel" to maxLevel
             ))
         } catch (e: Exception) {
+            effectsAvailable = false
             Log.e(TAG, "init failed: ${e.message}")
             result.error("EQ_INIT_ERROR", e.message, null)
         }
@@ -213,6 +220,15 @@ class MainActivity : AudioServiceActivity() {
             currentSessionId = sessionId
 
             if (sessionId == 0) {
+                result.success(true)
+                return
+            }
+
+            // Don't touch the audio-effect HAL on devices where it failed to
+            // init, since constructing effects there can crash natively.
+            // Software presets still drive the EQ UI; we just skip hardware fx.
+            if (!effectsAvailable) {
+                Log.w(TAG, "attachSession: effect engine unavailable, skipping native effects for session $sessionId")
                 result.success(true)
                 return
             }
