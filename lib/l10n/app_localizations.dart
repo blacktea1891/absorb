@@ -6,7 +6,16 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/intl.dart' as intl;
 
 import 'app_localizations_de.dart';
+import 'app_localizations_el.dart';
 import 'app_localizations_en.dart';
+import 'app_localizations_es.dart';
+import 'app_localizations_fr.dart';
+import 'app_localizations_it.dart';
+import 'app_localizations_ja.dart';
+import 'app_localizations_no.dart';
+import 'app_localizations_pt.dart';
+import 'app_localizations_ro.dart';
+import 'app_localizations_ru.dart';
 import 'app_localizations_zh.dart';
 
 // ignore_for_file: type=lint
@@ -96,7 +105,16 @@ abstract class AppLocalizations {
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('de'),
+    Locale('el'),
     Locale('en'),
+    Locale('es'),
+    Locale('fr'),
+    Locale('it'),
+    Locale('ja'),
+    Locale('no'),
+    Locale('pt'),
+    Locale('ro'),
+    Locale('ru'),
     Locale('zh')
   ];
 
@@ -8499,7 +8517,7 @@ abstract class AppLocalizations {
   /// No description provided for @tipsSheetUpcomingReleasesDesc.
   ///
   /// In en, this message translates to:
-  /// **'Open the Library top-right menu to see new and upcoming books across all the series in your library, sorted by release date.'**
+  /// **'On the Series tab, tap the tab again to open its sort and filter sheet, then choose Upcoming Releases to see new and upcoming books across your series, sorted by release date.'**
   String get tipsSheetUpcomingReleasesDesc;
 
   /// No description provided for @tipsSheetPerBookEqTitle.
@@ -8571,7 +8589,7 @@ abstract class AppLocalizations {
   /// No description provided for @tipsSheetAudibleSeriesDesc.
   ///
   /// In en, this message translates to:
-  /// **'Open a series and tap the search icon to pull the full series list from Audible, including missing entries and books you haven\'t started.'**
+  /// **'Open a series and use the overflow menu (the three dots) to pull the full series list from Audible, including missing entries and books you haven\'t started.'**
   String get tipsSheetAudibleSeriesDesc;
 
   /// No description provided for @bookCardUnknownTitle.
@@ -9143,8 +9161,20 @@ class _AppLocalizationsDelegate
   }
 
   @override
-  bool isSupported(Locale locale) =>
-      <String>['de', 'en', 'zh'].contains(locale.languageCode);
+  bool isSupported(Locale locale) => <String>[
+        'de',
+        'el',
+        'en',
+        'es',
+        'fr',
+        'it',
+        'ja',
+        'no',
+        'pt',
+        'ro',
+        'ru',
+        'zh'
+      ].contains(locale.languageCode);
 
   @override
   bool shouldReload(_AppLocalizationsDelegate old) => false;
@@ -9155,8 +9185,26 @@ AppLocalizations lookupAppLocalizations(Locale locale) {
   switch (locale.languageCode) {
     case 'de':
       return AppLocalizationsDe();
+    case 'el':
+      return AppLocalizationsEl();
     case 'en':
       return AppLocalizationsEn();
+    case 'es':
+      return AppLocalizationsEs();
+    case 'fr':
+      return AppLocalizationsFr();
+    case 'it':
+      return AppLocalizationsIt();
+    case 'ja':
+      return AppLocalizationsJa();
+    case 'no':
+      return AppLocalizationsNo();
+    case 'pt':
+      return AppLocalizationsPt();
+    case 'ro':
+      return AppLocalizationsRo();
+    case 'ru':
+      return AppLocalizationsRu();
     case 'zh':
       return AppLocalizationsZh();
   }

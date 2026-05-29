@@ -4,294 +4,302 @@ import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
 
-/// The translations for Chinese (`zh`).
-class AppLocalizationsZh extends AppLocalizations {
-  AppLocalizationsZh([String locale = 'zh']) : super(locale);
+/// The translations for French (`fr`).
+class AppLocalizationsFr extends AppLocalizations {
+  AppLocalizationsFr([String locale = 'fr']) : super(locale);
 
   @override
   String get appTitle => 'A B S O R B';
 
   @override
-  String get online => '在线';
+  String get online => 'Connecté';
 
   @override
-  String get offline => '离线';
+  String get offline => 'Déconnecté';
 
   @override
-  String get stillOffline => '仍处于离线状态。点击重试。';
+  String get stillOffline =>
+      'Toujours déconnecté. Touchez pour essayer encore.';
 
   @override
-  String get retry => '重试';
+  String get retry => 'Réessayer';
 
   @override
-  String get cancel => '取消';
+  String get cancel => 'Annuler';
 
   @override
-  String get delete => '删除';
+  String get delete => 'Effacer';
 
   @override
-  String get remove => '移除';
+  String get remove => 'Retirer';
 
   @override
-  String get save => '保存';
+  String get save => 'Enregistrer';
 
   @override
-  String get done => '完成';
+  String get done => 'Fait';
 
   @override
-  String get edit => '编辑';
+  String get edit => 'Modifier';
 
   @override
-  String get search => '搜索';
+  String get search => 'Rechercher';
 
   @override
-  String get apply => '应用';
+  String get apply => 'Appliquer';
 
   @override
-  String get enable => '启用';
+  String get enable => 'Activé';
 
   @override
-  String get clear => '清除';
+  String get clear => 'Effacer';
 
   @override
-  String get off => '关闭';
+  String get off => 'Arrêt';
 
   @override
-  String get disabled => '已禁用';
+  String get disabled => 'Désactivé';
 
   @override
-  String get later => '稍后';
+  String get later => 'Plus tard';
 
   @override
-  String get gotIt => '知道了';
+  String get gotIt => 'Ok';
 
   @override
-  String get preview => '预览';
+  String get preview => 'Aperçu';
 
   @override
-  String get or => '或';
+  String get or => 'ou';
 
   @override
-  String get file => '文件';
+  String get file => 'Fichier';
 
   @override
-  String get more => '更多';
+  String get more => 'Plus';
 
   @override
-  String get unknown => '未知';
+  String get unknown => 'Inconnu';
 
   @override
-  String get untitled => '无标题';
+  String get untitled => 'Sans titre';
 
   @override
-  String get noThanks => '不了，谢谢';
+  String get noThanks => 'Non merci';
 
   @override
-  String get stay => '保留';
+  String get stay => 'Stay';
 
   @override
-  String get homeTitle => '首页';
+  String get homeTitle => 'Accueil';
 
   @override
-  String get continueListening => '继续收听';
+  String get continueListening => 'Continuer l\'écoute';
 
   @override
-  String get continueSeries => '继续收听系列';
+  String get continueSeries => 'Continuer les séries';
 
   @override
-  String get recentlyAdded => '最近添加';
+  String get recentlyAdded => 'Ajouté récemment';
 
   @override
-  String get listenAgain => '重新收听';
+  String get listenAgain => 'Écouter à nouveau';
 
   @override
-  String get discover => '发现';
+  String get discover => 'Découvrir';
 
   @override
-  String get newEpisodes => '最新单集';
+  String get newEpisodes => 'Nouveaux épisodes';
 
   @override
-  String get downloads => '下载';
+  String get downloads => 'Téléchargements';
 
   @override
-  String get noDownloadedBooks => '暂无已下载书籍';
+  String get noDownloadedBooks => 'Aucun livre téléchargé';
 
   @override
-  String get yourLibraryIsEmpty => '您的媒体库空空如也';
+  String get yourLibraryIsEmpty => 'Votre bibliothèque est vide';
 
   @override
-  String get downloadBooksWhileOnline => '在线时下载书籍以离线收听';
+  String get downloadBooksWhileOnline =>
+      'Download books while online to listen offline';
 
   @override
-  String get customizeHome => '自定义首页';
+  String get customizeHome => 'Personnaliser l\'accueil';
 
   @override
-  String get dragToReorderTapEye => '拖动排序，点击眼睛图标显示/隐藏';
+  String get dragToReorderTapEye => 'Drag to reorder, tap eye to show/hide';
 
   @override
-  String get loginTagline => '开始收听之旅';
+  String get loginTagline => 'Start Absorbing';
 
   @override
-  String get loginConnectToServer => '连接到您的服务器';
+  String get loginConnectToServer => 'Se connecter au serveur';
 
   @override
-  String get loginServerAddress => '服务器地址';
+  String get loginServerAddress => 'Adresse du serveur';
 
   @override
-  String get loginServerHint => 'my.server.com';
+  String get loginServerHint => 'mon.serveur.fr';
 
   @override
-  String get loginServerHelper => '也支持 IP:端口 格式（例如 192.168.1.5:13378）';
+  String get loginServerHelper => 'IP + port (ex : 192.168.1.5:13378)';
 
   @override
-  String get loginCouldNotReachServer => '无法连接到服务器';
+  String get loginCouldNotReachServer =>
+      'Impossible de se connecter au serveur';
 
   @override
-  String get loginAdvanced => '高级';
+  String get loginAdvanced => 'Avancé';
 
   @override
-  String get loginCustomHttpHeaders => '自定义 HTTP 请求头';
+  String get loginCustomHttpHeaders => 'Entêtes HTTP personnalisés';
 
   @override
   String get loginCustomHeadersDescription =>
-      '用于需要额外请求头的 Cloudflare 隧道或反向代理。请在输入服务器 URL 之前添加请求头。';
+      'For Cloudflare tunnels or reverse proxies that require extra headers. Add headers before entering your server URL.';
 
   @override
-  String get loginHeaderName => '请求头名称';
+  String get loginHeaderName => 'Header name';
 
   @override
-  String get loginHeaderValue => '值';
+  String get loginHeaderValue => 'Valeur';
 
   @override
-  String get loginAddHeader => '添加请求头';
+  String get loginAddHeader => 'Add Header';
 
   @override
-  String get loginSelfSignedCertificates => '自签名证书';
+  String get loginSelfSignedCertificates => 'Certificat auto-signé';
 
   @override
-  String get loginTrustAllCertificates => '信任所有证书（用于自签名/自定义 CA 配置）';
+  String get loginTrustAllCertificates =>
+      'Trust all certificates (for self-signed / custom CA setups)';
 
   @override
-  String get loginApiKey => 'API 密钥';
+  String get loginApiKey => 'Clé API';
 
   @override
   String get loginApiKeyDescription =>
-      '使用管理员生成的 API 密钥代替用户名/密码。当账号的令牌刷新失败时很有用。';
+      'Use an admin-generated API key instead of username/password. Useful when token refresh fails for your account.';
 
   @override
-  String get loginWaitingForSso => '正在等待单点登录(SSO)...';
+  String get loginWaitingForSso => 'Waiting for SSO...';
 
   @override
-  String get loginRedirectUri => '重定向 URI: audiobookshelf://oauth';
+  String get loginRedirectUri => 'Redirect URI: audiobookshelf://oauth';
 
   @override
-  String get loginOrSignInManually => '或手动登录';
+  String get loginOrSignInManually => 'or sign in manually';
 
   @override
-  String get loginUsername => '用户名';
+  String get loginUsername => 'Utilisateur';
 
   @override
-  String get loginUsernameRequired => '请输入用户名';
+  String get loginUsernameRequired => 'Entrez votre nom d\'utilisateur';
 
   @override
-  String get loginPassword => '密码';
+  String get loginPassword => 'Mot de passe';
 
   @override
-  String get loginSignIn => '登录';
+  String get loginSignIn => 'Se connecter';
 
   @override
-  String get loginFailed => '登录失败';
+  String get loginFailed => 'Échec de connexion';
 
   @override
-  String get loginSsoFailed => '单点登录失败或已取消';
+  String get loginSsoFailed => 'SSO login failed or was cancelled';
 
   @override
-  String get loginSsoAuthFailed => '单点登录认证失败，请重试。';
+  String get loginSsoAuthFailed =>
+      'SSO authentication failed. Please try again.';
 
   @override
-  String get loginRestoreFromBackup => '从备份恢复';
+  String get loginRestoreFromBackup => 'Restaurer depuis une sauvegarde';
 
   @override
-  String get loginInvalidBackupFile => '无效的备份文件';
+  String get loginInvalidBackupFile => 'Fichier de sauvegarde invalide';
 
   @override
-  String get loginRestoreBackupTitle => '恢复备份？';
+  String get loginRestoreBackupTitle => 'Restaurer la sauvegarde ?';
 
   @override
   String loginRestoreBackupWithAccounts(int count) {
-    return '这将恢复所有设置和 $count 个已保存的账户。你将自动登录。';
+    return 'This will restore all settings and $count saved account(s). You\'ll be signed in automatically.';
   }
 
   @override
-  String get loginRestoreBackupNoAccounts => '这将恢复所有设置。此备份中不包含任何账户。';
+  String get loginRestoreBackupNoAccounts =>
+      'This will restore all settings. No accounts were included in this backup.';
 
   @override
-  String get loginRestore => '恢复';
+  String get loginRestore => 'Restaurer';
 
   @override
   String loginRestoredAndSignedIn(String username) {
-    return '已恢复设置并以 $username 身份登录';
+    return 'Restored settings and signed in as $username';
   }
 
   @override
-  String get loginSessionExpired => '设置已恢复。会话已过期 - 请登录以继续。';
+  String get loginSessionExpired =>
+      'Settings restored. Session expired - sign in to continue.';
 
   @override
-  String get loginSettingsRestored => '设置已恢复';
+  String get loginSettingsRestored => 'Paramètres restaurés';
 
   @override
   String loginRestoreFailed(String error) {
-    return '恢复失败: $error';
+    return 'Échec de la restauration : $error';
   }
 
   @override
-  String get loginSavedAccounts => '已保存账户';
+  String get loginSavedAccounts => 'saved accounts';
 
   @override
-  String get libraryTitle => '媒体库';
+  String get libraryTitle => 'Bibliothèque';
 
   @override
-  String get librarySearchBooksHint => '搜索书籍、系列、作者、旁白...';
+  String get librarySearchBooksHint =>
+      'Rechercher par livres, séries, auteurs, narrateurs ...';
 
   @override
-  String get librarySearchShowsHint => '搜索播客和单集...';
+  String get librarySearchShowsHint => 'Search shows and episodes...';
 
   @override
-  String get libraryTabLibrary => '媒体库';
+  String get libraryTabLibrary => 'Bibliothèque';
 
   @override
-  String get libraryTabSeries => '系列';
+  String get libraryTabSeries => 'Séries';
 
   @override
-  String get libraryTabAuthors => '作者';
+  String get libraryTabAuthors => 'Auteurs';
 
   @override
-  String get libraryTabNarrators => '旁白';
+  String get libraryTabNarrators => 'Narrateurs';
 
   @override
-  String get libraryNoBooks => '未找到书籍';
+  String get libraryNoBooks => 'Aucun livre trouvé';
 
   @override
-  String get libraryNoBooksInProgress => '暂无进行中的书籍';
+  String get libraryNoBooksInProgress => 'Aucun livre en cours de lecture';
 
   @override
-  String get libraryNoFinishedBooks => '暂无已完成书籍';
+  String get libraryNoFinishedBooks => 'Aucun livre achevé';
 
   @override
-  String get libraryAllBooksStarted => '所有书籍均已开始';
+  String get libraryAllBooksStarted => 'All books have been started';
 
   @override
-  String get libraryNoDownloadedBooks => '暂无已下载书籍';
+  String get libraryNoDownloadedBooks => 'Aucun livre téléchargé';
 
   @override
-  String get libraryNoSeriesFound => '未找到系列';
+  String get libraryNoSeriesFound => 'Aucune série trouvée';
 
   @override
-  String get libraryNoBooksWithEbooks => '暂无包含电子书的书籍';
+  String get libraryNoBooksWithEbooks => 'No books with eBooks';
 
   @override
   String libraryNoBooksInGenre(String genre) {
-    return '\"$genre\" 中没有找到书籍';
+    return 'Aucun livre du genre \"$genre\"';
   }
 
   @override
@@ -300,31 +308,31 @@ class AppLocalizationsZh extends AppLocalizations {
   }
 
   @override
-  String get libraryClearFilter => '清除筛选';
+  String get libraryClearFilter => 'Effacer le filtre';
 
   @override
-  String get libraryNoAuthorsFound => '未找到作者';
+  String get libraryNoAuthorsFound => 'Aucun auteur trouvé';
 
   @override
-  String get libraryNoNarratorsFound => '未找到旁白';
+  String get libraryNoNarratorsFound => 'Aucun narrateur trouvé';
 
   @override
-  String get libraryNoResults => '未找到结果';
+  String get libraryNoResults => 'Aucun résultat';
 
   @override
-  String get librarySearchBooks => '书籍';
+  String get librarySearchBooks => 'Livres';
 
   @override
-  String get librarySearchShows => '播客';
+  String get librarySearchShows => 'Shows';
 
   @override
-  String get librarySearchEpisodes => '单集';
+  String get librarySearchEpisodes => 'Épisodes';
 
   @override
-  String get librarySearchSeries => '系列';
+  String get librarySearchSeries => 'Séries';
 
   @override
-  String get librarySearchAuthors => '作者';
+  String get librarySearchAuthors => 'Auteurs';
 
   @override
   String get librarySearchTags => 'Tags';
@@ -334,540 +342,557 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String librarySeriesCount(int count) {
-    return '$count 个系列';
+    return '$count séries';
   }
 
   @override
   String libraryAuthorsCount(int count) {
-    return '$count 位作者';
+    return '$count auteurs';
   }
 
   @override
   String libraryNarratorsCount(int count) {
-    return '$count 位旁白';
+    return '$count narrateurs';
   }
 
   @override
   String libraryBooksCount(int loaded, int total) {
-    return '已加载 $loaded/$total 本书';
+    return '$loaded/$total livres';
   }
 
   @override
-  String get sort => '排序';
+  String get sort => 'Trier';
 
   @override
-  String get filter => '筛选';
+  String get filter => 'Filtrer';
 
   @override
-  String get filterActive => '筛选 ●';
+  String get filterActive => 'Filter ●';
 
   @override
-  String get name => '名称';
+  String get name => 'Nom';
 
   @override
-  String get title => '标题';
+  String get title => 'Titre';
 
   @override
-  String get author => '作者';
+  String get author => 'Auteur';
 
   @override
-  String get dateAdded => '添加日期';
+  String get dateAdded => 'Date d\'ajout';
 
   @override
-  String get numberOfBooks => '书籍数量';
+  String get numberOfBooks => 'Nombre de livres';
 
   @override
-  String get publishedYear => '出版年份';
+  String get publishedYear => 'Année de publication';
 
   @override
-  String get duration => '时长';
+  String get duration => 'Durée';
 
   @override
-  String get random => '随机';
+  String get random => 'Aléatoire';
 
   @override
-  String get collapseSeries => '折叠系列';
+  String get collapseSeries => 'Collapse Series';
 
   @override
-  String get inProgress => '正在收听';
+  String get inProgress => 'En cours';
 
   @override
-  String get filterFinished => '已听完';
+  String get filterFinished => 'Fini';
 
   @override
-  String get notStarted => '未开始';
+  String get notStarted => 'Non commencé';
 
   @override
-  String get downloaded => '已下载';
+  String get downloaded => 'Téléchargé';
 
   @override
-  String get hasEbook => '含电子书';
+  String get hasEbook => 'Has eBook';
 
   @override
-  String get genre => '分类';
+  String get genre => 'Genre';
 
   @override
   String get tag => 'Tag';
 
   @override
-  String get clearFilter => '清除筛选';
+  String get clearFilter => 'Supprimer le filtre';
 
   @override
-  String get noGenresFound => '未找到分类';
+  String get noGenresFound => 'Aucun genre trouvé';
 
   @override
   String get noTagsFound => 'No tags found';
 
   @override
-  String get asc => '升序';
+  String get asc => 'Croissant';
 
   @override
-  String get desc => '降序';
+  String get desc => 'Décroissant';
 
   @override
-  String get absorbingTitle => '正在收听';
+  String get absorbingTitle => 'Lecture';
 
   @override
-  String get absorbingStop => '停止';
+  String get absorbingStop => 'Stop';
 
   @override
-  String get absorbingManageQueue => '管理队列';
+  String get absorbingManageQueue => 'Manage Queue';
 
   @override
-  String get absorbingDone => '完成';
+  String get absorbingDone => 'Fait';
 
   @override
-  String get absorbingNoDownloadedEpisodes => '暂无已下载剧集';
+  String get absorbingNoDownloadedEpisodes => 'No downloaded episodes';
 
   @override
-  String get absorbingNoDownloadedBooks => '暂无已下载书籍';
+  String get absorbingNoDownloadedBooks => 'No downloaded books';
 
   @override
-  String get absorbingNothingPlayingYet => '暂无正在播放的内容';
+  String get absorbingNothingPlayingYet => 'Nothing playing yet';
 
   @override
-  String get absorbingNothingAbsorbingYet => '暂无收听中的内容';
+  String get absorbingNothingAbsorbingYet => 'Nothing absorbing yet';
 
   @override
-  String get absorbingDownloadEpisodesToListen => '下载单集以离线收听';
+  String get absorbingDownloadEpisodesToListen =>
+      'Download episodes to listen offline';
 
   @override
-  String get absorbingDownloadBooksToListen => '下载书籍以离线收听';
+  String get absorbingDownloadBooksToListen =>
+      'Download books to listen offline';
 
   @override
-  String get absorbingStartEpisodeFromShows => '从播客标签页开始播放剧集';
+  String get absorbingStartEpisodeFromShows =>
+      'Start an episode from the Shows tab';
 
   @override
-  String get absorbingStartBookFromLibrary => '从媒体库标签页开始播放书籍';
+  String get absorbingStartBookFromLibrary =>
+      'Start a book from the Library tab';
 
   @override
-  String get carModeTitle => '车载模式';
+  String get carModeTitle => 'Car Mode';
 
   @override
-  String get carModeNoBookLoaded => '未加载书籍';
+  String get carModeNoBookLoaded => 'No book loaded';
 
   @override
-  String get carModeBookLabel => '书籍';
+  String get carModeBookLabel => 'Book';
 
   @override
-  String get carModeChapterLabel => '章节';
+  String get carModeChapterLabel => 'Chapter';
 
   @override
-  String get carModeBookmarkDefault => '书签';
+  String get carModeBookmarkDefault => 'Bookmark';
 
   @override
-  String get carModeBookmarkAdded => '已添加书签';
+  String get carModeBookmarkAdded => 'Bookmark added';
 
   @override
-  String get downloadsTitle => '下载';
+  String get downloadsTitle => 'Downloads';
 
   @override
-  String get downloadsCancelSelection => '取消选择';
+  String get downloadsCancelSelection => 'Cancel selection';
 
   @override
-  String get downloadsSelect => '选择';
+  String get downloadsSelect => 'Select';
 
   @override
-  String get downloadsNoDownloads => '暂无下载';
+  String get downloadsNoDownloads => 'No downloads';
 
   @override
-  String get downloadsDownloading => '下载中';
+  String get downloadsDownloading => 'Downloading';
 
   @override
-  String get downloadsQueued => '排队中';
+  String get downloadsQueued => 'Queued';
 
   @override
-  String get downloadsCompleted => '已完成';
+  String get downloadsCompleted => 'Completed';
 
   @override
-  String get downloadsWaiting => '等待中...';
+  String get downloadsWaiting => 'Waiting...';
 
   @override
-  String get downloadsCancel => '取消';
+  String get downloadsCancel => 'Cancel';
 
   @override
-  String get downloadsDelete => '删除';
+  String get downloadsDelete => 'Delete';
 
   @override
   String downloadsDeleteCount(int count) {
-    return '删除 $count 个下载项？';
+    return 'Delete $count download(s)?';
   }
 
   @override
-  String get downloadsDeleteContent => '已下载的文件将从本设备中移除。';
+  String get downloadsDeleteContent =>
+      'Downloaded files will be removed from this device.';
 
   @override
   String downloadsDeletedCount(int count) {
-    return '已删除 $count 个下载项';
+    return 'Deleted $count download(s)';
   }
 
   @override
-  String get downloadsRemoveTitle => '移除下载？';
+  String get downloadsRemoveTitle => 'Remove download?';
 
   @override
   String downloadsRemoveContent(String title) {
-    return '从本设备中删除 \"$title\"？';
+    return 'Delete \"$title\" from this device?';
   }
 
   @override
   String downloadsRemovedTitle(String title) {
-    return '\"$title\" 已移除';
+    return '\"$title\" removed';
   }
 
   @override
   String downloadsSelectedCount(int count) {
-    return '已选择 $count 项';
+    return '$count selected';
   }
 
   @override
-  String get bookmarksTitle => '全部书签';
+  String get bookmarksTitle => 'All Bookmarks';
 
   @override
-  String get bookmarksCancelSelection => '取消选择';
+  String get bookmarksCancelSelection => 'Cancel selection';
 
   @override
-  String get bookmarksSortedByNewest => '按最新排序';
+  String get bookmarksSortedByNewest => 'Sorted by newest';
 
   @override
-  String get bookmarksSortedByPosition => '按位置排序';
+  String get bookmarksSortedByPosition => 'Sorted by position';
 
   @override
-  String get bookmarksSelect => '选择';
+  String get bookmarksSelect => 'Select';
 
   @override
-  String get bookmarksNoBookmarks => '暂无书签';
+  String get bookmarksNoBookmarks => 'No bookmarks yet';
 
   @override
   String bookmarksDeleteCount(int count) {
-    return '删除 $count 个书签？';
+    return 'Delete $count bookmark(s)?';
   }
 
   @override
-  String get bookmarksDeleteContent => '此操作无法撤销。';
+  String get bookmarksDeleteContent => 'This cannot be undone.';
 
   @override
   String bookmarksDeletedCount(int count) {
-    return '已删除 $count 个书签';
+    return 'Deleted $count bookmark(s)';
   }
 
   @override
-  String get bookmarksJumpTitle => '跳转到书签？';
+  String get bookmarksJumpTitle => 'Jump to bookmark?';
 
   @override
   String bookmarksJumpContent(String title, String position, String bookTitle) {
-    return '\"$title\" 位于 $position\n在《$bookTitle》中';
+    return '\"$title\" at $position\nin $bookTitle';
   }
 
   @override
-  String get bookmarksJump => '跳转';
+  String get bookmarksJump => 'Jump';
 
   @override
-  String get bookmarksNotConnected => '未连接到服务器';
+  String get bookmarksNotConnected => 'Not connected to server';
 
   @override
-  String get bookmarksCouldNotLoad => '无法加载书籍';
+  String get bookmarksCouldNotLoad => 'Could not load book';
 
   @override
   String bookmarksSelectedCount(int count) {
-    return '已选择 $count 项';
+    return '$count selected';
   }
 
   @override
-  String get statsTitle => '你的统计';
+  String get statsTitle => 'Your Stats';
 
   @override
-  String get statsCouldNotLoad => '无法加载统计数据';
+  String get statsCouldNotLoad => 'Couldn\'t load stats';
 
   @override
-  String get statsTotalListeningTime => '总收听时长';
+  String get statsTotalListeningTime => 'TOTAL LISTENING TIME';
 
   @override
-  String get statsHoursUnit => '小时';
+  String get statsHoursUnit => 'h';
 
   @override
-  String get statsMinutesUnit => '分钟';
+  String get statsMinutesUnit => 'm';
 
   @override
   String statsDaysOfAudio(String days) {
-    return '相当于 $days 天的音频';
+    return 'That\'s $days days of audio';
   }
 
   @override
   String statsHoursOfAudio(String hours) {
-    return '相当于 $hours 小时的音频';
+    return 'That\'s $hours hours of audio';
   }
 
   @override
-  String get statsToday => '今日';
+  String get statsToday => 'Today';
 
   @override
-  String get statsThisWeek => '本周';
+  String get statsThisWeek => 'This Week';
 
   @override
-  String get statsThisMonth => '本月';
+  String get statsThisMonth => 'This Month';
 
   @override
-  String get statsActivity => '活动';
+  String get statsActivity => 'Activity';
 
   @override
-  String get statsCurrentStreak => '当前连续天数';
+  String get statsCurrentStreak => 'Current Streak';
 
   @override
-  String get statsBestStreak => '最佳连续天数';
+  String get statsBestStreak => 'Best Streak';
 
   @override
-  String get statsFinished => '已完成';
+  String get statsFinished => 'Finished';
 
   @override
-  String get statsBooksFinished => '书籍';
+  String get statsBooksFinished => 'Books';
 
   @override
-  String get statsEpisodesFinished => '单集';
+  String get statsEpisodesFinished => 'Episodes';
 
   @override
-  String get statsBooksThisYear => '今年书籍';
+  String get statsBooksThisYear => 'Books this year';
 
   @override
-  String get statsEpisodesThisYear => '今年单集';
+  String get statsEpisodesThisYear => 'Episodes this year';
 
   @override
-  String get statsDaysActive => '活跃天数';
+  String get statsDaysActive => 'Days Active';
 
   @override
-  String get statsDailyAverage => '日均时长';
+  String get statsDailyAverage => 'Daily Average';
 
   @override
-  String get statsLast7Days => '过去7天';
+  String get statsLast7Days => 'Last 7 Days';
 
   @override
-  String get statsMostListened => '收听最多';
+  String get statsMostListened => 'Most Listened';
 
   @override
-  String get statsRecentSessions => '最近会话';
+  String get statsRecentSessions => 'Recent Sessions';
 
   @override
-  String get appShellHomeTab => '首页';
+  String get appShellHomeTab => 'Home';
 
   @override
-  String get appShellLibraryTab => '媒体库';
+  String get appShellLibraryTab => 'Library';
 
   @override
-  String get appShellAbsorbingTab => '正在收听';
+  String get appShellAbsorbingTab => 'Absorbing';
 
   @override
-  String get appShellStatsTab => '统计';
+  String get appShellStatsTab => 'Stats';
 
   @override
-  String get appShellSettingsTab => '设置';
+  String get appShellSettingsTab => 'Settings';
 
   @override
-  String get appShellDiscoverTab => '发现';
+  String get appShellDiscoverTab => 'Discover';
 
   @override
-  String get appShellShowsTab => '节目';
+  String get appShellShowsTab => 'Shows';
 
   @override
-  String get appShellPressBackToExit => '再按一次返回键退出';
+  String get appShellPressBackToExit => 'Press back again to exit';
 
   @override
-  String get settingsTitle => '设置';
+  String get settingsTitle => 'Settings';
 
   @override
-  String get sectionAppearance => '外观';
+  String get sectionAppearance => 'Appearance';
 
   @override
-  String get languageLabel => '语言';
+  String get languageLabel => 'Language';
 
   @override
-  String get languageSystemDefault => '跟随系统';
+  String get languageSystemDefault => 'System default';
 
   @override
-  String get languageHelpTranslateInvite => '想帮 Absorb 翻译成你的语言吗？';
+  String get languageHelpTranslateInvite =>
+      'Want to help translate Absorb into your language?';
 
   @override
-  String get themeLabel => '主题';
+  String get themeLabel => 'Theme';
 
   @override
-  String get themeDark => '深色';
+  String get themeDark => 'Dark';
 
   @override
   String get themeOled => 'OLED';
 
   @override
-  String get themeLight => '浅色';
+  String get themeLight => 'Light';
 
   @override
-  String get themeAuto => '自动';
+  String get themeAuto => 'Auto';
 
   @override
-  String get colorSourceLabel => '颜色来源';
+  String get colorSourceLabel => 'Color source';
 
   @override
-  String get colorSourceCoverDescription => '应用颜色跟随当前播放书籍的封面';
+  String get colorSourceCoverDescription =>
+      'App colors follow the currently playing book cover';
 
   @override
-  String get colorSourceWallpaperDescription => '应用颜色跟随系统壁纸';
+  String get colorSourceWallpaperDescription =>
+      'App colors follow your system wallpaper';
 
   @override
-  String get colorSourceWallpaper => '壁纸';
+  String get colorSourceWallpaper => 'Wallpaper';
 
   @override
-  String get colorSourceNowPlaying => '正在播放';
+  String get colorSourceNowPlaying => 'Now Playing';
 
   @override
-  String get startScreenLabel => '启动画面';
+  String get startScreenLabel => 'Start screen';
 
   @override
-  String get startScreenSubtitle => '应用启动时打开的标签页';
+  String get startScreenSubtitle => 'Which tab to open when the app launches';
 
   @override
-  String get startScreenHome => '首页';
+  String get startScreenHome => 'Home';
 
   @override
-  String get startScreenLibrary => '媒体库';
+  String get startScreenLibrary => 'Library';
 
   @override
-  String get startScreenAbsorb => '正在收听';
+  String get startScreenAbsorb => 'Absorb';
 
   @override
-  String get startScreenStats => '统计';
+  String get startScreenStats => 'Stats';
 
   @override
-  String get disablePageFade => '禁用页面淡入淡出';
+  String get disablePageFade => 'Disable page fade';
 
   @override
-  String get disablePageFadeOnSubtitle => '页面立即切换';
+  String get disablePageFadeOnSubtitle => 'Pages switch instantly';
 
   @override
-  String get disablePageFadeOffSubtitle => '切换标签页时页面淡入淡出';
+  String get disablePageFadeOffSubtitle => 'Pages fade when switching tabs';
 
   @override
-  String get rectangleBookCovers => '矩形书籍封面';
+  String get rectangleBookCovers => 'Rectangle book covers';
 
   @override
-  String get rectangleBookCoversOnSubtitle => '封面以 2:3 的书籍比例显示';
+  String get rectangleBookCoversOnSubtitle =>
+      'Covers display in 2:3 book proportion';
 
   @override
-  String get rectangleBookCoversOffSubtitle => '封面为正方形';
+  String get rectangleBookCoversOffSubtitle => 'Covers are square';
 
   @override
-  String get sectionAbsorbingCards => '收听卡片';
+  String get sectionAbsorbingCards => 'Absorbing Cards';
 
   @override
-  String get fullScreenPlayer => '全屏播放器';
+  String get fullScreenPlayer => 'Full screen player';
 
   @override
-  String get fullScreenPlayerOnSubtitle => '开启 - 播放时以全屏方式打开书籍';
+  String get fullScreenPlayerOnSubtitle =>
+      'On - books open in full screen when played';
 
   @override
-  String get fullScreenPlayerOffSubtitle => '关闭 - 在卡片视图内播放';
+  String get fullScreenPlayerOffSubtitle => 'Off - play within card view';
 
   @override
-  String get fullBookScrubber => '全书进度条';
+  String get fullBookScrubber => 'Full book scrubber';
 
   @override
-  String get fullBookScrubberOnSubtitle => '开启 - 可拖动滑块跳转至全书任意位置';
+  String get fullBookScrubberOnSubtitle =>
+      'On - seekable slider across entire book';
 
   @override
-  String get fullBookScrubberOffSubtitle => '关闭 - 仅显示进度条';
+  String get fullBookScrubberOffSubtitle => 'Off - progress bar only';
 
   @override
-  String get speedAdjustedTime => '变速后时间';
+  String get speedAdjustedTime => 'Speed-adjusted time';
 
   @override
-  String get speedAdjustedTimeOnSubtitle => '开启 - 剩余时间会根据播放速度变化';
+  String get speedAdjustedTimeOnSubtitle =>
+      'On - remaining time reflects playback speed';
 
   @override
-  String get speedAdjustedTimeOffSubtitle => '关闭 - 显示原始音频时长';
+  String get speedAdjustedTimeOffSubtitle => 'Off - showing raw audio duration';
 
   @override
-  String get buttonLayout => '按钮布局';
+  String get buttonLayout => 'Button layout';
 
   @override
-  String get buttonLayoutSubtitle => '卡片上操作按钮的排列方式';
+  String get buttonLayoutSubtitle =>
+      'How action buttons are arranged on the card';
 
   @override
-  String get whenAbsorbed => '当收听完成时';
+  String get whenAbsorbed => 'When absorbed';
 
   @override
-  String get whenAbsorbedInfoTitle => '当收听完成时';
+  String get whenAbsorbedInfoTitle => 'When Absorbed';
 
   @override
   String get whenAbsorbedInfoContent =>
-      '控制当您完成一本书或一集后收听卡片的行为。\n\n已完成的卡片会自动从从您的“正在收听”屏幕中移除。';
+      'Controls what happens to an absorbing card when you finish a book or episode.\n\nFinished cards are automatically removed from your Absorbing screen.';
 
   @override
-  String get whenAbsorbedSubtitle => '听完一本书或或一集后收听卡片的处理方式';
+  String get whenAbsorbedSubtitle =>
+      'What happens to the absorbing card when a book or episode finishes';
 
   @override
-  String get whenAbsorbedShowOverlay => '显示覆盖层';
+  String get whenAbsorbedShowOverlay => 'Show Overlay';
 
   @override
-  String get whenAbsorbedAutoRelease => '自动释放';
+  String get whenAbsorbedAutoRelease => 'Auto-release';
 
   @override
-  String get mergeLibraries => '合并媒体库';
+  String get mergeLibraries => 'Unified Absorbing page';
 
   @override
-  String get mergeLibrariesInfoTitle => '合并媒体库';
+  String get mergeLibrariesInfoTitle => 'Unified Absorbing Page';
 
   @override
   String get mergeLibrariesInfoContent =>
-      '启用后，“正在收听”界面会将您所有媒体库中正在进行的书籍和播客集中显示在一个视图中。禁用时，仅显示您当前所选媒体库中的项目。';
+      'When enabled, the Absorbing screen shows all your in-progress books and podcasts from every library in a single view. When disabled, only items from the library you currently have selected are shown.';
 
   @override
-  String get mergeLibrariesOnSubtitle => '正在收听页面显示来自所有媒体库的项目';
+  String get mergeLibrariesOnSubtitle =>
+      'Absorbing page shows items from all libraries';
 
   @override
-  String get mergeLibrariesOffSubtitle => '正在收听页面仅显示当前媒体库';
+  String get mergeLibrariesOffSubtitle =>
+      'Absorbing page shows current library only';
 
   @override
-  String get queueMode => '队列模式';
+  String get queueMode => 'Queue mode';
 
   @override
-  String get queueModeInfoTitle => '队列模式';
+  String get queueModeInfoTitle => 'Queue Mode';
 
   @override
-  String get queueModeInfoOff => '关闭';
+  String get queueModeInfoOff => 'Off';
 
   @override
-  String get queueModeInfoOffDesc => '当前书籍或单集播放完成后停止播放。';
+  String get queueModeInfoOffDesc =>
+      'Playback stops when the current book or episode finishes.';
 
   @override
-  String get queueModeInfoManual => '手动队列';
+  String get queueModeInfoManual => 'Manual Queue';
 
   @override
   String get queueModeInfoManualDesc =>
-      '你的收听卡片将作为播放列表使用。当一个播放完成时，会自动播放下一个未完成的卡片。通过书籍或单集详情页的\"添加至正在收听\"按钮添加项目，并在收听界面重新排序。';
+      'Your absorbing cards act as a playlist. When one finishes, the next non-finished card auto-plays. Add items with the \"Add to Absorbing\" button on a book or episode and reorder from the absorbing screen.';
 
   @override
-  String get queueModeOff => '关闭';
+  String get queueModeOff => 'Off';
 
   @override
-  String get queueModeManual => '手动';
+  String get queueModeManual => 'Manual';
 
   @override
-  String get queueModeAuto => '自动';
+  String get queueModeAuto => 'Auto';
 
   @override
   String get queueModePlaylist => 'Playlist';
@@ -921,492 +946,521 @@ class AppLocalizationsZh extends AppLocalizations {
   String get playlistAllFinished => 'All finished';
 
   @override
-  String get queueModeBooks => '书籍';
+  String get queueModeBooks => 'Books';
 
   @override
-  String get queueModePodcasts => '播客';
+  String get queueModePodcasts => 'Podcasts';
 
   @override
-  String get autoDownloadQueue => '自动下载队列';
+  String get autoDownloadQueue => 'Auto-download queue';
 
   @override
   String autoDownloadQueueOnSubtitle(int count) {
-    return '保留接下来 $count 个项目的下载';
+    return 'Keep next $count items downloaded';
   }
 
   @override
-  String get autoDownloadQueueOffSubtitle => '关闭 - 仅手动下载';
+  String get autoDownloadQueueOffSubtitle => 'Off - manual downloads only';
 
   @override
-  String get sectionPlayback => '播放';
+  String get sectionPlayback => 'Playback';
 
   @override
-  String get defaultSpeed => '默认速度';
+  String get defaultSpeed => 'Default speed';
 
   @override
-  String get defaultSpeedSubtitle => '新书以此速度开始播放 - 每本书会记住自己的速度';
+  String get defaultSpeedSubtitle =>
+      'New books start at this speed - each book remembers its own';
 
   @override
-  String get skipBack => '快退';
+  String get skipBack => 'Skip back';
 
   @override
-  String get skipForward => '快进';
+  String get skipForward => 'Skip forward';
 
   @override
-  String get chapterProgressInNotification => '通知中显示章节进度';
+  String get chapterProgressInNotification =>
+      'Chapter progress in notification';
 
   @override
-  String get chapterProgressOnSubtitle => '开启 - 锁屏显示章节进度';
+  String get chapterProgressOnSubtitle =>
+      'On - lockscreen shows chapter progress';
 
   @override
-  String get chapterProgressOffSubtitle => '关闭 - 锁屏显示全书进度';
+  String get chapterProgressOffSubtitle =>
+      'Off - lockscreen shows full book progress';
 
   @override
-  String get autoRewindOnResume => '恢复播放时自动倒退';
+  String get autoRewindOnResume => 'Auto-rewind on resume';
 
   @override
   String autoRewindOnSubtitle(String min, String max) {
-    return '开启 - 根据暂停时长倒回 $min 秒至 $max 秒';
+    return 'On - ${min}s to ${max}s based on pause length';
   }
 
   @override
-  String get autoRewindOffSubtitle => '关闭';
+  String get autoRewindOffSubtitle => 'Off';
 
   @override
-  String get rewindRange => '倒回范围';
+  String get rewindRange => 'Rewind range';
 
   @override
-  String get rewindAfterPausedFor => '暂停后倒回';
+  String get rewindAfterPausedFor => 'Rewind after paused for';
 
   @override
-  String get rewindAnyPause => '任何暂停';
+  String get rewindAnyPause => 'Any pause';
 
   @override
-  String get rewindAlwaysLabel => '始终';
+  String get rewindAlwaysLabel => 'Always';
 
   @override
-  String get rewindAlwaysDescription => '每次恢复播放都倒回，即使是短暂中断';
+  String get rewindAlwaysDescription =>
+      'Rewinds every time you resume, even after quick interruptions';
 
   @override
   String rewindAfterDescription(String seconds) {
-    return '仅在暂停 $seconds 秒以上时倒回';
+    return 'Only rewinds if paused for $seconds+ seconds';
   }
 
   @override
-  String get chapterBarrier => '章节边界';
+  String get chapterBarrier => 'Chapter barrier';
 
   @override
-  String get chapterBarrierSubtitle => '不回退到当前章节开头之前';
+  String get chapterBarrierSubtitle =>
+      'Don\'t auto-rewind past the start of the current chapter';
 
   @override
-  String get rewindInstant => '立即';
+  String get rewindInstant => 'Instant';
 
   @override
   String rewindPause(String duration) {
-    return '暂停 $duration';
+    return '$duration pause';
   }
 
   @override
-  String get rewindNoRewind => '不倒回';
+  String get rewindNoRewind => 'no rewind';
 
   @override
   String rewindSeconds(String seconds) {
-    return '倒回 $seconds 秒';
+    return '${seconds}s rewind';
   }
 
   @override
-  String get sectionSleepTimer => '睡眠定时器';
+  String get sectionSleepTimer => 'Sleep Timer';
 
   @override
-  String get sleep => '睡眠';
+  String get sleep => 'Sleep';
 
   @override
-  String get sleepTimer => '睡眠定时器';
+  String get sleepTimer => 'Sleep Timer';
 
   @override
-  String get shakeDuringSleepTimer => '睡眠定时器期间摇一摇';
+  String get shakeDuringSleepTimer => 'Shake during sleep timer';
 
   @override
-  String get shakeOff => '关闭';
+  String get shakeOff => 'Off';
 
   @override
-  String get shakeAddTime => '添加时间';
+  String get shakeAddTime => 'Add Time';
 
   @override
-  String get shakeReset => '重置';
+  String get shakeReset => 'Reset';
 
   @override
-  String get shakeAdds => '摇一摇添加';
+  String get shakeAdds => 'Shake adds';
 
   @override
   String shakeAddsValue(int minutes) {
-    return '$minutes 分钟';
+    return '$minutes min';
   }
 
   @override
-  String get shakeSensitivity => '摇一摇灵敏度';
+  String get shakeSensitivity => 'Shake sensitivity';
 
   @override
-  String get shakeSensitivityVeryLow => '非常低';
+  String get shakeSensitivityVeryLow => 'Very low';
 
   @override
-  String get shakeSensitivityLow => '低';
+  String get shakeSensitivityLow => 'Low';
 
   @override
-  String get shakeSensitivityMedium => '中';
+  String get shakeSensitivityMedium => 'Medium';
 
   @override
-  String get shakeSensitivityHigh => '高';
+  String get shakeSensitivityHigh => 'High';
 
   @override
-  String get shakeSensitivityVeryHigh => '非常高';
+  String get shakeSensitivityVeryHigh => 'Very high';
 
   @override
-  String get resetTimerOnPause => '暂停时重置定时器';
+  String get resetTimerOnPause => 'Reset timer on pause';
 
   @override
-  String get resetTimerOnPauseOnSubtitle => '恢复播放时，定时器从完整时长重新开始';
+  String get resetTimerOnPauseOnSubtitle =>
+      'Timer restarts from full duration when you resume';
 
   @override
-  String get resetTimerOnPauseOffSubtitle => '定时器从上次停止的位置继续';
+  String get resetTimerOnPauseOffSubtitle =>
+      'Timer continues from where it left off';
 
   @override
-  String get fadeVolumeBeforeSleep => '睡前渐弱音量';
+  String get fadeVolumeBeforeSleep => 'Fade volume before sleep';
 
   @override
-  String get fadeVolumeOnSubtitle => '在最后30秒逐渐降低音量';
+  String get fadeVolumeOnSubtitle =>
+      'Gradually lowers volume during the last 30 seconds';
 
   @override
-  String get fadeVolumeOffSubtitle => '定时器结束时立即停止播放';
+  String get fadeVolumeOffSubtitle =>
+      'Playback stops immediately when timer ends';
 
   @override
-  String get autoSleepTimer => '自动睡眠定时器';
+  String get autoSleepTimer => 'Auto sleep timer';
 
   @override
   String autoSleepTimerOnSubtitle(String start, String end, int duration) {
-    return '$start - $end - $duration 分钟';
+    return '$start - $end - $duration min';
   }
 
   @override
-  String get autoSleepTimerOffSubtitle => '在指定时间段内自动启动睡眠定时器';
+  String get autoSleepTimerOffSubtitle =>
+      'Automatically start a sleep timer during a time window';
 
   @override
-  String get windowStart => '开始时间';
+  String get windowStart => 'Window start';
 
   @override
-  String get windowEnd => '结束时间';
+  String get windowEnd => 'Window end';
 
   @override
-  String get timerDuration => '定时器时长';
+  String get timerDuration => 'Timer duration';
 
   @override
-  String get timer => '定时器';
+  String get timer => 'Timer';
 
   @override
-  String get endOfChapter => '章节结束';
+  String get endOfChapter => 'End of Chapter';
 
   @override
   String startMinTimer(int minutes) {
-    return '启动 $minutes 分钟定时器';
+    return 'Start $minutes min timer';
   }
 
   @override
   String sleepAfterChapters(int count, String label) {
-    return '在 $count $label后睡眠';
+    return 'Sleep after $count $label';
   }
 
   @override
-  String get addMoreTime => '添加时间';
+  String get addMoreTime => 'Add more time';
 
   @override
-  String get cancelTimer => '取消定时器';
+  String get cancelTimer => 'Cancel timer';
 
   @override
   String chaptersLeftCount(int count) {
-    return '剩余 $count 章';
+    return '$count ch left';
   }
 
   @override
-  String get sectionDownloadsAndStorage => '下载与存储';
+  String get sectionDownloadsAndStorage => 'Downloads & Storage';
 
   @override
-  String get downloadOverWifiOnly => '仅在 Wi-Fi 下下载';
+  String get downloadOverWifiOnly => 'Download over Wi-Fi only';
 
   @override
-  String get downloadOverWifiOnSubtitle => '开启 - 禁止使用移动数据下载';
+  String get downloadOverWifiOnSubtitle =>
+      'On - mobile data blocked for downloads';
 
   @override
-  String get downloadOverWifiOffSubtitle => '关闭 - 任何网络均可下载';
+  String get downloadOverWifiOffSubtitle => 'Off - downloads on any connection';
 
   @override
-  String get autoDownloadOnWifi => 'Wi-Fi 下自动下载';
+  String get autoDownloadOnWifi => 'Auto download on Wi-Fi';
 
   @override
-  String get autoDownloadOnWifiInfoTitle => 'Wi-Fi 下自动下载';
+  String get autoDownloadOnWifiInfoTitle => 'Auto Download on Wi-Fi';
 
   @override
   String get autoDownloadOnWifiInfoContent =>
-      '当你在 Wi-Fi 下开始流式播放一本书时，它将自动在后台下载整本书。这样你无需手动开始下载即可离线收听。';
+      'When you start streaming a book over Wi-Fi, it will automatically begin downloading the full book in the background. This way you\'ll have it available offline without having to manually start the download.';
 
   @override
-  String get autoDownloadOnWifiOnSubtitle => '在 Wi-Fi 下开始流式播放时，书籍将在后台下载';
+  String get autoDownloadOnWifiOnSubtitle =>
+      'Books download in the background when you start streaming on Wi-Fi';
 
   @override
-  String get autoDownloadOnWifiOffSubtitle => '关闭';
+  String get autoDownloadOnWifiOffSubtitle => 'Off';
 
   @override
-  String get concurrentDownloads => '同时下载数';
+  String get concurrentDownloads => 'Concurrent downloads';
 
   @override
-  String get autoDownload => '自动下载';
+  String get autoDownload => 'Auto-download';
 
   @override
-  String get autoDownloadSubtitle => '在系列或播客详情页单独启用';
+  String get autoDownloadSubtitle =>
+      'Enable per series or podcast from their detail pages';
 
   @override
-  String get keepNext => '保留接下来';
+  String get keepNext => 'Keep next';
 
   @override
-  String get keepNextInfoTitle => '保留接下来';
+  String get keepNextInfoTitle => 'Keep Next';
 
   @override
   String get keepNextInfoContent =>
-      '要保留下载的项目数量，包括你当前正在收听的项目。例如，\"保留接下来3个\"意味着当前书籍加上系列或播客中的下2本将保持下载状态。';
+      'The number of items to keep downloaded, including the one you\'re currently listening to. For example, \"Keep next 3\" means the current book plus the next 2 in the series or podcast will stay downloaded.';
 
   @override
-  String get deleteAbsorbedDownloads => '删除已完成的下载';
+  String get deleteAbsorbedDownloads => 'Delete absorbed downloads';
 
   @override
-  String get deleteAbsorbedDownloadsInfoTitle => '删除已完成的下载';
+  String get deleteAbsorbedDownloadsInfoTitle => 'Delete Absorbed Downloads';
 
   @override
   String get deleteAbsorbedDownloadsInfoContent =>
-      '启用后，听完的书籍或剧集将自动从设备中删除。这有助于在你浏览媒体库时释放存储空间。';
+      'When enabled, downloaded books or episodes are automatically deleted from your device after you finish listening to them. This helps free up storage space as you work through your library.';
 
   @override
-  String get deleteAbsorbedOnSubtitle => '已完成项目将被移除以节省空间';
+  String get deleteAbsorbedOnSubtitle =>
+      'Finished items are removed to save space';
 
   @override
-  String get deleteAbsorbedOffSubtitle => '关闭 - 保留已完成的下载';
+  String get deleteAbsorbedOffSubtitle => 'Off - finished downloads kept';
 
   @override
-  String get downloadLocation => '下载位置';
+  String get downloadLocation => 'Download location';
 
   @override
-  String get storageUsed => '已用存储';
+  String get storageUsed => 'Storage used';
 
   @override
   String storageUsedByDownloads(String size) {
-    return '下载已使用 $size';
+    return '$size used by downloads';
   }
 
   @override
   String storageFreeOfTotal(String free, String total) {
-    return '总计 $total，可用 $free';
+    return '$free free of $total';
   }
 
   @override
-  String get manageDownloads => '管理下载';
+  String get manageDownloads => 'Manage downloads';
 
   @override
-  String get streamingCache => '流式缓存';
+  String get streamingCache => 'Streaming cache';
 
   @override
-  String get streamingCacheInfoTitle => '流式缓存';
+  String get streamingCacheInfoTitle => 'Streaming Cache';
 
   @override
   String get streamingCacheInfoContent =>
-      '将流式播放的音频缓存到磁盘，以便在快退或重复收听时无需重新下载。缓存会自动管理 - 达到大小限制时，最旧的文件会被移除。这与完全下载的书籍是分开的';
+      'Caches streamed audio to disk so it doesn\'t need to be re-downloaded if you seek back or re-listen to sections. The cache is automatically managed - oldest files are removed when the size limit is reached. This is separate from fully downloaded books.';
 
   @override
-  String get streamingCacheOff => '关闭';
+  String get streamingCacheOff => 'Off';
 
   @override
-  String get streamingCacheOffSubtitle => '关闭 - 音频直接流式播放，不缓存';
+  String get streamingCacheOffSubtitle =>
+      'Off - audio is streamed without caching';
 
   @override
   String streamingCacheOnSubtitle(int size) {
-    return '$size MB - 最近流式播放的音频将缓存到磁盘';
+    return '$size MB - recently streamed audio is cached to disk';
   }
 
   @override
-  String get clearCache => '清除缓存';
+  String get clearCache => 'Clear cache';
 
   @override
-  String get streamingCacheCleared => '流式缓存已清除';
+  String get streamingCacheCleared => 'Streaming cache cleared';
 
   @override
-  String get sectionLibrary => '媒体库';
+  String get sectionLibrary => 'Library';
 
   @override
-  String get hideEbookOnlyTitles => '隐藏仅含电子书的标题';
+  String get hideEbookOnlyTitles => 'Hide eBook-only titles';
 
   @override
-  String get hideEbookOnlyOnSubtitle => '隐藏没有音频文件的书籍';
+  String get hideEbookOnlyOnSubtitle => 'Books with no audio files are hidden';
 
   @override
-  String get hideEbookOnlyOffSubtitle => '关 - 显示所有媒体库项目';
+  String get hideEbookOnlyOffSubtitle => 'Off - all library items shown';
 
   @override
-  String get showGoodreadsButton => '显示 Goodreads 按钮';
+  String get showGoodreadsButton => 'Show Goodreads button';
 
   @override
-  String get showGoodreadsOnSubtitle => '书籍详情页显示 Goodreads 的链接';
+  String get showGoodreadsOnSubtitle =>
+      'Book detail sheet shows a link to Goodreads';
 
   @override
-  String get showGoodreadsOffSubtitle => '关 - 隐藏 Goodreads 按钮';
+  String get showGoodreadsOffSubtitle => 'Off - Goodreads button hidden';
 
   @override
-  String get sectionPermissions => '权限';
+  String get sectionPermissions => 'Permissions';
 
   @override
-  String get notifications => '通知';
+  String get notifications => 'Notifications';
 
   @override
-  String get notificationsSubtitle => '用于下载进度和播放控制';
+  String get notificationsSubtitle =>
+      'For download progress and playback controls';
 
   @override
-  String get notificationsAlreadyEnabled => '通知权限已启用';
+  String get notificationsAlreadyEnabled => 'Notifications already enabled';
 
   @override
-  String get unrestrictedBattery => '无限制电池权限';
+  String get unrestrictedBattery => 'Unrestricted battery';
 
   @override
-  String get unrestrictedBatterySubtitle => '防止 Android 终止后台播放';
+  String get unrestrictedBatterySubtitle =>
+      'Prevents Android from killing background playback';
 
   @override
-  String get batteryAlreadyUnrestricted => '电池优化已关闭';
+  String get batteryAlreadyUnrestricted => 'Battery already unrestricted';
 
   @override
-  String get sectionIssuesAndSupport => '问题与支持';
+  String get sectionIssuesAndSupport => 'Issues & Support';
 
   @override
-  String get bugsAndFeatureRequests => '错误报告与功能请求';
+  String get bugsAndFeatureRequests => 'Bugs & Feature Requests';
 
   @override
-  String get bugsAndFeatureRequestsSubtitle => '在 GitHub 上提交问题';
+  String get bugsAndFeatureRequestsSubtitle => 'Open an issue on GitHub';
 
   @override
-  String get joinDiscord => '加入 Discord';
+  String get joinDiscord => 'Join Discord';
 
   @override
-  String get joinDiscordSubtitle => '社区、支持与更新';
+  String get joinDiscordSubtitle => 'Community, support, and updates';
 
   @override
-  String get contact => '联系我们';
+  String get contact => 'Contact';
 
   @override
-  String get contactSubtitle => '通过邮件发送设备信息';
+  String get contactSubtitle => 'Send device info via email';
 
   @override
-  String get enableLogging => '启用日志记录';
+  String get enableLogging => 'Enable logging';
 
   @override
-  String get enableLoggingOnSubtitle => '开启 - 日志保存到文件（重启生效）';
+  String get enableLoggingOnSubtitle =>
+      'On - logs saved to file (restart to apply)';
 
   @override
-  String get enableLoggingOffSubtitle => '关闭 - 不捕获日志';
+  String get enableLoggingOffSubtitle => 'Off - no logs captured';
 
   @override
-  String get loggingEnabledSnackbar => '日志记录已启用 - 重启应用以开始捕获';
+  String get loggingEnabledSnackbar =>
+      'Logging enabled - restart app to start capturing';
 
   @override
-  String get loggingDisabledSnackbar => '日志记录已禁用 - 重启应用以停止捕获';
+  String get loggingDisabledSnackbar =>
+      'Logging disabled - restart app to stop capturing';
 
   @override
-  String get sendLogs => '发送日志';
+  String get sendLogs => 'Send logs';
 
   @override
-  String get sendLogsSubtitle => '以附件形式分享日志文件';
+  String get sendLogsSubtitle => 'Share log file as attachment';
 
   @override
   String failedToShare(String error) {
-    return '分享失败: $error';
+    return 'Failed to share: $error';
   }
 
   @override
-  String get clearLogs => '清除日志';
+  String get clearLogs => 'Clear logs';
 
   @override
-  String get logsCleared => '日志已清除';
+  String get logsCleared => 'Logs cleared';
 
   @override
-  String get sectionAdvanced => '高级';
+  String get sectionAdvanced => 'Advanced';
 
   @override
-  String get localServer => '本地服务器';
+  String get localServer => 'Local server';
 
   @override
-  String get localServerInfoTitle => '本地服务器';
+  String get localServerInfoTitle => 'Local Server';
 
   @override
   String get localServerInfoContent =>
-      '如果你在家运行 Audiobookshelf 服务器，可以在此设置本地/局域网 URL。Absorb 在检测到您处于家庭网络时会自动切换到更快的本地连接，而在外出时则回退到远程 URL。';
+      'If you run your Audiobookshelf server at home, you can set a local/LAN URL here. Absorb will automatically switch to the faster local connection when it detects you\'re on your home network, and fall back to your remote URL when you\'re away.';
 
   @override
-  String get localServerOnConnectedSubtitle => '已通过本地服务器连接';
+  String get localServerOnConnectedSubtitle => 'Connected via local server';
 
   @override
-  String get localServerOnRemoteSubtitle => '已启用 - 正在使用远程服务器';
+  String get localServerOnRemoteSubtitle => 'Enabled - using remote server';
 
   @override
-  String get localServerOffSubtitle => '在家庭 Wi-Fi 下自动切换到局域网服务器';
+  String get localServerOffSubtitle =>
+      'Auto-switch to a LAN server on your home WiFi';
 
   @override
-  String get localServerUrlLabel => '本地服务器 URL';
+  String get localServerUrlLabel => 'Local server URL';
 
   @override
   String get localServerUrlHint => 'http://192.168.1.100:13378';
 
   @override
-  String get localServerUrlSetSnackbar => '本地服务器 URL 已设置 - 当处于家庭网络时将自动连接';
+  String get localServerUrlSetSnackbar =>
+      'Local server URL set - will connect automatically when on your home network';
 
   @override
-  String get disableAudioFocus => '禁用音频焦点';
+  String get disableAudioFocus => 'Disable audio focus';
 
   @override
-  String get disableAudioFocusInfoTitle => '音频焦点';
+  String get disableAudioFocusInfoTitle => 'Audio Focus';
 
   @override
   String get disableAudioFocusInfoContent =>
-      '默认情况下，Android 一次只给一个应用音频“焦点” - 当 Absorb 播放时，其他音频（音乐、视频）会暂停。禁用音频焦点可让 Absorb 与其他应用同时播放。无论此设置如何，来电时始终会暂停播放。';
+      'By default, Android gives audio \"focus\" to one app at a time - when Absorb plays, other audio (music, videos) will pause. Disabling audio focus lets Absorb play alongside other apps. Phone calls will still pause playback regardless of this setting.';
 
   @override
-  String get disableAudioFocusOnSubtitle => '开启 - 与其他音频同时播放（来电时仍会暂停）';
+  String get disableAudioFocusOnSubtitle =>
+      'On - plays alongside other audio (still pauses for calls)';
 
   @override
-  String get disableAudioFocusOffSubtitle => '关闭 - Absorb 播放时其他音频暂停';
+  String get disableAudioFocusOffSubtitle =>
+      'Off - other audio pauses when Absorb plays';
 
   @override
-  String get restartRequired => '需要重启';
+  String get restartRequired => 'Restart Required';
 
   @override
-  String get restartRequiredContent => '音频焦点更改需要完全重启应用才能生效。立即关闭应用？';
+  String get restartRequiredContent =>
+      'Audio focus change requires a full restart to take effect. Close the app now?';
 
   @override
-  String get closeApp => '关闭应用';
+  String get closeApp => 'Close App';
 
   @override
-  String get trustAllCertificates => '信任所有证书';
+  String get trustAllCertificates => 'Trust all certificates';
 
   @override
-  String get trustAllCertificatesInfoTitle => '自签名证书';
+  String get trustAllCertificatesInfoTitle => 'Self-signed Certificates';
 
   @override
   String get trustAllCertificatesInfoContent =>
-      '如果你的 Audiobookshelf 服务器使用自签名证书或自定义根 CA，请启用此选项。启用后，Absorb 将跳过所有连接的 TLS 证书验证。仅在您信任当前网络环境时启用。';
+      'Enable this if your Audiobookshelf server uses a self-signed certificate or a custom root CA. When enabled, Absorb will skip TLS certificate verification for all connections. Only enable this if you trust your network.';
 
   @override
-  String get trustAllCertificatesOnSubtitle => '开启 - 接受所有证书';
+  String get trustAllCertificatesOnSubtitle =>
+      'On - accepting all certificates';
 
   @override
-  String get trustAllCertificatesOffSubtitle => '关闭 - 仅接受受信任的证书';
+  String get trustAllCertificatesOffSubtitle =>
+      'Off - only trusted certificates accepted';
 
   @override
-  String get supportTheDev => '支持开发者';
+  String get supportTheDev => 'Support the Dev';
 
   @override
-  String get buyMeACoffee => '请我喝杯咖啡';
+  String get buyMeACoffee => 'Buy me a coffee';
 
   @override
   String appVersionFormat(String version) {
@@ -1415,285 +1469,295 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String appVersionWithServerFormat(String version, String serverVersion) {
-    return 'Absorb v$version  -  服务器 $serverVersion';
+    return 'Absorb v$version  -  Server $serverVersion';
   }
 
   @override
-  String get backupAndRestore => '备份与恢复';
+  String get backupAndRestore => 'Backup & Restore';
 
   @override
-  String get backupAndRestoreSubtitle => '将所有设置保存到文件或从文件恢复';
+  String get backupAndRestoreSubtitle =>
+      'Save or restore all your settings to a file';
 
   @override
-  String get backUp => '备份';
+  String get backUp => 'Back up';
 
   @override
-  String get restore => '恢复';
+  String get restore => 'Restore';
 
   @override
-  String get allBookmarks => '所有书签';
+  String get allBookmarks => 'All Bookmarks';
 
   @override
-  String get allBookmarksSubtitle => '查看所有书籍的书签';
+  String get allBookmarksSubtitle => 'View bookmarks across all books';
 
   @override
-  String get switchAccount => '切换账户';
+  String get switchAccount => 'Switch Account';
 
   @override
-  String get addAccount => '添加账户';
+  String get addAccount => 'Add Account';
 
   @override
-  String get logOut => '退出登录';
+  String get logOut => 'Log out';
 
   @override
-  String get includeLoginInfoTitle => '包含登录信息？';
+  String get includeLoginInfoTitle => 'Include login info?';
 
   @override
   String get includeLoginInfoContent =>
-      '你是否希望在备份中包含所有已保存账号的登录凭据？\n\n这会让在新设备上恢复变得容易，但文件中将包含您的身份验证令牌。';
+      'Would you like to include login credentials for all your saved accounts in the backup?\n\nThis makes it easy to restore on a new device, but the file will contain your auth tokens.';
 
   @override
-  String get noSettingsOnly => '否，仅设置';
+  String get noSettingsOnly => 'No, settings only';
 
   @override
-  String get yesIncludeAccounts => '是，包含账户';
+  String get yesIncludeAccounts => 'Yes, include accounts';
 
   @override
-  String get backupSavedWithAccounts => '备份已保存（包含账户）';
+  String get backupSavedWithAccounts => 'Backup saved (with accounts)';
 
   @override
-  String get backupSavedSettingsOnly => '备份已保存（仅设置）';
+  String get backupSavedSettingsOnly => 'Backup saved (settings only)';
 
   @override
   String backupFailed(String error) {
-    return '备份失败: $error';
+    return 'Backup failed: $error';
   }
 
   @override
-  String get restoreBackupTitle => '恢复备份？';
+  String get restoreBackupTitle => 'Restore backup?';
 
   @override
-  String get restoreBackupContent => '这将用备份中的值替换您当前的所有设置。';
+  String get restoreBackupContent =>
+      'This will replace all your current settings with the backup values.';
 
   @override
   String fromAbsorbVersion(String version) {
-    return '来自 Absorb v$version';
+    return 'From Absorb v$version';
   }
 
   @override
   String restoreAccountsChip(int count) {
-    return '$count 个账户';
+    return '$count account(s)';
   }
 
   @override
   String restoreBookmarksChip(int count) {
-    return '$count 本书的书签';
+    return 'Bookmarks for $count book(s)';
   }
 
   @override
-  String get restoreCustomHeadersChip => '自定义请求头';
+  String get restoreCustomHeadersChip => 'Custom headers';
 
   @override
-  String get invalidBackupFile => '无效的备份文件';
+  String get invalidBackupFile => 'Invalid backup file';
 
   @override
-  String get settingsRestoredSuccessfully => '设置恢复成功';
+  String get settingsRestoredSuccessfully => 'Settings restored successfully';
 
   @override
   String restoreFailed(String error) {
-    return '恢复失败: $error';
+    return 'Restore failed: $error';
   }
 
   @override
-  String get logOutTitle => '退出登录？';
+  String get logOutTitle => 'Log out?';
 
   @override
-  String get logOutContent => '这将使你退出登录。你的下载内容将保留在本设备上。';
+  String get logOutContent =>
+      'This will sign you out. Your downloads will stay on this device.';
 
   @override
-  String get signOut => '退出登录';
+  String get signOut => 'Sign Out';
 
   @override
-  String get removeAccountTitle => '移除账户？';
+  String get removeAccountTitle => 'Remove Account?';
 
   @override
   String removeAccountContent(String username, String server) {
-    return '从已保存账户中移除 $server 上的 $username？\n\n您可以稍后通过重新登录来再次添加。';
+    return 'Remove $username on $server from saved accounts?\n\nYou can always add it back later by signing in again.';
   }
 
   @override
-  String get switchAccountTitle => '切换账户？';
+  String get switchAccountTitle => 'Switch Account?';
 
   @override
   String switchAccountContent(String username, String server) {
-    return '切换到 $server 上的 $username？\n\n你当前的播放将停止，应用将重新加载另一个账户的数据。';
+    return 'Switch to $username on $server?\n\nYour current playback will be stopped and the app will reload with the other account\'s data.';
   }
 
   @override
-  String get switchButton => '切换';
+  String get switchButton => 'Switch';
 
   @override
-  String get downloadLocationSheetTitle => '下载位置';
+  String get downloadLocationSheetTitle => 'Download Location';
 
   @override
-  String get downloadLocationSheetSubtitle => '选择有声读物的保存位置';
+  String get downloadLocationSheetSubtitle =>
+      'Choose where audiobooks are saved';
 
   @override
-  String get currentLocation => '当前位置';
+  String get currentLocation => 'Current location';
 
   @override
-  String get existingDownloadsWarning => '现有的下载内容会保留在其当前位置。只有新的下载内容才会使用新路径。';
+  String get existingDownloadsWarning =>
+      'Existing downloads stay in their current location. Only new downloads use the new path.';
 
   @override
-  String get chooseFolder => '选择文件夹';
+  String get chooseFolder => 'Choose folder';
 
   @override
-  String get chooseDownloadFolder => '选择下载文件夹';
+  String get chooseDownloadFolder => 'Choose download folder';
 
   @override
-  String get storagePermissionDenied => '存储权限已被永久拒绝 - 请在应用设置中启用';
+  String get storagePermissionDenied =>
+      'Storage permission permanently denied - enable it in app settings';
 
   @override
-  String get openSettings => '打开设置';
+  String get openSettings => 'Open Settings';
 
   @override
-  String get storagePermissionRequired => '自定义下载位置需要存储权限';
+  String get storagePermissionRequired =>
+      'Storage permission is required for custom download locations';
 
   @override
-  String get cannotWriteToFolder => '无法写入该文件夹 - 请选择其他位置或在系统设置中授予文件访问权限';
+  String get cannotWriteToFolder =>
+      'Cannot write to that folder - choose another location or grant file access in system settings';
 
   @override
   String downloadLocationSetTo(String label) {
-    return '下载位置已设置为 $label';
+    return 'Download location set to $label';
   }
 
   @override
-  String get resetToDefault => '重置为默认';
+  String get resetToDefault => 'Reset to default';
 
   @override
-  String get resetToDefaultStorage => '重置为默认存储';
+  String get resetToDefaultStorage => 'Reset to default storage';
 
   @override
-  String get tipsAndHiddenFeatures => '技巧与隐藏功能';
+  String get tipsAndHiddenFeatures => 'Tips & Hidden Features';
 
   @override
-  String get tipsSubtitle => '充分利用 Absorb';
+  String get tipsSubtitle => 'Get the most out of Absorb';
 
   @override
-  String get adminTitle => '服务器管理';
+  String get adminTitle => 'Server Admin';
 
   @override
-  String get adminServer => '服务器';
+  String get adminServer => 'Server';
 
   @override
-  String get adminVersion => '版本';
+  String get adminVersion => 'Version';
 
   @override
-  String get adminUsers => '用户';
+  String get adminUsers => 'Users';
 
   @override
-  String get adminOnline => '在线';
+  String get adminOnline => 'Online';
 
   @override
-  String get adminBackup => '备份';
+  String get adminBackup => 'Backup';
 
   @override
-  String get adminPurgeCache => '清除缓存';
+  String get adminPurgeCache => 'Purge Cache';
 
   @override
-  String get adminManage => '管理';
+  String get adminManage => 'Manage';
 
   @override
   String adminUsersSubtitle(int userCount, int onlineCount) {
-    return '$userCount 个账户 - $onlineCount 人在线';
+    return '$userCount accounts - $onlineCount online';
   }
 
   @override
-  String get adminPodcasts => '播客';
+  String get adminPodcasts => 'Podcasts';
 
   @override
-  String get adminPodcastsSubtitle => '搜索、添加和管理节目';
+  String get adminPodcastsSubtitle => 'Search, add & manage shows';
 
   @override
-  String get adminScan => '扫描';
+  String get adminScan => 'Scan';
 
   @override
-  String get adminScanning => '正在扫描...';
+  String get adminScanning => 'Scanning...';
 
   @override
-  String get adminMatchAll => '匹配全部';
+  String get adminMatchAll => 'Match All';
 
   @override
-  String get adminMatching => '正在匹配...';
+  String get adminMatching => 'Matching...';
 
   @override
-  String get adminMatchAllTitle => '匹配所有项目？';
+  String get adminMatchAllTitle => 'Match All Items?';
 
   @override
   String adminMatchAllContent(String name) {
-    return '为 $name 中的所有项目匹配元数据？这可能需要一些时间。';
+    return 'Match metadata for all items in $name? This can take a while.';
   }
 
   @override
   String adminScanStarted(String name) {
-    return '已开始扫描 $name';
+    return 'Scan started for $name';
   }
 
   @override
-  String get adminBackupCreated => '备份已创建';
+  String get adminBackupCreated => 'Backup created';
 
   @override
-  String get adminBackupFailed => '备份失败';
+  String get adminBackupFailed => 'Backup failed';
 
   @override
-  String get adminCachePurged => '缓存已清除';
+  String get adminCachePurged => 'Cache purged';
 
   @override
   String get adminRmab => 'ReadMeABook';
 
   @override
-  String get adminRmabSubtitle => '在应用中打开';
+  String get adminRmabSubtitle => 'Open in app';
 
   @override
-  String get adminRmabAdd => '添加 ReadMeABook 集成';
+  String get adminRmabAdd => 'Add ReadMeABook integration';
 
   @override
   String get adminRmabUrlTitle => 'ReadMeABook URL';
 
   @override
-  String get adminRmabUrlHelp => '粘贴包含登录令牌的 URL。在 RMAB 的管理 -> 用户中生成。';
+  String get adminRmabUrlHelp =>
+      'Paste your URL with login token. Generate one in RMAB, Admin, Users.';
 
   @override
   String get adminRmabUrlHint => 'https://rmab.example.com/?token=...';
 
   @override
-  String get adminRmabInvalidUrl => '请输入有效的 http(s) URL';
+  String get adminRmabInvalidUrl => 'Enter a valid http(s) URL';
 
   @override
-  String get adminRmabSaved => '已保存 ReadMeABook';
+  String get adminRmabSaved => 'ReadMeABook saved';
 
   @override
-  String get adminRmabRemoved => '已移除 ReadMeABook';
+  String get adminRmabRemoved => 'ReadMeABook removed';
 
   @override
-  String get adminRmabReload => '重新加载';
+  String get adminRmabReload => 'Reload';
 
   @override
-  String get adminRmabLoadFailed => '无法加载 ReadMeABook，请检查 URL。';
+  String get adminRmabLoadFailed =>
+      'Couldn\'t load ReadMeABook. Check your URL.';
 
   @override
-  String get adminRmabConnected => '已连接';
+  String get adminRmabConnected => 'Connected';
 
   @override
-  String get adminRmabAskAdmin => '请向您的服务器管理员获取登录 URL';
+  String get adminRmabAskAdmin => 'Get a login URL from your server admin';
 
   @override
   String get adminRmabUrlHelpUser =>
-      '请向您的服务器管理员获取登录 URL，管理员可在 RMAB 的管理 -> 用户中生成。';
+      'Get a login URL from your server admin. They generate one in RMAB > Admin > Users.';
 
   @override
   String get adminRmabSettingsInfo =>
-      'ReadMeABook 是一个用于请求和下载有声书的自托管服务，需要由您的服务器管理员安装和设置。';
+      'ReadMeABook is a self-hosted service for requesting and downloading audiobooks. It must be installed and set up by your server admin.';
 
   @override
   String get rmabConfigTitle => 'Connect ReadMeABook';
@@ -1894,76 +1958,76 @@ class AppLocalizationsZh extends AppLocalizations {
 
   @override
   String narratedBy(String narrator) {
-    return '朗读者: $narrator';
+    return 'Narrated by $narrator';
   }
 
   @override
-  String get onAudible => '在 Audible 上';
+  String get onAudible => 'on Audible';
 
   @override
   String percentComplete(String percent) {
-    return '已完成 $percent%';
+    return '$percent% complete';
   }
 
   @override
-  String get absorbing => '收听中...';
+  String get absorbing => 'Absorbing...';
 
   @override
-  String get absorbAgain => '重新收听';
+  String get absorbAgain => 'Absorb Again';
 
   @override
-  String get absorb => '收听';
+  String get absorb => 'Absorb';
 
   @override
-  String get ebookOnlyNoAudio => '仅电子书 - 无音频';
+  String get ebookOnlyNoAudio => 'eBook Only - No Audio';
 
   @override
-  String get fullyAbsorbed => '已完成';
+  String get fullyAbsorbed => 'Fully Absorbed';
 
   @override
-  String get fullyAbsorbAction => '标记为已完成';
+  String get fullyAbsorbAction => 'Fully Absorb';
 
   @override
-  String get removeFromAbsorbing => '从收听中移除';
+  String get removeFromAbsorbing => 'Remove from Absorbing';
 
   @override
-  String get addToAbsorbing => '添加到收听中';
+  String get addToAbsorbing => 'Add to Absorbing';
 
   @override
-  String get removedFromAbsorbing => '已从收听中移除';
+  String get removedFromAbsorbing => 'Removed from Absorbing';
 
   @override
-  String get addedToAbsorbing => '已添加到收听中';
+  String get addedToAbsorbing => 'Added to Absorbing';
 
   @override
-  String get addToPlaylist => '添加到播放列表';
+  String get addToPlaylist => 'Add to Playlist';
 
   @override
-  String get addToCollection => '添加到收藏集';
+  String get addToCollection => 'Add to Collection';
 
   @override
-  String get downloadEbook => '下载电子书';
+  String get downloadEbook => 'Download eBook';
 
   @override
-  String get downloadEbookAgain => '重新下载电子书';
+  String get downloadEbookAgain => 'Download eBook Again';
 
   @override
-  String get resetProgress => '重置进度';
+  String get resetProgress => 'Reset Progress';
 
   @override
-  String get lookupLocalMetadata => '查找本地元数据';
+  String get lookupLocalMetadata => 'Lookup Local Metadata';
 
   @override
-  String get reLookupLocalMetadata => '重新查找本地元数据';
+  String get reLookupLocalMetadata => 'Re-Lookup Local Metadata';
 
   @override
-  String get clearLocalMetadata => '清除本地元数据';
+  String get clearLocalMetadata => 'Clear Local Metadata';
 
   @override
-  String get searchOnGoodreads => '在 Goodreads 上搜索';
+  String get searchOnGoodreads => 'Search on Goodreads';
 
   @override
-  String get editServerDetails => '编辑服务器详情';
+  String get editServerDetails => 'Edit Server Details';
 
   @override
   String get encodeTab => 'Encode';
@@ -2016,273 +2080,283 @@ class AppLocalizationsZh extends AppLocalizations {
       'If you have the watcher disabled you will need to re-scan this audiobook afterwards.';
 
   @override
-  String get aboutSection => '关于';
+  String get aboutSection => 'About';
 
   @override
   String chaptersCount(int count) {
-    return '章节 ($count)';
+    return 'Chapters ($count)';
   }
 
   @override
-  String get chapters => '章节';
+  String get chapters => 'Chapters';
 
   @override
-  String get failedToLoad => '加载失败';
+  String get failedToLoad => 'Failed to load';
 
   @override
   String startedDate(String date) {
-    return '开始于 $date';
+    return 'Started $date';
   }
 
   @override
   String finishedDate(String date) {
-    return '完成于 $date';
+    return 'Finished $date';
   }
 
   @override
   String andCountMore(int count) {
-    return '还有 $count 个';
+    return 'and $count more';
   }
 
   @override
-  String get markAsFullyAbsorbedQuestion => '标记为已完成？';
+  String get markAsFullyAbsorbedQuestion => 'Mark as Fully Absorbed?';
 
   @override
-  String get markAsFullyAbsorbedContent => '这将把你的进度设置为100%，如果这本书正在播放则停止播放。';
+  String get markAsFullyAbsorbedContent =>
+      'This will set your progress to 100% and stop playback if this book is playing.';
 
   @override
-  String get markedAsFinishedNiceWork => '已标记为完成 - 干得漂亮！';
+  String get markedAsFinishedNiceWork => 'Marked as finished - nice work!';
 
   @override
-  String get failedToUpdateCheckConnection => '更新失败 - 请检查您的网络连接';
+  String get failedToUpdateCheckConnection =>
+      'Failed to update - check your connection';
 
   @override
-  String get markAsNotFinishedQuestion => '标记为未完成？';
+  String get markAsNotFinishedQuestion => 'Mark as Not Finished?';
 
   @override
-  String get markAsNotFinishedContent => '这将清除完成状态，但保留你当前的位置。';
+  String get markAsNotFinishedContent =>
+      'This will clear the finished status but keep your current position.';
 
   @override
-  String get unmark => '取消标记';
+  String get unmark => 'Unmark';
 
   @override
-  String get markedAsNotFinishedBackAtIt => '已标记为未完成 - 继续加油！';
+  String get markedAsNotFinishedBackAtIt =>
+      'Marked as not finished - back at it!';
 
   @override
-  String get resetProgressQuestion => '重置进度？';
+  String get resetProgressQuestion => 'Reset Progress?';
 
   @override
-  String get resetProgressContent => '这将清除这本书的所有进度并将其重置到开头。此操作无法撤销。';
+  String get resetProgressContent =>
+      'This will erase all progress for this book and set it back to the beginning. This can\'t be undone.';
 
   @override
-  String get progressResetFreshStart => '进度已重置 - 全新开始！';
+  String get progressResetFreshStart => 'Progress reset - fresh start!';
 
   @override
-  String get clearLocalMetadataQuestion => '清除本地元数据？';
+  String get clearLocalMetadataQuestion => 'Clear Local Metadata?';
 
   @override
-  String get clearLocalMetadataContent => '这将删除本地存储的元数据并恢复为服务器上的内容。';
+  String get clearLocalMetadataContent =>
+      'This will remove the locally stored metadata and revert to whatever the server has.';
 
   @override
-  String get localMetadataCleared => '本地元数据已清除';
+  String get localMetadataCleared => 'Local metadata cleared';
 
   @override
-  String get saveEbook => '保存电子书';
+  String get saveEbook => 'Save eBook';
 
   @override
-  String get noEbookFileFound => '未找到电子书文件';
+  String get noEbookFileFound => 'No ebook file found';
 
   @override
-  String get bookmark => '书签';
+  String get bookmark => 'Bookmark';
 
   @override
-  String get bookmarks => '书签';
+  String get bookmarks => 'Bookmarks';
 
   @override
   String bookmarksWithCount(int count) {
-    return '书签 ($count)';
+    return 'Bookmarks ($count)';
   }
 
   @override
-  String get playbackSpeed => '播放速度';
+  String get playbackSpeed => 'Playback Speed';
 
   @override
-  String get noBookmarksYet => '暂无书签';
+  String get noBookmarksYet => 'No bookmarks yet';
 
   @override
-  String get longPressBookmarkHint => '长按书签按钮快速保存';
+  String get longPressBookmarkHint =>
+      'Long-press the bookmark button to quick save';
 
   @override
-  String get addBookmark => '添加书签';
+  String get addBookmark => 'Add Bookmark';
 
   @override
-  String get editBookmark => '编辑书签';
+  String get editBookmark => 'Edit Bookmark';
 
   @override
-  String get titleLabel => '标题';
+  String get titleLabel => 'Title';
 
   @override
-  String get noteOptionalLabel => '备注（可选）';
+  String get noteOptionalLabel => 'Note (optional)';
 
   @override
-  String get editLayout => '编辑布局';
+  String get editLayout => 'Edit Layout';
 
   @override
-  String get inMenu => '在菜单中';
+  String get inMenu => 'In menu';
 
   @override
-  String get bookmarkAdded => '已添加书签';
+  String get bookmarkAdded => 'Bookmark added';
 
   @override
-  String get startPlayingSomethingFirst => '请先开始播放内容';
+  String get startPlayingSomethingFirst => 'Start playing something first';
 
   @override
-  String get playbackHistory => '播放历史';
+  String get playbackHistory => 'Playback History';
 
   @override
-  String get clearHistoryTooltip => '清除历史';
+  String get clearHistoryTooltip => 'Clear history';
 
   @override
-  String get tapEventToJump => '点击事件跳转到对应位置';
+  String get tapEventToJump => 'Tap an event to jump to that position';
 
   @override
-  String get noHistoryYet => '暂无历史';
+  String get noHistoryYet => 'No history yet';
 
   @override
   String jumpedToPosition(String position) {
-    return '已跳转到 $position';
+    return 'Jumped to $position';
   }
 
   @override
   String booksInSeriesCount(int count) {
-    return '本系列共 $count 本书';
+    return '$count books in this series';
   }
 
   @override
   String bookNumber(String number) {
-    return '第 $number 本';
+    return 'Book $number';
   }
 
   @override
   String downloadRemainingCount(int count) {
-    return '剩余下载 ($count)';
+    return 'Download Remaining ($count)';
   }
 
   @override
-  String get downloadAll => '全部下载';
+  String get downloadAll => 'Download All';
 
   @override
-  String get markAllNotFinished => '全部标记为未完成';
+  String get markAllNotFinished => 'Mark All Not Finished';
 
   @override
-  String get markAllFinished => '全部标记为已完成';
+  String get markAllFinished => 'Mark All Finished';
 
   @override
-  String get markAllNotFinishedQuestion => '全部标记为未完成？';
+  String get markAllNotFinishedQuestion => 'Mark All Not Finished?';
 
   @override
-  String get fullyAbsorbSeries => '将系列全部标记为已完成？';
+  String get fullyAbsorbSeries => 'Fully Absorb Series?';
 
   @override
-  String get turnAutoDownloadOff => '关闭自动下载';
+  String get turnAutoDownloadOff => 'Turn Auto-Download Off';
 
   @override
-  String get turnAutoDownloadOn => '开启自动下载';
+  String get turnAutoDownloadOn => 'Turn Auto-Download On';
 
   @override
-  String get autoDownloadThisSeries => '自动下载此系列？';
+  String get autoDownloadThisSeries => 'Auto-Download This Series?';
 
   @override
-  String get autoDownloadSeriesContent => '边听边自动下载后续书籍。';
+  String get autoDownloadSeriesContent =>
+      'Automatically download the next books as you listen.';
 
   @override
-  String get standalone => '独立';
+  String get standalone => 'Standalone';
 
   @override
-  String get episodes => '剧集';
+  String get episodes => 'Episodes';
 
   @override
-  String get noEpisodesFound => '未找到剧集';
+  String get noEpisodesFound => 'No episodes found';
 
   @override
-  String get markFinished => '标记为完成';
+  String get markFinished => 'Mark Finished';
 
   @override
-  String get markUnfinished => '标记为未完成';
+  String get markUnfinished => 'Mark Unfinished';
 
   @override
-  String get allEpisodes => '全部剧集';
+  String get allEpisodes => 'All Episodes';
 
   @override
-  String get aboutThisEpisode => '关于本集';
+  String get aboutThisEpisode => 'About This Episode';
 
   @override
-  String get reversePlayOrder => '倒序播放';
+  String get reversePlayOrder => 'Reverse play order';
 
   @override
   String selectedCount(int count) {
-    return '已选择 $count 项';
+    return '$count selected';
   }
 
   @override
-  String get selectAll => '全选';
+  String get selectAll => 'Select All';
 
   @override
-  String get autoDownloadThisPodcast => '自动下载此播客？';
+  String get autoDownloadThisPodcast => 'Auto-Download This Podcast?';
 
   @override
-  String get autoDownloadPodcastContent => '边听边自动下载后续剧集。';
+  String get autoDownloadPodcastContent =>
+      'Automatically download the next episodes as you listen.';
 
   @override
-  String get download => '下载';
+  String get download => 'Download';
 
   @override
-  String get deleteDownload => '删除下载';
+  String get deleteDownload => 'Delete Download';
 
   @override
-  String get casting => '投屏';
+  String get casting => 'Casting';
 
   @override
-  String get castingTo => '正在投屏到';
+  String get castingTo => 'Casting to';
 
   @override
-  String get editDetails => '编辑详情';
+  String get editDetails => 'Edit Details';
 
   @override
-  String get quickMatch => '快速匹配';
+  String get quickMatch => 'Quick Match';
 
   @override
-  String get custom => '自定义';
+  String get custom => 'Custom';
 
   @override
-  String get authorOptionalLabel => '作者（可选）';
+  String get authorOptionalLabel => 'Author (optional)';
 
   @override
-  String get noResultsFound => '未找到结果。\n请调整搜索条件或提供商。';
+  String get noResultsFound =>
+      'No results found.\nTry adjusting your search or provider.';
 
   @override
-  String get searchForMetadataAbove => '搜索上方的元数据';
+  String get searchForMetadataAbove => 'Search for metadata above';
 
   @override
-  String get applyThisMatch => '应用此匹配？';
+  String get applyThisMatch => 'Apply This Match?';
 
   @override
-  String get metadataUpdated => '元数据已更新';
+  String get metadataUpdated => 'Metadata updated';
 
   @override
-  String get failedToUpdateMetadata => '元数据更新失败';
+  String get failedToUpdateMetadata => 'Failed to update metadata';
 
   @override
-  String get subtitleLabel => '副标题';
+  String get subtitleLabel => 'Subtitle';
 
   @override
-  String get authorLabel => '作者';
+  String get authorLabel => 'Author';
 
   @override
-  String get narratorLabel => '朗读者';
+  String get narratorLabel => 'Narrator';
 
   @override
-  String get seriesLabel => '系列';
+  String get seriesLabel => 'Series';
 
   @override
   String get addSeries => 'Add series';
@@ -2291,22 +2365,22 @@ class AppLocalizationsZh extends AppLocalizations {
   String get removeSeries => 'Remove series';
 
   @override
-  String get descriptionLabel => '描述';
+  String get descriptionLabel => 'Description';
 
   @override
-  String get publisherLabel => '出版商';
+  String get publisherLabel => 'Publisher';
 
   @override
-  String get yearLabel => '年份';
+  String get yearLabel => 'Year';
 
   @override
-  String get genresLabel => '分类';
+  String get genresLabel => 'Genres';
 
   @override
   String get tagsLabel => 'Tags';
 
   @override
-  String get commaSeparated => '逗号分隔';
+  String get commaSeparated => 'Comma separated';
 
   @override
   String get asinLabel => 'ASIN';
@@ -2315,100 +2389,101 @@ class AppLocalizationsZh extends AppLocalizations {
   String get isbnLabel => 'ISBN';
 
   @override
-  String get coverImage => '封面图片';
+  String get coverImage => 'Cover Image';
 
   @override
-  String get coverUrlLabel => '封面 URL';
+  String get coverUrlLabel => 'Cover URL';
 
   @override
   String get coverUrlHint => 'https://...';
 
   @override
-  String get localMetadata => '本地元数据';
+  String get localMetadata => 'Local Metadata';
 
   @override
-  String get overrideLocalDisplay => '覆盖本地显示';
+  String get overrideLocalDisplay => 'Override local display';
 
   @override
-  String get metadataSavedLocally => '元数据已本地保存';
+  String get metadataSavedLocally => 'Metadata saved locally';
 
   @override
-  String get notes => '笔记';
+  String get notes => 'Notes';
 
   @override
-  String get newNote => '新建笔记';
+  String get newNote => 'New Note';
 
   @override
-  String get editNote => '编辑笔记';
+  String get editNote => 'Edit Note';
 
   @override
-  String get noNotesYet => '暂无笔记';
+  String get noNotesYet => 'No notes yet';
 
   @override
-  String get markdownIsSupported => '支持 Markdown';
+  String get markdownIsSupported => 'Markdown is supported';
 
   @override
   String get markdownMd => 'Markdown (.md)';
 
   @override
-  String get keepsFormattingIntact => '保留完整格式';
+  String get keepsFormattingIntact => 'Keeps formatting intact';
 
   @override
-  String get plainTextTxt => '纯文本 (.txt)';
+  String get plainTextTxt => 'Plain Text (.txt)';
 
   @override
-  String get simpleTextNoFormatting => '简单文本，无格式';
+  String get simpleTextNoFormatting => 'Simple text, no formatting';
 
   @override
-  String get untitledNote => '无标题笔记';
+  String get untitledNote => 'Untitled note';
 
   @override
-  String get titleHint => '标题';
+  String get titleHint => 'Title';
 
   @override
-  String get noteBodyHint => '写下你的笔记...（支持 Markdown）';
+  String get noteBodyHint => 'Write your note... (supports markdown)';
 
   @override
-  String get nothingToPreview => '暂无预览内容';
+  String get nothingToPreview => 'Nothing to preview';
 
   @override
-  String get audioEnhancements => '音频增强';
+  String get audioEnhancements => 'Audio Enhancements';
 
   @override
-  String get presets => '预设';
+  String get presets => 'PRESETS';
 
   @override
-  String get equalizer => '均衡器';
+  String get equalizer => 'EQUALIZER';
 
   @override
-  String get effects => '效果';
+  String get effects => 'EFFECTS';
 
   @override
-  String get bassBoost => '低音增强';
+  String get bassBoost => 'Bass Boost';
 
   @override
-  String get surround => '环绕声';
+  String get surround => 'Surround';
 
   @override
-  String get loudness => '响度';
+  String get loudness => 'Loudness';
 
   @override
-  String get monoAudio => '单声道音频';
+  String get monoAudio => 'Mono Audio';
 
   @override
   String get skipSilence => 'Skip Silence';
 
   @override
-  String get resetAll => '全部重置';
+  String get resetAll => 'Reset All';
 
   @override
-  String get collectionNotFound => '未找到收藏集';
+  String get collectionNotFound => 'Collection not found';
 
   @override
-  String get deleteCollection => '删除收藏集';
+  String get deleteCollection => 'Delete Collection';
 
   @override
-  String get deleteCollectionContent => '你确定要删除此收藏集吗？';
+  String get deleteCollectionContent =>
+      'Are you sure you want to delete this collection?';
 
   @override
   String get deleteCollectionFailed => 'Couldn\'t delete the collection';
@@ -2418,157 +2493,160 @@ class AppLocalizationsZh extends AppLocalizations {
       'Delete permission required. Ask the root admin to grant you the delete permission.';
 
   @override
-  String get playlistNotFound => '未找到播放列表';
+  String get playlistNotFound => 'Playlist not found';
 
   @override
-  String get deletePlaylist => '删除播放列表';
+  String get deletePlaylist => 'Delete Playlist';
 
   @override
-  String get deletePlaylistContent => '你确定要删除此播放列表吗？';
+  String get deletePlaylistContent =>
+      'Are you sure you want to delete this playlist?';
 
   @override
-  String get newPlaylist => '新建播放列表';
+  String get newPlaylist => 'New Playlist';
 
   @override
-  String get playlistNameHint => '播放列表名称';
+  String get playlistNameHint => 'Playlist name';
 
   @override
   String addedToName(String name) {
-    return '已添加到 \"$name\"';
+    return 'Added to \"$name\"';
   }
 
   @override
-  String get failedToAdd => '添加失败';
+  String get failedToAdd => 'Failed to add';
 
   @override
-  String get newCollection => '新建收藏集';
+  String get newCollection => 'New Collection';
 
   @override
-  String get collectionNameHint => '收藏集名称';
+  String get collectionNameHint => 'Collection name';
 
   @override
-  String get castToDevice => '投屏到设备';
+  String get castToDevice => 'Cast to Device';
 
   @override
-  String get searchingForCastDevices => '正在搜索投屏设备...';
+  String get searchingForCastDevices => 'Searching for Cast devices...';
 
   @override
-  String get castDevice => '投屏设备';
+  String get castDevice => 'Cast Device';
 
   @override
-  String get stopCasting => '停止投屏';
+  String get stopCasting => 'Stop Casting';
 
   @override
-  String get disconnect => '断开连接';
+  String get disconnect => 'Disconnect';
 
   @override
-  String get audioOutput => '音频输出';
+  String get audioOutput => 'Audio Output';
 
   @override
-  String get noOutputDevicesFound => '未找到输出设备';
+  String get noOutputDevicesFound => 'No output devices found';
 
   @override
-  String get welcomeToAbsorb => '欢迎使用 Absorb';
+  String get welcomeToAbsorb => 'Welcome to Absorb';
 
   @override
-  String get welcomeTagline => '一个 Audiobookshelf 客户端。';
+  String get welcomeTagline => 'An Audiobookshelf client.';
 
   @override
-  String get welcomeAbsorbingTitle => '正在收听';
+  String get welcomeAbsorbingTitle => 'Absorbing';
 
   @override
-  String get welcomeAbsorbingIntro => '我们用 \"absorb\" 代替 \"播放\" 和 \"收听\"。';
+  String get welcomeAbsorbingIntro =>
+      'We use \"absorb\" in place of \"play\" and \"listen\". Prefer the classic wording? Switch it in Settings.';
 
   @override
-  String get welcomeAbsorbingTabBullet => '正在收听标签页 - 你当前正在收听的内容';
+  String get welcomeAbsorbingTabBullet =>
+      'Absorbing tab - what you\'re currently listening to';
 
   @override
-  String get welcomeAbsorbButtonBullet => 'Absorb 按钮 - 开始播放';
+  String get welcomeAbsorbButtonBullet => 'Absorb button - start playback';
 
   @override
-  String get welcomeFullyAbsorbBullet => 'Fully Absorb - 标记为已完成';
+  String get welcomeFullyAbsorbBullet => 'Fully Absorb - mark as finished';
 
   @override
-  String get welcomeGettingAroundTitle => '界面操作';
+  String get welcomeGettingAroundTitle => 'Getting around';
 
   @override
   String get welcomeGettingAroundBody =>
-      '点击任意封面打开详情。继续收听卡片不一样 - 点击立即播放，长按打开详情。';
+      'Tap any cover to open its details. Continue Listening cards are different - tap to play right away, press and hold to open details.';
 
   @override
-  String get welcomeMakeItYoursTitle => '个性化设置';
+  String get welcomeMakeItYoursTitle => 'Make it yours';
 
   @override
   String get welcomeMakeItYoursBody =>
-      '在设置中自定义 Absorb 以符合你的喜好。其中的「技巧与隐藏功能」区块值得一看。';
+      'Mess around in Settings to tune Absorb to your taste. The Tips & Hidden Features section in there is worth a look.';
 
   @override
-  String get getStarted => '开始使用';
+  String get getStarted => 'Get Started';
 
   @override
-  String get showMore => '显示更多';
+  String get showMore => 'Show more';
 
   @override
-  String get showLess => '显示更少';
+  String get showLess => 'Show less';
 
   @override
-  String get readMore => '阅读更多';
+  String get readMore => 'Read more';
 
   @override
-  String get removeDownloadQuestion => '移除下载？';
+  String get removeDownloadQuestion => 'Remove download?';
 
   @override
-  String get removeDownloadContent => '这将从你的设备中移除。';
+  String get removeDownloadContent => 'This will be removed from your device.';
 
   @override
-  String get downloadRemoved => '下载已移除';
+  String get downloadRemoved => 'Download removed';
 
   @override
-  String get finished => '已完成';
+  String get finished => 'Finished';
 
   @override
-  String get saved => '已保存';
+  String get saved => 'Saved';
 
   @override
-  String get selectLibrary => '选择媒体库';
+  String get selectLibrary => 'Select Library';
 
   @override
-  String get switchLibraryTooltip => '切换媒体库';
+  String get switchLibraryTooltip => 'Switch library';
 
   @override
-  String get noBooksFound => '未找到书籍';
+  String get noBooksFound => 'No books found';
 
   @override
-  String get userFallback => '用户';
+  String get userFallback => 'User';
 
   @override
-  String get rootAdmin => '超级管理员';
+  String get rootAdmin => 'Root Admin';
 
   @override
-  String get admin => '管理员';
+  String get admin => 'Admin';
 
   @override
-  String get serverAdmin => '服务器管理员';
+  String get serverAdmin => 'Server Admin';
 
   @override
-  String get serverAdminSubtitle => '管理用户、媒体库和服务器设置';
+  String get serverAdminSubtitle => 'Manage users, libraries & server settings';
 
   @override
-  String get justNow => '刚刚';
+  String get justNow => 'Just now';
 
   @override
   String minutesAgo(int count) {
-    return '$count 分钟前';
+    return '${count}m ago';
   }
 
   @override
   String hoursAgo(int count) {
-    return '$count 小时前';
+    return '${count}h ago';
   }
 
   @override
   String daysAgo(int count) {
-    return '$count 天前';
+    return '${count}d ago';
   }
 
   @override
@@ -2578,7 +2656,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get iTunes => 'iTunes';
 
   @override
-  String get openLibrary => '打开媒体库';
+  String get openLibrary => 'Open Library';
 
   @override
   String get root => 'Root';
@@ -4539,47 +4617,48 @@ class AppLocalizationsZh extends AppLocalizations {
   String get sleepTimerSheetResetsToFull => 'Resets to full duration';
 
   @override
-  String get sleepTimerSheetTabSpecificChapter => '章节';
+  String get sleepTimerSheetTabSpecificChapter => 'Chapter';
 
   @override
-  String get sleepTimerSheetSpecificNoChapters => '没有可用的章节';
+  String get sleepTimerSheetSpecificNoChapters => 'No chapters available';
 
   @override
   String sleepTimerSheetSpecificChapterFallback(int number) {
-    return '第 $number 章';
+    return 'Chapter $number';
   }
 
   @override
-  String get sleepTimerSheetSpecificPassedShort => '已过';
+  String get sleepTimerSheetSpecificPassedShort => 'passed';
 
   @override
-  String get sleepTimerSheetSpecificStart => '章节开始';
+  String get sleepTimerSheetSpecificStart => 'Chapter Start';
 
   @override
-  String get sleepTimerSheetSpecificEnd => '章节结束';
+  String get sleepTimerSheetSpecificEnd => 'Chapter End';
 
   @override
-  String get sleepTimerSheetSpecificEndsAt => '睡眠定时器将于';
+  String get sleepTimerSheetSpecificEndsAt => 'Sleep timer will end at';
 
   @override
   String sleepTimerSheetSpecificCountdown(String countdown) {
-    return '$countdown 后';
+    return 'in $countdown';
   }
 
   @override
-  String get sleepTimerSheetSpecificAlreadyPassed => '此时间点已过';
+  String get sleepTimerSheetSpecificAlreadyPassed =>
+      'This point has already passed';
 
   @override
-  String get sleepTimerSheetSpecificStartButton => '启动定时器';
+  String get sleepTimerSheetSpecificStartButton => 'Start timer';
 
   @override
-  String get sleepTimerSheetSpecificStartButtonPassed => '已过';
+  String get sleepTimerSheetSpecificStartButtonPassed => 'Already passed';
 
   @override
-  String get timeAm => '上午';
+  String get timeAm => 'AM';
 
   @override
-  String get timePm => '下午';
+  String get timePm => 'PM';
 
   @override
   String get collectionPickerCollectionFallback => 'Collection';
@@ -5111,22 +5190,24 @@ class AppLocalizationsZh extends AppLocalizations {
   String get androidAutoCatAuthors => 'Authors';
 
   @override
-  String get showTipsAgain => '再次显示提示';
+  String get showTipsAgain => 'Show tips again';
 
   @override
-  String get showTipsAgainSubtitle => '恢复你已关闭的功能提示';
+  String get showTipsAgainSubtitle =>
+      'Bring back feature tips you\'ve dismissed';
 
   @override
-  String get tipsRestored => '已恢复提示';
+  String get tipsRestored => 'Tips restored';
 
   @override
-  String get resetSpeedPresets => '重置速度预设';
+  String get resetSpeedPresets => 'Reset speed presets';
 
   @override
-  String get resetSpeedPresetsSubtitle => '恢复默认的播放速度选项';
+  String get resetSpeedPresetsSubtitle =>
+      'Restore the default playback speed chips';
 
   @override
-  String get speedPresetsReset => '速度预设已重置';
+  String get speedPresetsReset => 'Speed presets reset';
 
   @override
   String get editAuthor => 'Edit author';
