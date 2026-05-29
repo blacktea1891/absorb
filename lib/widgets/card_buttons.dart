@@ -389,7 +389,7 @@ class CardDownloadButtonInline extends StatelessWidget {
       final auth = context.read<AuthProvider>();
       final api = auth.apiService;
       if (api == null) return;
-      final error = await dl.downloadItem(api: api, itemId: itemId, episodeId: episodeId, title: title, author: author, coverUrl: coverUrl, libraryId: context.read<LibraryProvider>().selectedLibraryId);
+      final error = await dl.downloadItem(api: api, itemId: _key, episodeId: episodeId, title: title, author: author, coverUrl: coverUrl, libraryId: context.read<LibraryProvider>().selectedLibraryId);
       if (error != null && context.mounted) {
         showOverlayToast(context, error, icon: Icons.error_outline_rounded);
       }
@@ -1725,7 +1725,7 @@ class CardActionDelegate {
                   final auth = context.read<AuthProvider>();
                   final api = auth.apiService;
                   if (api == null) return;
-                  dl.downloadItem(api: api, itemId: itemId, episodeId: episodeId, title: title, author: author, coverUrl: coverUrl, libraryId: context.read<LibraryProvider>().selectedLibraryId).then((error) {
+                  dl.downloadItem(api: api, itemId: dlKey, episodeId: episodeId, title: title, author: author, coverUrl: coverUrl, libraryId: context.read<LibraryProvider>().selectedLibraryId).then((error) {
                     if (error != null && context.mounted) {
                       showOverlayToast(context, error, icon: Icons.error_outline_rounded);
                     }

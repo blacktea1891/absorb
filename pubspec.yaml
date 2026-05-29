@@ -48,6 +48,8 @@ dependencies:
   # Downloads & offline
   path_provider: ^2.1.1
   connectivity_plus: ^6.0.3
+  # Native background downloads (iOS background URLSession, Android foreground service)
+  background_downloader: ^9.0.0
 
   # In-app APK install (GitHub flavor updater)
   open_filex: ^4.5.0

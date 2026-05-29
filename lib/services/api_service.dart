@@ -819,6 +819,16 @@ class ApiService {
     return '$_cleanBaseUrl$contentUrl?token=$token';
   }
 
+  /// Build a durable, session-independent file download URL for [ino] within
+  /// [itemId]. Unlike a playback-session track URL, this survives session close
+  /// and app suspension, so it is safe for background downloads that outlive the
+  /// session/app. Auth travels as `?token=` (the Authorization header can be
+  /// dropped across reverse-proxy redirects); custom proxy headers still ride
+  /// along via [mediaHeaders] when the downloader sets them.
+  String buildFileUrl(String itemId, String ino) {
+    return '$_cleanBaseUrl/api/items/$itemId/file/$ino?token=$token';
+  }
+
   /// Sync playback progress. Returns true if sync succeeded.
   /// POST /api/session/:id/sync
   Future<bool> syncPlaybackSession(
