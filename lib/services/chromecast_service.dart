@@ -16,6 +16,10 @@ class ChromecastService extends ChangeNotifier {
   factory ChromecastService() => _instance;
   ChromecastService._();
 
+  /// Whether Chromecast is available in this build. True here; the GMS-free
+  /// F-Droid stub sets it false so the UI hides all cast entry points.
+  static const bool castSupported = true;
+
   CastConnectionState _connectionState = CastConnectionState.disconnected;
   CastPlaybackState _playbackState = CastPlaybackState.idle;
 

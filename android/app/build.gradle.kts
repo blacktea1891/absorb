@@ -53,6 +53,19 @@ android {
         create("playstore") {
             dimension = "distribution"
         }
+        // GMS-free build for F-Droid: no Chromecast, Wear bridge, or in-app updater.
+        create("fdroid") {
+            dimension = "distribution"
+        }
+    }
+
+    // GMS-touching Kotlin (cast + wear) is shared by github + playstore only.
+    // fdroid gets src/fdroid/kotlin instead, which has no Google Play Services.
+    // Uses java.srcDir (kotlin-android compiles it too) for broad Gradle/Kotlin
+    // plugin compatibility.
+    sourceSets {
+        getByName("github").java.srcDir("src/gms/kotlin")
+        getByName("playstore").java.srcDir("src/gms/kotlin")
     }
 
     buildTypes {
@@ -84,11 +97,18 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
-    implementation("com.google.android.gms:play-services-cast-framework:21.5.0")
 
-    // Wearable Data Layer — pushes ABS session credentials to the
-    // paired Wear OS app so the watch can sign in without the user
-    // typing anything on the watch keyboard.
-    implementation("com.google.android.gms:play-services-wearable:19.0.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+    // Google Play Services — Chromecast + Wearable Data Layer (pushes ABS
+    // session credentials to the paired Wear OS app so the watch can sign in
+    // without typing on the watch keyboard). Scoped to github + playstore so
+    // the fdroid flavor links no GMS.
+    val gmsImpl = listOf(
+        "com.google.android.gms:play-services-cast-framework:21.5.0",
+        "com.google.android.gms:play-services-wearable:19.0.0",
+        "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0",
+    )
+    gmsImpl.forEach {
+        add("githubImplementation", it)
+        add("playstoreImplementation", it)
+    }
 }

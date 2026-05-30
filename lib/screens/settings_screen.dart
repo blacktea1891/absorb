@@ -47,6 +47,10 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   static const _isPlayStoreBuild = bool.fromEnvironment('PLAYSTORE_BUILD');
   static const _isGithubBuild = bool.fromEnvironment('GITHUB_BUILD');
+  // Distribution label shown next to the version. The F-Droid build passes
+  // neither define, so it falls through here.
+  static String get _flavorLabel =>
+      _isGithubBuild ? 'GitHub' : _isPlayStoreBuild ? 'Play Store' : 'F-Droid';
   AutoRewindSettings _rewindSettings = const AutoRewindSettings();
   double _defaultSpeed = 1.0;
 
@@ -2455,7 +2459,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      l.appVersionFormat(_appVersion),
+                      // Flavor prefix is an Android distribution concept
+                      // (GitHub / Play Store / F-Droid). iOS has no flavor, so
+                      // it keeps the plain version.
+                      Platform.isIOS
+                          ? l.appVersionFormat(_appVersion)
+                          : '$_flavorLabel - $_appVersion',
                       style: tt.bodySmall?.copyWith(
                           color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
                     ),
