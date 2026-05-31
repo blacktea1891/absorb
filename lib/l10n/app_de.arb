@@ -909,6 +909,9 @@
   "rmabRequestSent": "Anfrage gesendet",
   "rmabRequestErrorAlreadyAvailable": "Bereits in deiner Bibliothek",
   "rmabRequestErrorBeingProcessed": "Wird bereits bearbeitet",
+  "rmabMyRequestsTab": "Meine Anfragen",
+  "rmabSetupTab": "Einrichtung",
+  "rmabMyRequestsRefresh": "Aktualisieren",
   "rmabRequestDetailStatus": "Status",
   "rmabRequestDetailProgress": "Fortschritt",
   "rmabStatusActive": "Im Gang",
@@ -957,7 +960,12 @@
   "searchOnGoodreads": "Auf Goodreads suchen",
   "editServerDetails": "Server-Details bearbeiten",
   "encodeTab": "Verschlüsseln",
+  "codec": "Codec",
+  "bitrate": "Bitrate",
+  "channels": "Kanäle",
+  "mono": "Mono",
   "stereo": "Stereo",
+  "currentlyLabel": "Momentan:",
   "aboutSection": "Info",
   "chaptersCount": "Kapitel ({count})",
   "@chaptersCount": {
@@ -1117,6 +1125,7 @@
   "publisherLabel": "Verlag",
   "yearLabel": "Jahr",
   "genresLabel": "Genres",
+  "tagsLabel": "Schlagwörter",
   "commaSeparated": "Komma-getrennt",
   "asinLabel": "ASIN",
   "isbnLabel": "ISBN",
@@ -1408,17 +1417,67 @@
   "updateKindPreRelease": "Pre-Release-Version",
   "updateKindVersion": "Version",
   "downloadButton": "Herunterladen",
+  "updateDownloading": "Update wird heruntergeladen...",
+  "updateOpeningInBrowser": "Das In-App-Update ist fehlgeschlagen, Browser wird geöffnet",
+  "sendToEreader": "An E-Reader senden",
+  "sendingToEreader": "Sende an {device}...",
+  "@sendingToEreader": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "sendToEreaderSuccess": "Gesendet an {device}",
+  "@sendToEreaderSuccess": {
+    "placeholders": {
+      "device": {
+        "type": "String"
+      }
+    }
+  },
+  "sendToEreaderFailed": "Das E-Book konnte nicht gesendet werden",
+  "pickEreaderDevice": "Wähle ein Gerät",
   "adminEmail": "E-Mail",
+  "adminEmailSubtitle": "SMTP und E-Reader-Geräte",
   "smtpSection": "SMTP",
+  "smtpSetupGuide": "Einrichtungsanleitung",
+  "smtpHost": "Host",
   "smtpPort": "Port",
+  "smtpSecure": "Sicher",
+  "smtpRejectUnauthorized": "Unzulässiges TLS ablehnen",
   "smtpUser": "Benutzername",
   "smtpPass": "Passwort",
+  "smtpFromAddress": "Absenderadresse",
+  "smtpTestAddress": "Testadresse",
+  "smtpSendTest": "Test senden",
   "smtpSaveSettings": "Speichern",
+  "smtpSaved": "E-Mail-Einstellungen gespeichert",
+  "smtpSaveFailed": "Die E-Mail-Einstellungen konnten nicht gespeichert werden",
+  "smtpTestSent": "Test-E-Mail gesendet",
+  "smtpTestFailed": "Test-E-Mail fehlgeschlagen",
+  "ereaderDevicesTitle": "E-Reader-Geräte",
+  "ereaderDevicesEmpty": "Noch keine Geräte. Füge unten eines hinzu.",
+  "addEreaderDevice": "Gerät hinzufügen",
+  "editEreaderDevice": "Gerät bearbeiten",
   "deleteEreaderDevice": "Löschen",
   "ereaderDeviceName": "Name",
   "ereaderDeviceEmail": "E-Mail",
+  "ereaderAvailability": "Wer kann dieses Gerät verwenden",
+  "ereaderAvailAdminOrUp": "Nur für Administratoren",
   "ereaderAvailUserOrUp": "Alle Benutzer",
   "ereaderAvailGuestOrUp": "Jeder",
+  "ereaderAvailSpecificUsers": "Bestimmte Benutzer",
+  "ereaderSpecificUsersN": "Bestimmte Benutzer ({count})",
+  "@ereaderSpecificUsersN": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "ereaderDevicesSaved": "Geräte gespeichert",
+  "ereaderDevicesSaveFailed": "Geräte konnten nicht gespeichert werden",
   "libraryCountOne": "{count} Bibliothek",
   "@libraryCountOne": {
     "placeholders": {
@@ -3059,5 +3118,24 @@
   "resetSpeedPresets": "Geschwindigkeits-Voreinstellungen zurücksetzen",
   "resetSpeedPresetsSubtitle": "Standard-Wiedergabegeschwindigkeiten wiederherstellen",
   "speedPresetsReset": "Geschwindigkeits-Voreinstellungen zurückgesetzt",
-  "authorName": "Name"
+  "editAuthor": "Autor bearbeiten",
+  "authorName": "Name",
+  "authorImage": "Autorenbild",
+  "authorRemoveImage": "Bild entfernen",
+  "authorRemoveImageTitle": "Autorenbild entfernen?",
+  "authorRemoveImageConfirm": "Dadurch wird das Bild auf dem Server gelöscht.",
+  "authorImageRemoved": "Bild entfernt",
+  "authorImageFailed": "Das Autorenbild konnte nicht aktualisiert werden",
+  "authorUpdated": "Autor aktualisiert",
+  "authorUpdateFailed": "Der Autor konnte nicht aktualisiert werden",
+  "authorNoMatchFound": "Kein Treffer gefunden",
+  "authorMergedInto": "Zusammengeführt in {name}",
+  "@authorMergedInto": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "region": "Region"
 }
