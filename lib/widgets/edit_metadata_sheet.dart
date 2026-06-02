@@ -9,7 +9,7 @@ import '../providers/library_provider.dart';
 import '../services/socket_service.dart';
 import '../screens/chapter_editor_screen.dart';
 
-enum _ETab { details, cover, chapters, match, encode }
+enum _ETab { details, cover, chapters, match, encode, embed }
 
 /// The unified per-book editor body: one swipeable tab bar over Details, Cover,
 /// Chapters, Match and Encode (in Audiobookshelf web order). Hosted full-screen
@@ -48,6 +48,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
   final ScrollController _coverScroll = ScrollController();
   final ScrollController _matchScroll = ScrollController();
   final ScrollController _encodeScroll = ScrollController();
+  final ScrollController _embedScroll = ScrollController();
   late final List<_ETab> _tabs;
   late final TabController _tabCtrl;
 
@@ -98,8 +99,13 @@ class _MetadataEditViewState extends State<MetadataEditView>
   String _encodeCodec = 'aac';
   String _encodeBitrate = '128k';
   int _encodeChannels = 2;
-  bool _encoding = false;
-  double? _encodeProgress; // 0-100 from socket task_progress, null = not started
+  bool _shouldBackup = true; // embed: back up original audio files
+
+  // One server task (encode-m4b or embed-metadata) runs per item at a time.
+  String? _runningAction; // 'encode-m4b' | 'embed-metadata' | null
+  double? _taskProgress; // 0-100, null until the first tick
+  bool get _encoding => _runningAction == 'encode-m4b';
+  bool get _embedding => _runningAction == 'embed-metadata';
 
   @override
   void initState() {
@@ -110,13 +116,15 @@ class _MetadataEditViewState extends State<MetadataEditView>
       if (!widget.isEbookOnly) _ETab.chapters,
       _ETab.match,
       if (widget.isAdmin && !widget.isEbookOnly) _ETab.encode,
+      if (widget.isAdmin && !widget.isEbookOnly) _ETab.embed,
     ];
     _tabCtrl = TabController(length: _tabs.length, vsync: this);
     // Listen for encode progress/finish for the editor's lifetime so a running
     // encode shows up even if it was started elsewhere (e.g. the web UI).
     SocketService()
-      ..addEncodeProgressListener(_onEncodeProgress)
-      ..addEncodeFinishedListener(_onEncodeFinished);
+      ..addTaskStartedListener(_onTaskStarted)
+      ..addTaskProgressListener(_onTaskProgress)
+      ..addTaskFinishedListener(_onTaskFinished);
     final m = widget.metadata;
     _titleCtrl = TextEditingController(text: m['title'] as String? ?? '');
     _subtitleCtrl = TextEditingController(text: m['subtitle'] as String? ?? '');
@@ -180,9 +188,11 @@ class _MetadataEditViewState extends State<MetadataEditView>
     _coverScroll.dispose();
     _matchScroll.dispose();
     _encodeScroll.dispose();
+    _embedScroll.dispose();
     SocketService()
-      ..removeEncodeProgressListener(_onEncodeProgress)
-      ..removeEncodeFinishedListener(_onEncodeFinished);
+      ..removeTaskStartedListener(_onTaskStarted)
+      ..removeTaskProgressListener(_onTaskProgress)
+      ..removeTaskFinishedListener(_onTaskFinished);
     _searchTitleCtrl.dispose();
     _searchAuthorCtrl.dispose();
     super.dispose();
@@ -517,7 +527,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
                 ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
                 : const Icon(Icons.transform_rounded, size: 18),
             label: Text(_encoding
-                ? (_encodeProgress != null ? 'Encoding ${_encodeProgress!.toStringAsFixed(0)}%' : 'Encoding...')
+                ? (_taskProgress != null ? 'Encoding ${_taskProgress!.toStringAsFixed(0)}%' : 'Encoding...')
                 : l.startM4bEncode),
             style: FilledButton.styleFrom(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -529,19 +539,109 @@ class _MetadataEditViewState extends State<MetadataEditView>
           ClipRRect(
             borderRadius: BorderRadius.circular(4),
             child: LinearProgressIndicator(
-              value: _encodeProgress != null ? (_encodeProgress! / 100).clamp(0.0, 1.0) : null,
+              value: _taskProgress != null ? (_taskProgress! / 100).clamp(0.0, 1.0) : null,
               minHeight: 6,
               backgroundColor: cs.onSurface.withValues(alpha: 0.1),
             ),
           ),
           const SizedBox(height: 6),
           Text(
-            _encodeProgress != null
-                ? '${_encodeProgress!.toStringAsFixed(0)}% - keeps running if you leave this page'
+            _taskProgress != null
+                ? '${_taskProgress!.toStringAsFixed(0)}% - keeps running if you leave this page'
                 : 'Starting...',
             style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
+      ]),
+    );
+  }
+
+  Widget _buildEmbedTab(ColorScheme cs, TextTheme tt, AppLocalizations l) {
+    final multiFile = widget.audioFiles.length > 1;
+    return SingleChildScrollView(
+      controller: _embedScroll,
+      padding: EdgeInsets.fromLTRB(20, 20, 20, 24 + MediaQuery.of(context).viewPadding.bottom),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Embed metadata into audio files including cover image and chapters.',
+            style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant, height: 1.35)),
+        const SizedBox(height: 16),
+        InkWell(
+          onTap: _embedding ? null : () => setState(() => _shouldBackup = !_shouldBackup),
+          borderRadius: BorderRadius.circular(10),
+          child: Row(children: [
+            Checkbox(
+              value: _shouldBackup,
+              onChanged: _embedding ? null : (v) => setState(() => _shouldBackup = v ?? true),
+            ),
+            Expanded(child: Text('Back up audio files first', style: tt.bodyMedium)),
+          ]),
+        ),
+        const SizedBox(height: 16),
+        _encodeNote('Metadata will be embedded in the audio tracks inside your audiobook folder.', cs, tt),
+        if (_shouldBackup) _embedBackupNote(cs, tt),
+        if (multiFile) _encodeNote('Chapters are not embedded in multi-track audiobooks.', cs, tt),
+        _encodeNote('Once the task is started you can navigate away from this page.', cs, tt),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          height: 44,
+          child: FilledButton.icon(
+            onPressed: _embedding ? null : _startEmbed,
+            icon: _embedding
+                ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
+                : const Icon(Icons.save_rounded, size: 18),
+            label: Text(_embedding
+                ? (_taskProgress != null ? 'Embedding ${_taskProgress!.toStringAsFixed(0)}%' : 'Embedding...')
+                : 'Start Metadata Embed'),
+            style: FilledButton.styleFrom(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+        ),
+        if (_embedding) ...[
+          const SizedBox(height: 12),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: _taskProgress != null ? (_taskProgress! / 100).clamp(0.0, 1.0) : null,
+              minHeight: 6,
+              backgroundColor: cs.onSurface.withValues(alpha: 0.1),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _taskProgress != null
+                ? '${_taskProgress!.toStringAsFixed(0)}% - keeps running if you leave this page'
+                : 'Starting...',
+            style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+          ),
+        ],
+      ]),
+    );
+  }
+
+  Widget _embedBackupNote(ColorScheme cs, TextTheme tt) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: Icon(Icons.star_rounded, size: 14, color: cs.tertiary),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text.rich(TextSpan(
+            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
+            children: [
+              const TextSpan(text: 'A backup of your original audio files will be stored on the server in '),
+              TextSpan(
+                text: '/metadata/cache/items/${widget.itemId}/',
+                style: TextStyle(fontFamily: 'monospace', color: cs.onSurface),
+              ),
+              const TextSpan(text: '. Make sure to periodically purge the items cache.'),
+            ],
+          )),
+        ),
       ]),
     );
   }
@@ -625,8 +725,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
     final api = context.read<AuthProvider>().apiService;
     if (api == null) return;
     setState(() {
-      _encoding = true;
-      _encodeProgress = 0;
+      _runningAction = 'encode-m4b';
+      _taskProgress = 0;
     });
     final ok = await api.startM4bEncode(
       widget.itemId,
@@ -638,42 +738,92 @@ class _MetadataEditViewState extends State<MetadataEditView>
     final l = AppLocalizations.of(context)!;
     if (!ok) {
       setState(() {
-        _encoding = false;
-        _encodeProgress = null;
+        _runningAction = null;
+        _taskProgress = null;
       });
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.encodeFailed)));
       return;
     }
-    // Keep _encoding true; progress + completion arrive over the socket.
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.encodeStarted)));
   }
 
-  void _onEncodeProgress(Map<String, dynamic> data) {
-    if (!mounted || data['libraryItemId'] != widget.itemId) return;
-    final p = (data['progress'] as num?)?.toDouble();
-    if (p == null) return;
-    // Flip into the encoding state even if this encode was started elsewhere.
+  Future<void> _startEmbed() async {
+    final count = widget.audioFiles.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('Embed metadata'),
+        content: Text(
+          'Embed metadata into $count audio file${count == 1 ? '' : 's'}? '
+          'Your audio files will be rewritten${_shouldBackup ? ' (originals backed up first)' : ''}.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('Embed')),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null) return;
     setState(() {
-      _encoding = true;
-      _encodeProgress = p.clamp(0, 100);
+      _runningAction = 'embed-metadata';
+      _taskProgress = 0;
+    });
+    final ok = await api.embedMetadata(widget.itemId, backup: _shouldBackup);
+    if (!mounted) return;
+    if (!ok) {
+      setState(() {
+        _runningAction = null;
+        _taskProgress = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start embed')));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Embed started')));
+  }
+
+  void _onTaskStarted(Map<String, dynamic> data) {
+    if (!mounted) return;
+    final id = (data['data'] as Map?)?['libraryItemId'] ?? data['libraryItemId'];
+    if (id != widget.itemId) return;
+    final action = data['action'] as String?;
+    if (action != 'encode-m4b' && action != 'embed-metadata') return;
+    setState(() {
+      _runningAction = action;
+      _taskProgress = 0;
     });
   }
 
-  void _onEncodeFinished(Map<String, dynamic> data) {
+  void _onTaskProgress(Map<String, dynamic> data) {
+    // task_progress is generic; only attribute it once we know what's running.
+    if (!mounted || _runningAction == null) return;
+    if (data['libraryItemId'] != widget.itemId) return;
+    final p = (data['progress'] as num?)?.toDouble();
+    if (p == null) return;
+    setState(() => _taskProgress = p.clamp(0, 100));
+  }
+
+  void _onTaskFinished(Map<String, dynamic> data) {
     if (!mounted) return;
     final id = (data['data'] as Map?)?['libraryItemId'] ?? data['libraryItemId'];
     if (id != null && id != widget.itemId) return;
-    final wasEncoding = _encoding;
+    final wasRunning = _runningAction;
+    final action = data['action'] as String? ?? wasRunning;
     setState(() {
-      _encoding = false;
-      _encodeProgress = null;
+      _runningAction = null;
+      _taskProgress = null;
     });
-    if (!wasEncoding) return;
+    if (wasRunning == null) return;
     final failed = data['error'] != null || data['isFailed'] == true;
     if (!failed) context.read<LibraryProvider>().refresh();
+    final embed = action == 'embed-metadata';
+    final msg = failed
+        ? (embed ? 'Embed failed' : 'Encode failed')
+        : (embed ? 'Embed complete' : 'Encode complete');
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(failed ? 'Encode failed' : 'Encode complete')));
+      ..showSnackBar(SnackBar(content: Text(msg)));
   }
 
   // ─── Build ──────────────────────────────────────────────────
@@ -684,6 +834,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
         _ETab.chapters => 'Chapters',
         _ETab.match => 'Match',
         _ETab.encode => 'Encode',
+        _ETab.embed => 'Embed',
       };
 
   Widget _tabBody(_ETab t, ColorScheme cs, TextTheme tt, AppLocalizations l) => switch (t) {
@@ -692,6 +843,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
         _ETab.chapters => ChapterEditBody(itemId: widget.itemId, bookTitle: widget.bookTitle),
         _ETab.match => _buildQuickMatchTab(cs, tt, l),
         _ETab.encode => _buildEncodeTab(cs, tt, l),
+        _ETab.embed => _buildEmbedTab(cs, tt, l),
       };
 
   @override

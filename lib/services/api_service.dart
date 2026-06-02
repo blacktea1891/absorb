@@ -2248,6 +2248,20 @@ class ApiService {
     }
   }
 
+  /// Start an embed-metadata task: writes tags/chapters/cover into the audio
+  /// files. POST /api/tools/item/:id/embed-metadata?backup=0|1  (admin)
+  Future<bool> embedMetadata(String itemId, {bool backup = true}) async {
+    try {
+      final uri = Uri.parse('$_cleanBaseUrl/api/tools/item/$itemId/embed-metadata')
+          .replace(queryParameters: {'backup': backup ? '1' : '0'});
+      final r = await _authPost(uri);
+      return r.statusCode == 200;
+    } catch (e) {
+      debugPrint('embedMetadata error: $e');
+    }
+    return false;
+  }
+
   /// Start an M4B encode task on the server.
   /// POST /api/tools/item/:id/encode-m4b?codec=&bitrate=&channels=
   Future<bool> startM4bEncode(

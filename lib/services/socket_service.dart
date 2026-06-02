@@ -56,30 +56,43 @@ class SocketService {
   /// Payload: serialized Task object including action and data.libraryItemId.
   void Function(Map<String, dynamic> data)? onEncodeFinished;
 
-  // Encode task progress/finished fan-out so screens can subscribe alongside
-  // the library provider's onEncodeFinished above.
-  final List<void Function(Map<String, dynamic>)> _encodeProgressListeners = [];
-  final List<void Function(Map<String, dynamic>)> _encodeFinishedListeners = [];
+  // Task (encode-m4b / embed-metadata) event fan-out so screens can subscribe
+  // alongside the library provider's onEncodeFinished above. task_started and
+  // task_finished carry the action; task_progress is generic {libraryItemId, progress}.
+  final List<void Function(Map<String, dynamic>)> _taskStartedListeners = [];
+  final List<void Function(Map<String, dynamic>)> _taskProgressListeners = [];
+  final List<void Function(Map<String, dynamic>)> _taskFinishedListeners = [];
 
-  void addEncodeProgressListener(void Function(Map<String, dynamic>) fn) {
-    if (!_encodeProgressListeners.contains(fn)) _encodeProgressListeners.add(fn);
+  void addTaskStartedListener(void Function(Map<String, dynamic>) fn) {
+    if (!_taskStartedListeners.contains(fn)) _taskStartedListeners.add(fn);
   }
-  void removeEncodeProgressListener(void Function(Map<String, dynamic>) fn) =>
-      _encodeProgressListeners.remove(fn);
-  void addEncodeFinishedListener(void Function(Map<String, dynamic>) fn) {
-    if (!_encodeFinishedListeners.contains(fn)) _encodeFinishedListeners.add(fn);
+  void removeTaskStartedListener(void Function(Map<String, dynamic>) fn) =>
+      _taskStartedListeners.remove(fn);
+  void addTaskProgressListener(void Function(Map<String, dynamic>) fn) {
+    if (!_taskProgressListeners.contains(fn)) _taskProgressListeners.add(fn);
   }
-  void removeEncodeFinishedListener(void Function(Map<String, dynamic>) fn) =>
-      _encodeFinishedListeners.remove(fn);
+  void removeTaskProgressListener(void Function(Map<String, dynamic>) fn) =>
+      _taskProgressListeners.remove(fn);
+  void addTaskFinishedListener(void Function(Map<String, dynamic>) fn) {
+    if (!_taskFinishedListeners.contains(fn)) _taskFinishedListeners.add(fn);
+  }
+  void removeTaskFinishedListener(void Function(Map<String, dynamic>) fn) =>
+      _taskFinishedListeners.remove(fn);
 
-  void _emitEncodeProgress(Map<String, dynamic> data) {
-    for (final fn in List.of(_encodeProgressListeners)) {
+  void _emitTaskStarted(Map<String, dynamic> data) {
+    for (final fn in List.of(_taskStartedListeners)) {
       fn(data);
     }
   }
 
-  void _emitEncodeFinished(Map<String, dynamic> data) {
-    for (final fn in List.of(_encodeFinishedListeners)) {
+  void _emitTaskProgress(Map<String, dynamic> data) {
+    for (final fn in List.of(_taskProgressListeners)) {
+      fn(data);
+    }
+  }
+
+  void _emitTaskFinished(Map<String, dynamic> data) {
+    for (final fn in List.of(_taskFinishedListeners)) {
       fn(data);
     }
   }
@@ -182,18 +195,21 @@ class SocketService {
         if (data is Map<String, dynamic>) onUserUpdated?.call(data);
       });
 
-      // M4B encode task finished (fires once for the whole task, not per track)
+      // Task lifecycle (encode-m4b / embed-metadata). task_started + finished
+      // carry the action; task_progress is generic {libraryItemId, progress}.
+      _socket!.on('task_started', (data) {
+        if (data is Map<String, dynamic>) _emitTaskStarted(data);
+      });
+      _socket!.on('task_progress', (data) {
+        if (data is Map<String, dynamic>) _emitTaskProgress(data);
+      });
       _socket!.on('task_finished', (data) {
-        if (data is Map<String, dynamic> && data['action'] == 'encode-m4b') {
+        if (data is! Map<String, dynamic>) return;
+        if (data['action'] == 'encode-m4b') {
           debugPrint('[Socket] Encode finished');
           onEncodeFinished?.call(data);
-          _emitEncodeFinished(data);
         }
-      });
-
-      // M4B encode/embed progress: { libraryItemId, progress 0-100 }
-      _socket!.on('task_progress', (data) {
-        if (data is Map<String, dynamic>) _emitEncodeProgress(data);
+        _emitTaskFinished(data);
       });
 
       // Ereader device list changed (admin-wide or per-user). Payload carries
@@ -326,15 +342,16 @@ class SocketService {
         if (data is Map<String, dynamic>) onUserUpdated?.call(data);
       });
 
-      _socket!.on('task_finished', (data) {
-        if (data is Map<String, dynamic> && data['action'] == 'encode-m4b') {
-          onEncodeFinished?.call(data);
-          _emitEncodeFinished(data);
-        }
+      _socket!.on('task_started', (data) {
+        if (data is Map<String, dynamic>) _emitTaskStarted(data);
       });
-
       _socket!.on('task_progress', (data) {
-        if (data is Map<String, dynamic>) _emitEncodeProgress(data);
+        if (data is Map<String, dynamic>) _emitTaskProgress(data);
+      });
+      _socket!.on('task_finished', (data) {
+        if (data is! Map<String, dynamic>) return;
+        if (data['action'] == 'encode-m4b') onEncodeFinished?.call(data);
+        _emitTaskFinished(data);
       });
 
       _socket!.on('ereader-devices-updated', (data) {
