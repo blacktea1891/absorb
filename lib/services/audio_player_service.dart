@@ -1777,6 +1777,22 @@ class AudioPlayerService extends ChangeNotifier {
 
   static StreamSubscription? _interruptSub;
   static StreamSubscription? _noisySub;
+  static StreamSubscription? _devicesSub;
+  // Output routes whose disappearance should pause playback. becomingNoisy only
+  // fires when the LAST external output leaves (audio falling back to the phone
+  // speaker). With two outputs connected at once (e.g. car stereo + earbuds),
+  // dropping one just reroutes to the other and never fires it, so the book
+  // plays on silently. Watching device removal covers that gap.
+  static const Set<AudioDeviceType> _externalOutputTypes = {
+    AudioDeviceType.bluetoothA2dp,
+    AudioDeviceType.bluetoothSco,
+    AudioDeviceType.bluetoothLe,
+    AudioDeviceType.wiredHeadset,
+    AudioDeviceType.wiredHeadphones,
+    AudioDeviceType.usbAudio,
+    AudioDeviceType.hearingAid,
+    AudioDeviceType.carAudio,
+  };
   // Set true when BT/headphones disconnect so the interruption handler
   // won't auto-resume playback onto the phone speaker.
   static bool _noisyPause = false;
@@ -1924,6 +1940,41 @@ class AudioPlayerService extends ChangeNotifier {
       debugPrint('[AudioSession] Noisy stream error - re-subscribing: $e');
       _configureAudioSession();
     });
+
+    // Pause when an output route we could be playing through disappears, even
+    // if another output stays connected - the silent-playback case becomingNoisy
+    // misses. Mirrors the noisy handler. Android only; iOS already pauses on
+    // route loss. Tradeoff: a rare false pause if you power off a second output
+    // you weren't actually listening on, undone with a single tap on play.
+    _devicesSub?.cancel();
+    if (Platform.isAndroid) {
+      _devicesSub = session.devicesChangedEventStream.listen((event) async {
+        try {
+          final service = _instance;
+          if (!service.isPlaying) return;
+          final lost = event.devicesRemoved
+              .where((d) => d.isOutput && _externalOutputTypes.contains(d.type))
+              .toSet();
+          if (lost.isEmpty) return;
+          // Settle re-check: some devices briefly drop and re-add a route when
+          // playback starts. Only pause if the output is genuinely gone.
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (!service.isPlaying) return;
+          final current = await session.getDevices(includeInputs: false);
+          if (!lost.any((d) => !current.contains(d))) return;
+          debugPrint('[AudioSession] Output route removed while playing - pausing');
+          _noisyPause = true;
+          service._wasPlayingBeforeInterrupt = false;
+          _handler?.cancelPendingClick();
+          if (service.isPlaying) await service.pause();
+        } catch (e) {
+          debugPrint('[AudioSession] Device-change handler error: $e');
+        }
+      }, onError: (e) {
+        debugPrint('[AudioSession] Device-change stream error - re-subscribing: $e');
+        _configureAudioSession();
+      });
+    }
   }
 
   /// Refresh the media session when the app returns to foreground.
