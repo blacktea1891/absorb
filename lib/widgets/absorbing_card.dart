@@ -44,6 +44,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
   bool _speedAdjustedTime = true;
+  double _progressTextScale = 1.0; // elapsed/remaining/percent text size (GH #230)
   double _savedSpeed = 1.0; // per-book or default speed for inactive display
   final ValueNotifier<bool> _edgeBarExpanded = ValueNotifier(false);
   String? _lastRenderLogSig;
@@ -172,6 +173,9 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     });
     PlayerSettings.getSpeedAdjustedTime().then((v) {
       if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
+    });
+    PlayerSettings.getProgressTextScale().then((v) {
+      if (mounted && v != _progressTextScale) setState(() => _progressTextScale = v);
     });
     _loadSavedSpeed();
   }
@@ -564,7 +568,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final remaining = (dur - pos) / speed;
                       final timeStyle = tt.labelSmall?.copyWith(
                         color: isDark ? Colors.white.withValues(alpha: 0.55) : cs.onSurface,
-                        fontWeight: FontWeight.w500, fontSize: compact ? 10 : 11,
+                        fontWeight: FontWeight.w500, fontSize: (compact ? 10 : 11) * _progressTextScale,
                         fontFeatures: const [FontFeature.tabularFigures()],
                         shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                       );

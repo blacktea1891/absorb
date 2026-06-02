@@ -1546,6 +1546,12 @@ abstract class AppLocalizations {
   /// **'Rectangle book covers'**
   String get rectangleBookCovers;
 
+  /// No description provided for @progressTextSize.
+  ///
+  /// In en, this message translates to:
+  /// **'Progress text size'**
+  String get progressTextSize;
+
   /// No description provided for @rectangleBookCoversOnSubtitle.
   ///
   /// In en, this message translates to:

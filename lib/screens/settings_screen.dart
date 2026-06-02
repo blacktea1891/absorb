@@ -109,6 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _classicWording = false;
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
+  double _progressTextScale = 1.0;
   String _themeMode = 'dark';
   String _language = '';
   int _startScreen = 2;
@@ -336,8 +337,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getLanguage(),                                           // 49
       PlayerSettings.getClassicWording(),                                     // 50
       PlayerSettings.getQueuePlaylistId(),                                    // 51
+      PlayerSettings.getProgressTextScale(),                                  // 52
     ]);
     final s = results[0] as AutoRewindSettings;
+    final progressScale = results.last as double;
     final speed = results[1] as double;
     final wifiOnly = results[2] as bool;
     final rollingCount = results[3] as int;
@@ -437,6 +440,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // cardBtnLayout removed (now managed in edit sheet)
       _rectangleCovers = rectCovers;
       _coverPlayButton = coverPlay;
+      _progressTextScale = progressScale;
       _skipChapterBarrier = skipBarrier;
       _trustAllCerts = trustCerts;
       _showExplicitBadge = showExplicit;
@@ -856,6 +860,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 final idx = selected.first;
                                 setState(() => _startScreen = idx);
                                 PlayerSettings.setStartScreen(idx);
+                              } : null,
+                              style: const ButtonStyle(
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l.progressTextSize, style: tt.titleSmall),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: SegmentedButton<double>(
+                              showSelectedIcon: false,
+                              segments: const [
+                                ButtonSegment(value: 1.0, label: Text('A', style: TextStyle(fontSize: 13))),
+                                ButtonSegment(value: 1.5, label: Text('A', style: TextStyle(fontSize: 17))),
+                                ButtonSegment(value: 2.0, label: Text('A', style: TextStyle(fontSize: 21))),
+                              ],
+                              selected: {_progressTextScale},
+                              onSelectionChanged: _loaded ? (selected) {
+                                final v = selected.first;
+                                setState(() => _progressTextScale = v);
+                                PlayerSettings.setProgressTextScale(v);
                               } : null,
                               style: const ButtonStyle(
                                 visualDensity: VisualDensity.compact,

@@ -765,6 +765,9 @@ class AppLocalizationsZh extends AppLocalizations {
   String get rectangleBookCovers => '矩形书籍封面';
 
   @override
+  String get progressTextSize => 'Progress text size';
+
+  @override
   String get rectangleBookCoversOnSubtitle => '封面以 2:3 的书籍比例显示';
 
   @override

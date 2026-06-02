@@ -88,6 +88,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
   bool _speedAdjustedTime = true;
+  double _progressTextScale = 1.0;
 
   // Our own route, captured for popUntil when modals are stacked above us
   Route<dynamic>? _ownRoute;
@@ -215,6 +216,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
     });
     PlayerSettings.getSpeedAdjustedTime().then((v) {
       if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
+    });
+    PlayerSettings.getProgressTextScale().then((v) {
+      if (mounted && v != _progressTextScale) setState(() => _progressTextScale = v);
     });
   }
 
@@ -590,7 +594,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                           child: Text('${(bookProgress * 100).clamp(0, 100).toStringAsFixed(1)}%',
                             style: tt.labelSmall?.copyWith(
                               color: isDark ? Colors.white.withValues(alpha: 0.55) : Colors.black.withValues(alpha: 0.45),
-                              fontWeight: FontWeight.w500, fontSize: compact ? 10 : 11,
+                              fontWeight: FontWeight.w500, fontSize: (compact ? 10 : 11) * _progressTextScale,
                               fontFeatures: const [ui.FontFeature.tabularFigures()],
                               shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
                             )),

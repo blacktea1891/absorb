@@ -387,6 +387,7 @@
   "disablePageFadeOnSubtitle": "Pages switch instantly",
   "disablePageFadeOffSubtitle": "Pages fade when switching tabs",
   "rectangleBookCovers": "Rectangle book covers",
+  "progressTextSize": "Progress text size",
   "rectangleBookCoversOnSubtitle": "Covers display in 2:3 book proportion",
   "rectangleBookCoversOffSubtitle": "Covers are square",
   "sectionAbsorbingCards": "Absorbing Cards",

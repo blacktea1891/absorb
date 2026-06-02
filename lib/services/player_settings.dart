@@ -119,6 +119,12 @@ class PlayerSettings {
   static Future<String> getAudibleRegion() => _get('audibleRegion', '');
   static Future<void> setAudibleRegion(String value) => _set('audibleRegion', value);
 
+  /// Font-size multiplier for the elapsed/remaining/percent text on the player
+  /// card (GH #230, accessibility). 1.0 = default.
+  static Future<double> getProgressTextScale() => _get('progressTextScale', 1.0);
+  static Future<void> setProgressTextScale(double v) =>
+      _set('progressTextScale', v, notify: true);
+
   static Future<bool> getUpcomingReleasesSortByDate() => _get('upcomingReleasesSortByDate', false);
   static Future<void> setUpcomingReleasesSortByDate(bool value) => _set('upcomingReleasesSortByDate', value);
 

@@ -781,6 +781,9 @@ class AppLocalizationsFr extends AppLocalizations {
   String get rectangleBookCovers => 'Rectangle book covers';
 
   @override
+  String get progressTextSize => 'Progress text size';
+
+  @override
   String get rectangleBookCoversOnSubtitle =>
       'Covers display in 2:3 book proportion';
 
