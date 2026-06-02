@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
+import '../services/audio_player_service.dart';
 import '../widgets/overlay_toast.dart';
 
 // NOTE: strings here are intentionally hardcoded English for now; this admin
@@ -58,6 +61,22 @@ class _ChapterEditorScreenState extends State<ChapterEditorScreen> {
   final TextEditingController _bulkCtl = TextEditingController();
   bool _hasChanges = false;
   String? _asin;
+  List<Map<String, dynamic>> _tracks = [];
+
+  // Preview player - a separate just_audio instance (works on iOS + Android,
+  // independent of the main native/ExoPlayer engine). Main playback is paused
+  // while previewing and restored when leaving the screen.
+  AudioPlayer? _preview;
+  StreamSubscription<Duration>? _previewPosSub;
+  StreamSubscription<PlayerState>? _previewStateSub;
+  int? _previewUid; // chapter uid currently previewing
+  bool _previewLoading = false;
+  bool _previewPlaying = false;
+  double _previewTrackOffset = 0;
+  double _previewTrackDur = 0;
+  double _previewPosSec = 0;
+  bool _scrubbing = false;
+  bool? _mainWasPlaying;
 
   @override
   void initState() {
@@ -72,6 +91,12 @@ class _ChapterEditorScreenState extends State<ChapterEditorScreen> {
     }
     _shiftCtl.dispose();
     _bulkCtl.dispose();
+    _previewPosSub?.cancel();
+    _previewStateSub?.cancel();
+    _preview?.dispose();
+    if (_mainWasPlaying == true) {
+      AudioPlayerService().play();
+    }
     super.dispose();
   }
 
@@ -94,10 +119,14 @@ class _ChapterEditorScreenState extends State<ChapterEditorScreen> {
           .whereType<Map<String, dynamic>>()
           .where((af) => af['exclude'] != true)
           .toList();
+      final rawTracks =
+          (media['tracks'] as List<dynamic>? ?? []).whereType<Map<String, dynamic>>().toList();
+      final tracks = rawTracks.isNotEmpty ? rawTracks : _tracksFromAudioFiles(afs);
       if (!mounted) return;
       setState(() {
         _duration = dur;
         _audioFiles = afs;
+        _tracks = tracks;
         _asin = (meta['asin'] as String?)?.trim();
         _originalChapters = chs.whereType<Map<String, dynamic>>().toList();
         _initChapters(_originalChapters);
@@ -221,6 +250,24 @@ class _ChapterEditorScreenState extends State<ChapterEditorScreen> {
     if (v < 0) return 0;
     if (_duration > 0 && v > _duration) return _duration;
     return v;
+  }
+
+  /// Build a track list (startOffset / duration / contentUrl) from audio files
+  /// when the expanded item doesn't include media.tracks.
+  List<Map<String, dynamic>> _tracksFromAudioFiles(List<Map<String, dynamic>> afs) {
+    final tracks = <Map<String, dynamic>>[];
+    double off = 0;
+    for (final af in afs) {
+      final dur = (af['duration'] as num?)?.toDouble() ?? 0;
+      final ino = af['ino'] as String?;
+      tracks.add({
+        'startOffset': off,
+        'duration': dur,
+        'contentUrl': ino != null ? '/api/items/${widget.itemId}/file/$ino' : null,
+      });
+      off += dur;
+    }
+    return tracks;
   }
 
   String _basename(String p) {
@@ -366,6 +413,132 @@ class _ChapterEditorScreenState extends State<ChapterEditorScreen> {
       _syncTitleControllers();
       _check();
     });
+  }
+
+  // ─── Preview (separate player; pauses main while active) ────
+
+  Map<String, dynamic>? _trackForTime(double t) {
+    for (final tr in _tracks) {
+      final off = (tr['startOffset'] as num?)?.toDouble() ?? 0;
+      final dur = (tr['duration'] as num?)?.toDouble() ?? 0;
+      if (t >= off && t < off + dur) return tr;
+    }
+    return _tracks.isNotEmpty ? _tracks.last : null;
+  }
+
+  void _captureAndPauseMain() {
+    final main = AudioPlayerService();
+    _mainWasPlaying ??= main.isPlaying;
+    if (main.isPlaying) main.pause();
+  }
+
+  Future<void> _playChapter(_Ch c) async {
+    await _stopPreview();
+
+    final track = _trackForTime(c.start);
+    final contentUrl = track?['contentUrl'] as String?;
+    final api = context.read<AuthProvider>().apiService;
+    if (track == null || contentUrl == null || api == null) {
+      showOverlayToast(context, 'No audio for this position', icon: Icons.error_outline_rounded);
+      return;
+    }
+    final startOffset = (track['startOffset'] as num?)?.toDouble() ?? 0;
+    final seekSec = (c.start - startOffset) < 0 ? 0.0 : (c.start - startOffset);
+
+    _captureAndPauseMain();
+
+    setState(() {
+      _previewUid = c.uid;
+      _previewLoading = true;
+      _previewPlaying = false;
+      _scrubbing = false;
+      _previewTrackOffset = startOffset;
+      _previewTrackDur = (track['duration'] as num?)?.toDouble() ?? 0;
+      _previewPosSec = seekSec;
+    });
+
+    try {
+      final player = AudioPlayer();
+      _preview = player;
+      _previewPosSub = player.positionStream.listen((pos) {
+        if (mounted && !_scrubbing) setState(() => _previewPosSec = pos.inMilliseconds / 1000.0);
+      });
+      _previewStateSub = player.playerStateStream.listen((st) {
+        if (!mounted) return;
+        final loading = st.processingState == ProcessingState.loading ||
+            st.processingState == ProcessingState.buffering;
+        final done = st.processingState == ProcessingState.completed;
+        setState(() {
+          _previewLoading = loading;
+          _previewPlaying = st.playing && !done;
+        });
+        if (done) _stopPreview();
+      });
+      await player.setUrl(api.buildTrackUrl(contentUrl));
+      await player.seek(Duration(milliseconds: (seekSec * 1000).round()));
+      await player.play();
+    } catch (e) {
+      debugPrint('[ChapterEditor] preview error: $e');
+      await _stopPreview();
+      if (mounted) showOverlayToast(context, 'Could not play preview', icon: Icons.error_outline_rounded);
+    }
+  }
+
+  Future<void> _stopPreview() async {
+    await _previewPosSub?.cancel();
+    _previewPosSub = null;
+    await _previewStateSub?.cancel();
+    _previewStateSub = null;
+    final p = _preview;
+    _preview = null;
+    if (p != null) {
+      try {
+        await p.stop();
+        await p.dispose();
+      } catch (_) {}
+    }
+    if (mounted) {
+      setState(() {
+        _previewUid = null;
+        _previewLoading = false;
+        _previewPlaying = false;
+      });
+    }
+  }
+
+  Future<void> _togglePreviewPlay() async {
+    final p = _preview;
+    if (p == null || _previewLoading) return;
+    if (_previewPlaying) {
+      await p.pause();
+    } else {
+      await p.play();
+    }
+  }
+
+  void _seekPreviewBy(double deltaSec) => _seekPreviewTo(_previewPosSec + deltaSec);
+
+  void _seekPreviewTo(double posSec) {
+    final p = _preview;
+    if (p == null) return;
+    var target = posSec;
+    if (target < 0) target = 0;
+    if (_previewTrackDur > 0 && target > _previewTrackDur) target = _previewTrackDur;
+    p.seek(Duration(milliseconds: (target * 1000).round()));
+    if (mounted) setState(() => _previewPosSec = target);
+  }
+
+  /// Snap the chapter start to the current preview position (the global time
+  /// the scrubber is sitting on). Works in either direction; keeps previewing
+  /// so the start can be fine-tuned further.
+  void _adjustStart(_Ch c) {
+    final newStart = _clampStart(_previewTrackOffset + _previewPosSec);
+    setState(() {
+      c.start = newStart;
+      _check();
+    });
+    HapticFeedback.mediumImpact();
+    showOverlayToast(context, 'Start set to ${_clock(newStart)}', icon: Icons.check_rounded);
   }
 
   // ─── Bulk add ───────────────────────────────────────────────
@@ -820,14 +993,20 @@ class _ChapterEditorScreenState extends State<ChapterEditorScreen> {
   Widget _row(ColorScheme cs, _Ch c, int index) {
     final locked = _locked.contains(c.uid);
     final hasError = c.error != null;
+    final active = _previewUid == c.uid;
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      padding: const EdgeInsets.fromLTRB(10, 6, 4, 8),
+      margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(6, 8, 2, 10),
       decoration: BoxDecoration(
         color: cs.surfaceContainerHighest.withValues(alpha: 0.25),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: hasError ? cs.error.withValues(alpha: 0.6) : cs.outlineVariant.withValues(alpha: 0.3),
+          color: hasError
+              ? cs.error.withValues(alpha: 0.6)
+              : active
+                  ? cs.primary.withValues(alpha: 0.5)
+                  : cs.outlineVariant.withValues(alpha: 0.3),
+          width: active ? 1.5 : 1,
         ),
       ),
       child: Column(
@@ -836,92 +1015,220 @@ class _ChapterEditorScreenState extends State<ChapterEditorScreen> {
           Row(
             children: [
               SizedBox(
-                width: 32,
-                child: Text('#${index + 1}',
-                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
+                width: 26,
+                child: Text('${index + 1}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: cs.onSurfaceVariant)),
               ),
-              _IconBtn(
-                icon: Icons.remove_rounded,
-                onTap: () => _nudge(c, -1),
-                cs: cs,
+              IconButton(
+                onPressed: () => _nudge(c, -1),
+                icon: const Icon(Icons.remove_circle_outline_rounded),
+                iconSize: 24,
+                color: cs.onSurfaceVariant,
+                tooltip: 'Back 1 second',
               ),
-              InkWell(
-                onTap: () => _editStart(c),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  child: Text(
-                    _fmtStart(c.start),
-                    style: TextStyle(
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: cs.primary,
+              Expanded(
+                child: InkWell(
+                  onTap: () => _editStart(c),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    alignment: Alignment.center,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    decoration: BoxDecoration(
+                      color: cs.primary.withValues(alpha: 0.10),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text(
+                      _fmtStart(c.start),
+                      style: TextStyle(
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: cs.primary,
+                      ),
                     ),
                   ),
                 ),
               ),
-              _IconBtn(icon: Icons.add_rounded, onTap: () => _nudge(c, 1), cs: cs),
-              const Spacer(),
-              _IconBtn(
-                icon: locked ? Icons.lock_rounded : Icons.lock_open_rounded,
-                color: locked ? Colors.orange : null,
-                onTap: () => _toggleLock(c),
-                cs: cs,
+              IconButton(
+                onPressed: () => _nudge(c, 1),
+                icon: const Icon(Icons.add_circle_outline_rounded),
+                iconSize: 24,
+                color: cs.onSurfaceVariant,
+                tooltip: 'Forward 1 second',
               ),
-              _IconBtn(icon: Icons.add_box_outlined, onTap: () => _insertBelow(c), cs: cs),
-              if (_chapters.length > 1)
-                _IconBtn(
-                  icon: Icons.delete_outline_rounded,
-                  color: cs.error,
-                  onTap: () => _remove(c),
-                  cs: cs,
-                ),
+              _previewButton(cs, c),
+              _rowMenu(cs, c, locked),
             ],
           ),
           Padding(
-            padding: const EdgeInsets.only(left: 4, right: 4, top: 2),
+            padding: const EdgeInsets.only(left: 8, right: 8, top: 2),
             child: TextField(
               controller: _titleCtl[c.uid],
               onChanged: (v) {
                 c.title = v;
                 setState(_check);
               },
+              style: const TextStyle(fontSize: 16),
               decoration: const InputDecoration(
-                isDense: true,
                 hintText: 'Chapter title',
+                contentPadding: EdgeInsets.symmetric(vertical: 10),
                 border: UnderlineInputBorder(),
               ),
-              style: const TextStyle(fontSize: 14),
             ),
           ),
           if (hasError)
             Padding(
-              padding: const EdgeInsets.only(left: 4, top: 4),
-              child: Text(c.error!, style: TextStyle(fontSize: 11, color: cs.error)),
+              padding: const EdgeInsets.only(left: 8, top: 6),
+              child: Text(c.error!, style: TextStyle(fontSize: 12.5, color: cs.error)),
             ),
+          if (active) _previewPanel(cs, c),
         ],
       ),
     );
   }
-}
 
-class _IconBtn extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  final Color? color;
-  final ColorScheme cs;
-  const _IconBtn({required this.icon, required this.onTap, required this.cs, this.color});
+  Widget _previewButton(ColorScheme cs, _Ch c) {
+    final active = _previewUid == c.uid;
+    if (active && _previewLoading) {
+      return const SizedBox(
+        width: 48,
+        height: 48,
+        child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
+      );
+    }
+    return IconButton(
+      onPressed: () => active ? _stopPreview() : _playChapter(c),
+      icon: Icon(active ? Icons.stop_circle_rounded : Icons.play_circle_rounded),
+      iconSize: 32,
+      color: active ? cs.primary : cs.onSurfaceVariant,
+      tooltip: active ? 'Stop preview' : 'Preview from here',
+    );
+  }
 
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(20),
-      child: Padding(
-        padding: const EdgeInsets.all(6),
-        child: Icon(icon, size: 20, color: color ?? cs.onSurfaceVariant),
+  Widget _previewPanel(ColorScheme cs, _Ch c) {
+    final global = _previewTrackOffset + _previewPosSec;
+    final dur = _previewTrackDur > 0 ? _previewTrackDur : (_previewPosSec > 1 ? _previewPosSec : 1.0);
+    final val = _previewPosSec.clamp(0.0, dur);
+    return Container(
+      margin: const EdgeInsets.only(left: 4, right: 4, top: 10),
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 12),
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
       ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          IconButton(
+            onPressed: _previewLoading ? null : _togglePreviewPlay,
+            icon: _previewLoading
+                ? const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))
+                : Icon(_previewPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded),
+            iconSize: 30,
+            color: cs.primary,
+          ),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('Scrub to the exact spot, then set',
+                  style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+              Text('Start → ${_clock(global)}',
+                  style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w700,
+                      color: cs.primary,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ]),
+          ),
+        ]),
+        Slider(
+          value: val,
+          max: dur,
+          onChangeStart: (_) => _scrubbing = true,
+          onChanged: (v) => setState(() => _previewPosSec = v),
+          onChangeEnd: (v) {
+            _scrubbing = false;
+            _seekPreviewTo(v);
+          },
+        ),
+        Row(children: [
+          _skipBtn('-5s', () => _seekPreviewBy(-5)),
+          const SizedBox(width: 8),
+          _skipBtn('-1s', () => _seekPreviewBy(-1)),
+          const Spacer(),
+          _skipBtn('+1s', () => _seekPreviewBy(1)),
+          const SizedBox(width: 8),
+          _skipBtn('+5s', () => _seekPreviewBy(5)),
+        ]),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () => _adjustStart(c),
+            icon: const Icon(Icons.my_location_rounded, size: 18),
+            label: const Text('Set start here'),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _skipBtn(String label, VoidCallback onTap) {
+    return OutlinedButton(
+      onPressed: onTap,
+      style: OutlinedButton.styleFrom(
+        minimumSize: const Size(58, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+      ),
+      child: Text(label),
+    );
+  }
+
+  Widget _rowMenu(ColorScheme cs, _Ch c, bool locked) {
+    return PopupMenuButton<String>(
+      icon: const Icon(Icons.more_vert_rounded),
+      iconSize: 24,
+      tooltip: 'More',
+      onSelected: (v) {
+        switch (v) {
+          case 'lock':
+            _toggleLock(c);
+            break;
+          case 'insert':
+            _insertBelow(c);
+            break;
+          case 'delete':
+            _remove(c);
+            break;
+        }
+      },
+      itemBuilder: (_) => [
+        PopupMenuItem(
+          value: 'lock',
+          child: Row(children: [
+            Icon(locked ? Icons.lock_open_rounded : Icons.lock_rounded,
+                color: locked ? Colors.orange : cs.onSurfaceVariant),
+            const SizedBox(width: 12),
+            Text(locked ? 'Unlock' : 'Lock'),
+          ]),
+        ),
+        PopupMenuItem(
+          value: 'insert',
+          child: Row(children: [
+            Icon(Icons.add_box_outlined, color: cs.onSurfaceVariant),
+            const SizedBox(width: 12),
+            const Text('Insert below'),
+          ]),
+        ),
+        if (_chapters.length > 1)
+          PopupMenuItem(
+            value: 'delete',
+            child: Row(children: [
+              Icon(Icons.delete_outline_rounded, color: cs.error),
+              const SizedBox(width: 12),
+              Text('Delete', style: TextStyle(color: cs.error)),
+            ]),
+          ),
+      ],
     );
   }
 }
