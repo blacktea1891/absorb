@@ -965,6 +965,7 @@
   "channels": "Kanäle",
   "mono": "Mono",
   "stereo": "Stereo",
+  "encodeStarted": "M4B Encodierung gestartet",
   "currentlyLabel": "Momentan:",
   "aboutSection": "Info",
   "chaptersCount": "Kapitel ({count})",
@@ -3137,5 +3138,12 @@
       }
     }
   },
-  "region": "Region"
+  "region": "Region",
+  "chapterAddHint": "Kapitel hinzufügen (z.B. \"Kapitel 01\")",
+  "chapterRemoveAll": "Alle entfernen",
+  "chapterShiftTimes": "Zeiten verschieben",
+  "chapterShowSeconds": "Sekunden anzeigen",
+  "chapterShiftBySeconds": "Verschieben um (Sekunden)",
+  "coverSearchTitle": "Nach einem Cover suchen",
+  "coverEnterTitleFirst": "Gebe zuerst einen Titel ein"
 }
