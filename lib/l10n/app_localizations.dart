@@ -9179,6 +9179,618 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Region'**
   String get region;
+
+  /// No description provided for @editTabDetails.
+  ///
+  /// In en, this message translates to:
+  /// **'Details'**
+  String get editTabDetails;
+
+  /// No description provided for @editTabCover.
+  ///
+  /// In en, this message translates to:
+  /// **'Cover'**
+  String get editTabCover;
+
+  /// No description provided for @editTabMatch.
+  ///
+  /// In en, this message translates to:
+  /// **'Match'**
+  String get editTabMatch;
+
+  /// No description provided for @editTabEmbed.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed'**
+  String get editTabEmbed;
+
+  /// No description provided for @chapterEditorTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Chapters'**
+  String get chapterEditorTitle;
+
+  /// No description provided for @chapterNotConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'Not connected to a server'**
+  String get chapterNotConnected;
+
+  /// No description provided for @chapterErrorFirstNotZero.
+  ///
+  /// In en, this message translates to:
+  /// **'First chapter must start at 0:00'**
+  String get chapterErrorFirstNotZero;
+
+  /// No description provided for @chapterErrorStartAfterPrevious.
+  ///
+  /// In en, this message translates to:
+  /// **'Start must come after the previous chapter'**
+  String get chapterErrorStartAfterPrevious;
+
+  /// No description provided for @chapterErrorStartBeforeEnd.
+  ///
+  /// In en, this message translates to:
+  /// **'Start must be before the book ends'**
+  String get chapterErrorStartBeforeEnd;
+
+  /// No description provided for @chapterErrorTitleRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Title required'**
+  String get chapterErrorTitleRequired;
+
+  /// No description provided for @chapterEditStartTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit start time'**
+  String get chapterEditStartTitle;
+
+  /// No description provided for @chapterTimeHintSeconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Seconds'**
+  String get chapterTimeHintSeconds;
+
+  /// No description provided for @chapterTimeHintFull.
+  ///
+  /// In en, this message translates to:
+  /// **'HH:MM:SS or seconds'**
+  String get chapterTimeHintFull;
+
+  /// No description provided for @chapterInvalidTime.
+  ///
+  /// In en, this message translates to:
+  /// **'Invalid time'**
+  String get chapterInvalidTime;
+
+  /// No description provided for @chapterLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapter is locked'**
+  String get chapterLocked;
+
+  /// No description provided for @chapterAllLocked.
+  ///
+  /// In en, this message translates to:
+  /// **'All chapters are locked'**
+  String get chapterAllLocked;
+
+  /// No description provided for @chapterTrackTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Track {number}'**
+  String chapterTrackTitle(int number);
+
+  /// No description provided for @chapterNoAudioForPosition.
+  ///
+  /// In en, this message translates to:
+  /// **'No audio for this position'**
+  String get chapterNoAudioForPosition;
+
+  /// No description provided for @chapterCouldNotPlayPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not play preview'**
+  String get chapterCouldNotPlayPreview;
+
+  /// No description provided for @chapterStartSetTo.
+  ///
+  /// In en, this message translates to:
+  /// **'Start set to {time}'**
+  String chapterStartSetTo(String time);
+
+  /// No description provided for @chapterAddNumberedTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add numbered chapters'**
+  String get chapterAddNumberedTitle;
+
+  /// No description provided for @chapterNextPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Next: \"{first}\", \"{second}\", ...'**
+  String chapterNextPreview(String first, String second);
+
+  /// No description provided for @chapterHowMany.
+  ///
+  /// In en, this message translates to:
+  /// **'How many chapters'**
+  String get chapterHowMany;
+
+  /// No description provided for @add.
+  ///
+  /// In en, this message translates to:
+  /// **'Add'**
+  String get add;
+
+  /// No description provided for @chapterCountRange.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a count between 1 and 150'**
+  String get chapterCountRange;
+
+  /// No description provided for @chapterTitlesUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapter titles updated'**
+  String get chapterTitlesUpdated;
+
+  /// No description provided for @chaptersApplied.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapters applied'**
+  String get chaptersApplied;
+
+  /// No description provided for @chapterDiscardTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Discard changes?'**
+  String get chapterDiscardTitle;
+
+  /// No description provided for @chapterDiscardMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Revert to the saved chapters.'**
+  String get chapterDiscardMessage;
+
+  /// No description provided for @chapterRemoveAllTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove all chapters?'**
+  String get chapterRemoveAllTitle;
+
+  /// No description provided for @chapterRemoveAllMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'This removes every chapter from this book.'**
+  String get chapterRemoveAllMessage;
+
+  /// No description provided for @chapterAllRemoved.
+  ///
+  /// In en, this message translates to:
+  /// **'All chapters removed'**
+  String get chapterAllRemoved;
+
+  /// No description provided for @chapterFixHighlighted.
+  ///
+  /// In en, this message translates to:
+  /// **'Fix the highlighted chapters first'**
+  String get chapterFixHighlighted;
+
+  /// No description provided for @chaptersUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapters updated'**
+  String get chaptersUpdated;
+
+  /// No description provided for @ok.
+  ///
+  /// In en, this message translates to:
+  /// **'OK'**
+  String get ok;
+
+  /// No description provided for @chapterSaveButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Save chapters'**
+  String get chapterSaveButton;
+
+  /// No description provided for @chapterAddHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Add chapter (e.g. \"Chapter 01\")'**
+  String get chapterAddHint;
+
+  /// No description provided for @chapterAddTooltip.
+  ///
+  /// In en, this message translates to:
+  /// **'Add chapter(s)'**
+  String get chapterAddTooltip;
+
+  /// No description provided for @chapterRemoveAll.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove All'**
+  String get chapterRemoveAll;
+
+  /// No description provided for @chapterShiftTimes.
+  ///
+  /// In en, this message translates to:
+  /// **'Shift Times'**
+  String get chapterShiftTimes;
+
+  /// No description provided for @chapterFromTracks.
+  ///
+  /// In en, this message translates to:
+  /// **'From Tracks'**
+  String get chapterFromTracks;
+
+  /// No description provided for @chapterLookup.
+  ///
+  /// In en, this message translates to:
+  /// **'Lookup'**
+  String get chapterLookup;
+
+  /// No description provided for @chapterShowSeconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Show seconds'**
+  String get chapterShowSeconds;
+
+  /// No description provided for @chapterShiftBySeconds.
+  ///
+  /// In en, this message translates to:
+  /// **'Shift by (seconds)'**
+  String get chapterShiftBySeconds;
+
+  /// No description provided for @chapterShiftHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Shifts every unlocked chapter. Use a negative value to move them earlier.'**
+  String get chapterShiftHint;
+
+  /// No description provided for @chapterBack1Second.
+  ///
+  /// In en, this message translates to:
+  /// **'Back 1 second'**
+  String get chapterBack1Second;
+
+  /// No description provided for @chapterForward1Second.
+  ///
+  /// In en, this message translates to:
+  /// **'Forward 1 second'**
+  String get chapterForward1Second;
+
+  /// No description provided for @chapterTitleHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapter title'**
+  String get chapterTitleHint;
+
+  /// No description provided for @chapterStopPreview.
+  ///
+  /// In en, this message translates to:
+  /// **'Stop preview'**
+  String get chapterStopPreview;
+
+  /// No description provided for @chapterPreviewFromHere.
+  ///
+  /// In en, this message translates to:
+  /// **'Preview from here'**
+  String get chapterPreviewFromHere;
+
+  /// No description provided for @chapterScrubHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Scrub to the exact spot, then set'**
+  String get chapterScrubHint;
+
+  /// No description provided for @chapterStartAt.
+  ///
+  /// In en, this message translates to:
+  /// **'Start at {time}'**
+  String chapterStartAt(String time);
+
+  /// No description provided for @chapterSetStartHere.
+  ///
+  /// In en, this message translates to:
+  /// **'Set start here'**
+  String get chapterSetStartHere;
+
+  /// No description provided for @chapterMore.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get chapterMore;
+
+  /// No description provided for @chapterUnlock.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlock'**
+  String get chapterUnlock;
+
+  /// No description provided for @chapterLock.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock'**
+  String get chapterLock;
+
+  /// No description provided for @chapterInsertBelow.
+  ///
+  /// In en, this message translates to:
+  /// **'Insert below'**
+  String get chapterInsertBelow;
+
+  /// No description provided for @chapterFindTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Find chapters'**
+  String get chapterFindTitle;
+
+  /// No description provided for @chapterFindSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Looks up chapters from Audible/Audnexus by ASIN.'**
+  String get chapterFindSubtitle;
+
+  /// No description provided for @chapterEnterAsin.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter an ASIN'**
+  String get chapterEnterAsin;
+
+  /// No description provided for @chapterLookupFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Lookup failed - check the ASIN'**
+  String get chapterLookupFailed;
+
+  /// No description provided for @chapterNoChaptersFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No chapters found for that ASIN'**
+  String get chapterNoChaptersFound;
+
+  /// No description provided for @chapterRemoveBranding.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove Audible branding (intro/outro)'**
+  String get chapterRemoveBranding;
+
+  /// No description provided for @chapterFoundCount.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} chapters found'**
+  String chapterFoundCount(int count);
+
+  /// No description provided for @chapterAudibleVsBook.
+  ///
+  /// In en, this message translates to:
+  /// **'Audible {audible}  -  Book {book}'**
+  String chapterAudibleVsBook(String audible, String book);
+
+  /// No description provided for @chapterAudibleLonger.
+  ///
+  /// In en, this message translates to:
+  /// **'The Audible version is longer than your file - later chapters may not line up.'**
+  String get chapterAudibleLonger;
+
+  /// No description provided for @chapterAudibleShorter.
+  ///
+  /// In en, this message translates to:
+  /// **'The Audible version is shorter than your file - chapters may not line up.'**
+  String get chapterAudibleShorter;
+
+  /// No description provided for @chapterTitlesOnly.
+  ///
+  /// In en, this message translates to:
+  /// **'Titles only'**
+  String get chapterTitlesOnly;
+
+  /// No description provided for @chapterApplyChapters.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply chapters'**
+  String get chapterApplyChapters;
+
+  /// No description provided for @coverSearchTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Search for a cover'**
+  String get coverSearchTitle;
+
+  /// No description provided for @coverSearchRefineHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Refine the title/author to clean up results - this does not change the book.'**
+  String get coverSearchRefineHint;
+
+  /// No description provided for @coverNoneFound.
+  ///
+  /// In en, this message translates to:
+  /// **'No covers found'**
+  String get coverNoneFound;
+
+  /// No description provided for @coverEnterTitleFirst.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a title first'**
+  String get coverEnterTitleFirst;
+
+  /// No description provided for @coverUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Cover updated'**
+  String get coverUpdated;
+
+  /// No description provided for @coverCouldNotUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not update cover'**
+  String get coverCouldNotUpdate;
+
+  /// No description provided for @coverApply.
+  ///
+  /// In en, this message translates to:
+  /// **'Apply cover'**
+  String get coverApply;
+
+  /// No description provided for @coverUnknownResolution.
+  ///
+  /// In en, this message translates to:
+  /// **'Unknown resolution'**
+  String get coverUnknownResolution;
+
+  /// No description provided for @embedIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed metadata into audio files including cover image and chapters.'**
+  String get embedIntro;
+
+  /// No description provided for @embedBackupOption.
+  ///
+  /// In en, this message translates to:
+  /// **'Back up audio files first'**
+  String get embedBackupOption;
+
+  /// No description provided for @embedNoteInFolder.
+  ///
+  /// In en, this message translates to:
+  /// **'Metadata will be embedded in the audio tracks inside your audiobook folder.'**
+  String get embedNoteInFolder;
+
+  /// No description provided for @embedNoteMultiTrack.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapters are not embedded in multi-track audiobooks.'**
+  String get embedNoteMultiTrack;
+
+  /// No description provided for @embedNoteNavigateAway.
+  ///
+  /// In en, this message translates to:
+  /// **'Once the task is started you can navigate away from this page.'**
+  String get embedNoteNavigateAway;
+
+  /// No description provided for @embedStartButton.
+  ///
+  /// In en, this message translates to:
+  /// **'Start Metadata Embed'**
+  String get embedStartButton;
+
+  /// No description provided for @embedProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Embedding {percent}%'**
+  String embedProgress(String percent);
+
+  /// No description provided for @embedProgressIndeterminate.
+  ///
+  /// In en, this message translates to:
+  /// **'Embedding...'**
+  String get embedProgressIndeterminate;
+
+  /// No description provided for @taskProgressKeepsRunning.
+  ///
+  /// In en, this message translates to:
+  /// **'{percent}% - keeps running if you leave this page'**
+  String taskProgressKeepsRunning(String percent);
+
+  /// No description provided for @taskStarting.
+  ///
+  /// In en, this message translates to:
+  /// **'Starting...'**
+  String get taskStarting;
+
+  /// No description provided for @embedBackupNoteIntro.
+  ///
+  /// In en, this message translates to:
+  /// **'A backup of your original audio files will be stored on the server in '**
+  String get embedBackupNoteIntro;
+
+  /// No description provided for @embedBackupNotePath.
+  ///
+  /// In en, this message translates to:
+  /// **'/metadata/cache/items/{itemId}/'**
+  String embedBackupNotePath(String itemId);
+
+  /// No description provided for @embedBackupNoteOutro.
+  ///
+  /// In en, this message translates to:
+  /// **'. Make sure to periodically purge the items cache.'**
+  String get embedBackupNoteOutro;
+
+  /// No description provided for @embedDialogTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed metadata'**
+  String get embedDialogTitle;
+
+  /// No description provided for @embedConfirmMessage.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed metadata into {count, plural, one{# audio file} other{# audio files}}? Your audio files will be rewritten{backup}.'**
+  String embedConfirmMessage(int count, String backup);
+
+  /// No description provided for @embedConfirmBackupClause.
+  ///
+  /// In en, this message translates to:
+  /// **' (originals backed up first)'**
+  String get embedConfirmBackupClause;
+
+  /// No description provided for @embedConfirmAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed'**
+  String get embedConfirmAction;
+
+  /// No description provided for @embedCouldNotStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not start embed'**
+  String get embedCouldNotStart;
+
+  /// No description provided for @embedStarted.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed started'**
+  String get embedStarted;
+
+  /// No description provided for @embedComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed complete'**
+  String get embedComplete;
+
+  /// No description provided for @embedFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Embed failed'**
+  String get embedFailed;
+
+  /// No description provided for @encodeComplete.
+  ///
+  /// In en, this message translates to:
+  /// **'Encode complete'**
+  String get encodeComplete;
+
+  /// No description provided for @encodeFailedTask.
+  ///
+  /// In en, this message translates to:
+  /// **'Encode failed'**
+  String get encodeFailedTask;
+
+  /// No description provided for @encodeProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'Encoding {percent}%'**
+  String encodeProgress(String percent);
+
+  /// No description provided for @encodeProgressIndeterminate.
+  ///
+  /// In en, this message translates to:
+  /// **'Encoding...'**
+  String get encodeProgressIndeterminate;
 }
 
 class _AppLocalizationsDelegate

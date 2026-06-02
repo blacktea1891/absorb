@@ -764,7 +764,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                 _moreItem(cs, Icons.local_library_rounded, l.searchOnGoodreads,
                   onTap: () { Navigator.pop(ctx); _openGoodreads(title, authorName); }),
               if (auth.canUpdateMetadata && !lib.isOffline)
-                _moreItem(cs, Icons.edit_rounded, 'Edit...',
+                _moreItem(cs, Icons.edit_rounded, '${l.edit}...',
                   onTap: () {
                     Navigator.pop(ctx);
                     _openEditPage(auth, title, isEbookOnly);

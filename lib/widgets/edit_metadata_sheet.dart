@@ -527,7 +527,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
                 ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
                 : const Icon(Icons.transform_rounded, size: 18),
             label: Text(_encoding
-                ? (_taskProgress != null ? 'Encoding ${_taskProgress!.toStringAsFixed(0)}%' : 'Encoding...')
+                ? (_taskProgress != null ? l.encodeProgress(_taskProgress!.toStringAsFixed(0)) : l.encodeProgressIndeterminate)
                 : l.startM4bEncode),
             style: FilledButton.styleFrom(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -547,8 +547,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
           const SizedBox(height: 6),
           Text(
             _taskProgress != null
-                ? '${_taskProgress!.toStringAsFixed(0)}% - keeps running if you leave this page'
-                : 'Starting...',
+                ? l.taskProgressKeepsRunning(_taskProgress!.toStringAsFixed(0))
+                : l.taskStarting,
             style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
@@ -562,7 +562,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
       controller: _embedScroll,
       padding: EdgeInsets.fromLTRB(20, 20, 20, 24 + MediaQuery.of(context).viewPadding.bottom),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Embed metadata into audio files including cover image and chapters.',
+        Text(l.embedIntro,
             style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant, height: 1.35)),
         const SizedBox(height: 16),
         InkWell(
@@ -573,14 +573,14 @@ class _MetadataEditViewState extends State<MetadataEditView>
               value: _shouldBackup,
               onChanged: _embedding ? null : (v) => setState(() => _shouldBackup = v ?? true),
             ),
-            Expanded(child: Text('Back up audio files first', style: tt.bodyMedium)),
+            Expanded(child: Text(l.embedBackupOption, style: tt.bodyMedium)),
           ]),
         ),
         const SizedBox(height: 16),
-        _encodeNote('Metadata will be embedded in the audio tracks inside your audiobook folder.', cs, tt),
-        if (_shouldBackup) _embedBackupNote(cs, tt),
-        if (multiFile) _encodeNote('Chapters are not embedded in multi-track audiobooks.', cs, tt),
-        _encodeNote('Once the task is started you can navigate away from this page.', cs, tt),
+        _encodeNote(l.embedNoteInFolder, cs, tt),
+        if (_shouldBackup) _embedBackupNote(cs, tt, l),
+        if (multiFile) _encodeNote(l.embedNoteMultiTrack, cs, tt),
+        _encodeNote(l.embedNoteNavigateAway, cs, tt),
         const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
@@ -591,8 +591,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
                 ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
                 : const Icon(Icons.save_rounded, size: 18),
             label: Text(_embedding
-                ? (_taskProgress != null ? 'Embedding ${_taskProgress!.toStringAsFixed(0)}%' : 'Embedding...')
-                : 'Start Metadata Embed'),
+                ? (_taskProgress != null ? l.embedProgress(_taskProgress!.toStringAsFixed(0)) : l.embedProgressIndeterminate)
+                : l.embedStartButton),
             style: FilledButton.styleFrom(
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
@@ -611,8 +611,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
           const SizedBox(height: 6),
           Text(
             _taskProgress != null
-                ? '${_taskProgress!.toStringAsFixed(0)}% - keeps running if you leave this page'
-                : 'Starting...',
+                ? l.taskProgressKeepsRunning(_taskProgress!.toStringAsFixed(0))
+                : l.taskStarting,
             style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
           ),
         ],
@@ -620,7 +620,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
     );
   }
 
-  Widget _embedBackupNote(ColorScheme cs, TextTheme tt) {
+  Widget _embedBackupNote(ColorScheme cs, TextTheme tt, AppLocalizations l) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -633,12 +633,12 @@ class _MetadataEditViewState extends State<MetadataEditView>
           child: Text.rich(TextSpan(
             style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant, height: 1.35),
             children: [
-              const TextSpan(text: 'A backup of your original audio files will be stored on the server in '),
+              TextSpan(text: l.embedBackupNoteIntro),
               TextSpan(
-                text: '/metadata/cache/items/${widget.itemId}/',
+                text: l.embedBackupNotePath(widget.itemId),
                 style: TextStyle(fontFamily: 'monospace', color: cs.onSurface),
               ),
-              const TextSpan(text: '. Make sure to periodically purge the items cache.'),
+              TextSpan(text: l.embedBackupNoteOutro),
             ],
           )),
         ),
@@ -748,18 +748,18 @@ class _MetadataEditViewState extends State<MetadataEditView>
   }
 
   Future<void> _startEmbed() async {
+    final l = AppLocalizations.of(context)!;
     final count = widget.audioFiles.length;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
-        title: const Text('Embed metadata'),
+        title: Text(l.embedDialogTitle),
         content: Text(
-          'Embed metadata into $count audio file${count == 1 ? '' : 's'}? '
-          'Your audio files will be rewritten${_shouldBackup ? ' (originals backed up first)' : ''}.',
+          l.embedConfirmMessage(count, _shouldBackup ? l.embedConfirmBackupClause : ''),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
-          FilledButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('Embed')),
+          TextButton(onPressed: () => Navigator.pop(dctx, false), child: Text(l.cancel)),
+          FilledButton(onPressed: () => Navigator.pop(dctx, true), child: Text(l.embedConfirmAction)),
         ],
       ),
     );
@@ -777,10 +777,10 @@ class _MetadataEditViewState extends State<MetadataEditView>
         _runningAction = null;
         _taskProgress = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not start embed')));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.embedCouldNotStart)));
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Embed started')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.embedStarted)));
   }
 
   void _onTaskStarted(Map<String, dynamic> data) {
@@ -815,12 +815,13 @@ class _MetadataEditViewState extends State<MetadataEditView>
       _taskProgress = null;
     });
     if (wasRunning == null) return;
+    final l = AppLocalizations.of(context)!;
     final failed = data['error'] != null || data['isFailed'] == true;
     if (!failed) context.read<LibraryProvider>().refresh();
     final embed = action == 'embed-metadata';
     final msg = failed
-        ? (embed ? 'Embed failed' : 'Encode failed')
-        : (embed ? 'Embed complete' : 'Encode complete');
+        ? (embed ? l.embedFailed : l.encodeFailedTask)
+        : (embed ? l.embedComplete : l.encodeComplete);
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
       ..showSnackBar(SnackBar(content: Text(msg)));
@@ -828,13 +829,13 @@ class _MetadataEditViewState extends State<MetadataEditView>
 
   // ─── Build ──────────────────────────────────────────────────
 
-  String _tabLabel(_ETab t) => switch (t) {
-        _ETab.details => 'Details',
-        _ETab.cover => 'Cover',
-        _ETab.chapters => 'Chapters',
-        _ETab.match => 'Match',
-        _ETab.encode => 'Encode',
-        _ETab.embed => 'Embed',
+  String _tabLabel(_ETab t, AppLocalizations l) => switch (t) {
+        _ETab.details => l.editTabDetails,
+        _ETab.cover => l.editTabCover,
+        _ETab.chapters => l.chapters,
+        _ETab.match => l.editTabMatch,
+        _ETab.encode => l.encodeTab,
+        _ETab.embed => l.editTabEmbed,
       };
 
   Widget _tabBody(_ETab t, ColorScheme cs, TextTheme tt, AppLocalizations l) => switch (t) {
@@ -860,7 +861,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
         labelColor: cs.primary,
         unselectedLabelColor: cs.onSurfaceVariant,
         indicatorColor: cs.primary,
-        tabs: [for (final t in _tabs) Tab(text: _tabLabel(t))],
+        tabs: [for (final t in _tabs) Tab(text: _tabLabel(t, l))],
       ),
       Expanded(
         child: TabBarView(
@@ -1236,15 +1237,15 @@ class _MetadataEditViewState extends State<MetadataEditView>
                 ]),
               ),
             const SizedBox(height: 24),
-            Text('Search for a cover', style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+            Text(l.coverSearchTitle, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 4),
-            Text('Refine the title/author to clean up results - this does not change the book.',
+            Text(l.coverSearchRefineHint,
                 style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
             const SizedBox(height: 8),
             TextField(
               controller: _coverSearchTitleCtrl,
               decoration: InputDecoration(
-                labelText: 'Title',
+                labelText: l.title,
                 isDense: true,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1256,7 +1257,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
             TextField(
               controller: _coverSearchAuthorCtrl,
               decoration: InputDecoration(
-                labelText: 'Author',
+                labelText: l.author,
                 isDense: true,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1286,7 +1287,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
                 icon: _coverSearching
                     ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.search_rounded, size: 18),
-                label: const Text('Search'),
+                label: Text(l.search),
               ),
             ]),
             if (_coverResults.isNotEmpty) ...[
@@ -1341,12 +1342,13 @@ class _MetadataEditViewState extends State<MetadataEditView>
   static const _allCoverProviders = ['google', 'fantlab', 'audible', 'openlibrary', 'itunes', 'audiobookcovers'];
 
   Future<void> _searchCovers() async {
+    final l = AppLocalizations.of(context)!;
     final api = context.read<AuthProvider>().apiService;
     final title = _coverSearchTitleCtrl.text.trim();
     if (api == null || title.isEmpty) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('Enter a title first')));
+        ..showSnackBar(SnackBar(content: Text(l.coverEnterTitleFirst)));
       return;
     }
     final author = _coverSearchAuthorCtrl.text.trim();
@@ -1374,11 +1376,12 @@ class _MetadataEditViewState extends State<MetadataEditView>
     if (_coverResults.isEmpty) {
       ScaffoldMessenger.of(context)
         ..clearSnackBars()
-        ..showSnackBar(const SnackBar(content: Text('No covers found')));
+        ..showSnackBar(SnackBar(content: Text(l.coverNoneFound)));
     }
   }
 
   Future<void> _applyCoverUrl(String url) async {
+    final l = AppLocalizations.of(context)!;
     final api = context.read<AuthProvider>().apiService;
     if (api == null) return;
     setState(() => _saving = true);
@@ -1391,7 +1394,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
     });
     ScaffoldMessenger.of(context)
       ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(ok ? 'Cover updated' : 'Could not update cover')));
+      ..showSnackBar(SnackBar(content: Text(ok ? l.coverUpdated : l.coverCouldNotUpdate)));
   }
 
   /// Show a cover result full-size with its resolution and an explicit Apply.
@@ -1416,6 +1419,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
     } catch (_) {}
 
     if (!mounted) return;
+    final l = AppLocalizations.of(context)!;
     final apply = await showDialog<bool>(
       context: context,
       builder: (dctx) {
@@ -1442,17 +1446,17 @@ class _MetadataEditViewState extends State<MetadataEditView>
               ),
               const SizedBox(height: 10),
               Text(
-                size != null ? '${size.width.toInt()} x ${size.height.toInt()}' : 'Unknown resolution',
+                size != null ? '${size.width.toInt()} x ${size.height.toInt()}' : l.coverUnknownResolution,
                 style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 12),
               Row(children: [
-                TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
+                TextButton(onPressed: () => Navigator.pop(dctx, false), child: Text(l.cancel)),
                 const Spacer(),
                 FilledButton.icon(
                   onPressed: () => Navigator.pop(dctx, true),
                   icon: const Icon(Icons.check_rounded, size: 18),
-                  label: const Text('Apply cover'),
+                  label: Text(l.coverApply),
                 ),
               ]),
             ]),

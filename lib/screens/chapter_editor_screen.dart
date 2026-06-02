@@ -3,13 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:provider/provider.dart';
+import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/audio_player_service.dart';
 import '../widgets/overlay_toast.dart';
-
-// NOTE: strings here are intentionally hardcoded English for now; this admin
-// screen gets a single localization pass once the feature is finalized.
 
 /// Mutable working copy of one chapter. [uid] is a stable identity that
 /// survives reindexing/add/remove (used for controllers + locks); [id] is the
@@ -40,13 +38,14 @@ class ChapterEditorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Edit Chapters', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            Text(l.chapterEditorTitle, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             Text(bookTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -136,11 +135,12 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Future<void> _load() async {
+    final l = AppLocalizations.of(context)!;
     final api = context.read<AuthProvider>().apiService;
     if (api == null) {
       setState(() {
         _loading = false;
-        _loadError = 'Not connected to a server';
+        _loadError = l.chapterNotConnected;
       });
       return;
     }
@@ -215,6 +215,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   /// Reindex ids, recompute per-row validation errors, and recompute whether
   /// anything differs from the saved chapters.
   void _check() {
+    final l = AppLocalizations.of(context)!;
     double prev = 0;
     bool changed = _chapters.length != _originalChapters.length;
     for (int i = 0; i < _chapters.length; i++) {
@@ -222,13 +223,13 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
       c.id = i;
       final t = c.title.trim();
       if (i == 0 && c.start != 0) {
-        c.error = 'First chapter must start at 0:00';
+        c.error = l.chapterErrorFirstNotZero;
       } else if (i > 0 && c.start <= prev) {
-        c.error = 'Start must come after the previous chapter';
+        c.error = l.chapterErrorStartAfterPrevious;
       } else if (_duration > 0 && c.start >= _duration) {
-        c.error = 'Start must be before the book ends';
+        c.error = l.chapterErrorStartBeforeEnd;
       } else if (t.isEmpty) {
-        c.error = 'Title required';
+        c.error = l.chapterErrorTitleRequired;
       } else {
         c.error = null;
       }
@@ -317,6 +318,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   // ─── Edits ──────────────────────────────────────────────────
 
   Future<void> _editStart(_Ch c) async {
+    final l = AppLocalizations.of(context)!;
     final ctl = TextEditingController(text: _fmtStart(c.start));
     final result = await showDialog<double>(
       context: context,
@@ -324,31 +326,31 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
         String? err;
         return StatefulBuilder(builder: (dctx, setLocal) {
           return AlertDialog(
-            title: const Text('Edit start time'),
+            title: Text(l.chapterEditStartTitle),
             content: TextField(
               controller: ctl,
               autofocus: true,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               decoration: InputDecoration(
-                hintText: _showSeconds ? 'Seconds' : 'HH:MM:SS or seconds',
+                hintText: _showSeconds ? l.chapterTimeHintSeconds : l.chapterTimeHintFull,
                 errorText: err,
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dctx),
-                child: const Text('Cancel'),
+                child: Text(l.cancel),
               ),
               TextButton(
                 onPressed: () {
                   final v = _parseTime(ctl.text);
                   if (v == null) {
-                    setLocal(() => err = 'Invalid time');
+                    setLocal(() => err = l.chapterInvalidTime);
                     return;
                   }
                   Navigator.pop(dctx, _clampStart(v));
                 },
-                child: const Text('Done'),
+                child: Text(l.done),
               ),
             ],
           );
@@ -397,7 +399,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
 
   void _remove(_Ch c) {
     if (_locked.contains(c.uid)) {
-      showOverlayToast(context, 'Chapter is locked', icon: Icons.lock_rounded);
+      showOverlayToast(context, AppLocalizations.of(context)!.chapterLocked, icon: Icons.lock_rounded);
       return;
     }
     if (_chapters.length <= 1) return;
@@ -413,7 +415,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
     if (amount == null || amount == 0 || _chapters.length <= 1) return;
     final anyUnlocked = _chapters.any((c) => !_locked.contains(c.uid));
     if (!anyUnlocked) {
-      showOverlayToast(context, 'All chapters are locked', icon: Icons.lock_rounded);
+      showOverlayToast(context, AppLocalizations.of(context)!.chapterAllLocked, icon: Icons.lock_rounded);
       return;
     }
     setState(() {
@@ -430,13 +432,14 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
 
   void _setFromTracks() {
     if (_audioFiles.isEmpty) return;
+    final l = AppLocalizations.of(context)!;
     final chs = <_Ch>[];
     double t = 0;
     int i = 0;
     for (final af in _audioFiles) {
       final dur = (af['duration'] as num?)?.toDouble() ?? 0;
       final meta = af['metadata'] as Map<String, dynamic>? ?? {};
-      final fname = meta['filename'] as String? ?? 'Track ${i + 1}';
+      final fname = meta['filename'] as String? ?? l.chapterTrackTitle(i + 1);
       chs.add(_Ch(uid: _uid++, id: i++, start: t, end: t + dur, title: _basename(fname)));
       t += dur;
     }
@@ -468,13 +471,14 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Future<void> _playChapter(_Ch c) async {
+    final l = AppLocalizations.of(context)!;
     await _stopPreview();
 
     final track = _trackForTime(c.start);
     final contentUrl = track?['contentUrl'] as String?;
     final api = context.read<AuthProvider>().apiService;
     if (track == null || contentUrl == null || api == null) {
-      showOverlayToast(context, 'No audio for this position', icon: Icons.error_outline_rounded);
+      showOverlayToast(context, l.chapterNoAudioForPosition, icon: Icons.error_outline_rounded);
       return;
     }
     final startOffset = (track['startOffset'] as num?)?.toDouble() ?? 0;
@@ -515,7 +519,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
     } catch (e) {
       debugPrint('[ChapterEditor] preview error: $e');
       await _stopPreview();
-      if (mounted) showOverlayToast(context, 'Could not play preview', icon: Icons.error_outline_rounded);
+      if (mounted) showOverlayToast(context, l.chapterCouldNotPlayPreview, icon: Icons.error_outline_rounded);
     }
   }
 
@@ -573,7 +577,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
       _check();
     });
     HapticFeedback.mediumImpact();
-    showOverlayToast(context, 'Start set to ${_clock(newStart)}', icon: Icons.check_rounded);
+    showOverlayToast(context, AppLocalizations.of(context)!.chapterStartSetTo(_clock(newStart)), icon: Icons.check_rounded);
   }
 
   // ─── Bulk add ───────────────────────────────────────────────
@@ -606,6 +610,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Future<void> _promptBulkCount(String input, RegExpMatch m) async {
+    final l = AppLocalizations.of(context)!;
     final numStr = m.group(1)!;
     final startNum = int.parse(numStr);
     final width = numStr.length;
@@ -619,23 +624,27 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
       builder: (dctx) {
         final cs = Theme.of(dctx).colorScheme;
         return AlertDialog(
-          title: const Text('Add numbered chapters'),
+          title: Text(l.chapterAddNumberedTitle),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Next: "$before${_padNum(startNum + 1, width, zeros)}$after", "$before${_padNum(startNum + 2, width, zeros)}$after", ...',
+            Text(
+                l.chapterNextPreview(
+                  '$before${_padNum(startNum + 1, width, zeros)}$after',
+                  '$before${_padNum(startNum + 2, width, zeros)}$after',
+                ),
                 style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
             const SizedBox(height: 12),
             TextField(
               controller: countCtl,
               autofocus: true,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(labelText: 'How many chapters'),
+              decoration: InputDecoration(labelText: l.chapterHowMany),
             ),
           ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dctx), child: const Text('Cancel')),
+            TextButton(onPressed: () => Navigator.pop(dctx), child: Text(l.cancel)),
             TextButton(
               onPressed: () => Navigator.pop(dctx, int.tryParse(countCtl.text.trim())),
-              child: const Text('Add'),
+              child: Text(l.add),
             ),
           ],
         );
@@ -644,7 +653,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
     countCtl.dispose();
     if (count == null) return;
     if (count < 1 || count > 150) {
-      showOverlayToast(context, 'Enter a count between 1 and 150', icon: Icons.error_outline_rounded);
+      showOverlayToast(context, l.chapterCountRange, icon: Icons.error_outline_rounded);
       return;
     }
     final base = _chapters.isNotEmpty ? _chapters.last.start + 1 : 0.0;
@@ -698,7 +707,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
       _syncTitleControllers();
       _check();
     });
-    showOverlayToast(context, 'Chapter titles updated', icon: Icons.check_rounded);
+    showOverlayToast(context, AppLocalizations.of(context)!.chapterTitlesUpdated, icon: Icons.check_rounded);
   }
 
   void _applyChapters(List<Map<String, dynamic>> audible) {
@@ -733,7 +742,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
       _syncTitleControllers();
       _check();
     });
-    showOverlayToast(context, 'Chapters applied', icon: Icons.check_rounded);
+    showOverlayToast(context, AppLocalizations.of(context)!.chaptersApplied, icon: Icons.check_rounded);
   }
 
   /// Mirror the web client's "remove Audible branding": shift every chapter
@@ -767,13 +776,15 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Future<void> _reset() async {
-    final ok = await _confirm('Discard changes?', 'Revert to the saved chapters.');
+    final l = AppLocalizations.of(context)!;
+    final ok = await _confirm(l.chapterDiscardTitle, l.chapterDiscardMessage);
     if (ok != true) return;
     setState(() => _initChapters(_originalChapters));
   }
 
   Future<void> _removeAll() async {
-    final ok = await _confirm('Remove all chapters?', 'This removes every chapter from this book.');
+    final l = AppLocalizations.of(context)!;
+    final ok = await _confirm(l.chapterRemoveAllTitle, l.chapterRemoveAllMessage);
     if (ok != true) return;
     final api = context.read<AuthProvider>().apiService;
     if (api == null) return;
@@ -787,15 +798,16 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
         _initChapters(const []);
       }
     });
-    showOverlayToast(context, success ? 'All chapters removed' : 'Could not update, try again',
+    showOverlayToast(context, success ? l.chapterAllRemoved : l.couldNotUpdate,
         icon: success ? Icons.check_rounded : Icons.error_outline_rounded);
   }
 
   Future<void> _save() async {
+    final l = AppLocalizations.of(context)!;
     _check();
     for (final c in _chapters) {
       if (c.error != null) {
-        showOverlayToast(context, 'Fix the highlighted chapters first', icon: Icons.error_outline_rounded);
+        showOverlayToast(context, l.chapterFixHighlighted, icon: Icons.error_outline_rounded);
         setState(() {});
         return;
       }
@@ -823,19 +835,20 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
       }
     });
     HapticFeedback.mediumImpact();
-    showOverlayToast(context, success ? 'Chapters updated' : 'Could not update, try again',
+    showOverlayToast(context, success ? l.chaptersUpdated : l.couldNotUpdate,
         icon: success ? Icons.check_rounded : Icons.error_outline_rounded);
   }
 
   Future<bool?> _confirm(String title, String message) {
+    final l = AppLocalizations.of(context)!;
     return showDialog<bool>(
       context: context,
       builder: (dctx) => AlertDialog(
         title: Text(title),
         content: Text(message),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dctx, false), child: const Text('Cancel')),
-          TextButton(onPressed: () => Navigator.pop(dctx, true), child: const Text('OK')),
+          TextButton(onPressed: () => Navigator.pop(dctx, false), child: Text(l.cancel)),
+          TextButton(onPressed: () => Navigator.pop(dctx, true), child: Text(l.ok)),
         ],
       ),
     );
@@ -867,14 +880,15 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
 
   Widget _saveBar(ColorScheme cs) {
     if (!_hasChanges) return const SizedBox.shrink();
+    final l = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
       child: Row(children: [
-        OutlinedButton(onPressed: _saving ? null : _reset, child: const Text('Reset')),
+        OutlinedButton(onPressed: _saving ? null : _reset, child: Text(l.reset)),
         const Spacer(),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: const Text('Save chapters'),
+          child: Text(l.chapterSaveButton),
         ),
       ]),
     );
@@ -901,6 +915,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Widget _bulkBar(ColorScheme cs) {
+    final l = AppLocalizations.of(context)!;
     return SafeArea(
       top: false,
       child: Container(
@@ -914,17 +929,17 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
             child: TextField(
               controller: _bulkCtl,
               textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 isDense: true,
-                hintText: 'Add chapter (e.g. "Chapter 01")',
-                border: OutlineInputBorder(),
+                hintText: l.chapterAddHint,
+                border: const OutlineInputBorder(),
               ),
               onSubmitted: (_) => _handleBulkAdd(),
             ),
           ),
           IconButton(
             icon: const Icon(Icons.add_rounded),
-            tooltip: 'Add chapter(s)',
+            tooltip: l.chapterAddTooltip,
             onPressed: _handleBulkAdd,
           ),
         ]),
@@ -933,6 +948,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Widget _toolbar(ColorScheme cs) {
+    final l = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Column(
@@ -946,24 +962,24 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
                 OutlinedButton.icon(
                   onPressed: _removeAll,
                   icon: const Icon(Icons.delete_sweep_rounded, size: 18),
-                  label: const Text('Remove All'),
+                  label: Text(l.chapterRemoveAll),
                 ),
               if (_chapters.length > 1)
                 OutlinedButton.icon(
                   onPressed: () => setState(() => _showShift = !_showShift),
                   icon: const Icon(Icons.schedule_rounded, size: 18),
-                  label: const Text('Shift Times'),
+                  label: Text(l.chapterShiftTimes),
                 ),
               if (_audioFiles.isNotEmpty)
                 OutlinedButton.icon(
                   onPressed: _setFromTracks,
                   icon: const Icon(Icons.library_music_rounded, size: 18),
-                  label: const Text('From Tracks'),
+                  label: Text(l.chapterFromTracks),
                 ),
               OutlinedButton.icon(
                 onPressed: _openLookup,
                 icon: const Icon(Icons.travel_explore_rounded, size: 18),
-                label: const Text('Lookup'),
+                label: Text(l.chapterLookup),
               ),
             ],
           ),
@@ -974,7 +990,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
                 value: _showSeconds,
                 onChanged: (v) => setState(() => _showSeconds = v),
               ),
-              const Text('Show seconds'),
+              Text(l.chapterShowSeconds),
             ],
           ),
         ],
@@ -983,6 +999,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Widget _shiftPanel(ColorScheme cs) {
+    final l = AppLocalizations.of(context)!;
     return Container(
       color: cs.surfaceContainerHighest.withValues(alpha: 0.4),
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
@@ -991,7 +1008,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
         children: [
           Row(
             children: [
-              const Text('Shift by (seconds)'),
+              Text(l.chapterShiftBySeconds),
               const SizedBox(width: 12),
               SizedBox(
                 width: 90,
@@ -1002,13 +1019,13 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
                 ),
               ),
               const SizedBox(width: 8),
-              FilledButton(onPressed: _shift, child: const Text('Apply')),
+              FilledButton(onPressed: _shift, child: Text(l.apply)),
             ],
           ),
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
-              'Shifts every unlocked chapter. Use a negative value to move them earlier.',
+              l.chapterShiftHint,
               style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
             ),
           ),
@@ -1018,6 +1035,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Widget _row(ColorScheme cs, _Ch c, int index) {
+    final l = AppLocalizations.of(context)!;
     final locked = _locked.contains(c.uid);
     final hasError = c.error != null;
     final active = _previewUid == c.uid;
@@ -1052,7 +1070,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
                 icon: const Icon(Icons.remove_circle_outline_rounded),
                 iconSize: 24,
                 color: cs.onSurfaceVariant,
-                tooltip: 'Back 1 second',
+                tooltip: l.chapterBack1Second,
               ),
               Expanded(
                 child: InkWell(
@@ -1082,7 +1100,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
                 icon: const Icon(Icons.add_circle_outline_rounded),
                 iconSize: 24,
                 color: cs.onSurfaceVariant,
-                tooltip: 'Forward 1 second',
+                tooltip: l.chapterForward1Second,
               ),
               _previewButton(cs, c),
               _rowMenu(cs, c, locked),
@@ -1097,10 +1115,10 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
                 setState(_check);
               },
               style: const TextStyle(fontSize: 16),
-              decoration: const InputDecoration(
-                hintText: 'Chapter title',
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
-                border: UnderlineInputBorder(),
+              decoration: InputDecoration(
+                hintText: l.chapterTitleHint,
+                contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                border: const UnderlineInputBorder(),
               ),
             ),
           ),
@@ -1124,16 +1142,18 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
         child: Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2))),
       );
     }
+    final l = AppLocalizations.of(context)!;
     return IconButton(
       onPressed: () => active ? _stopPreview() : _playChapter(c),
       icon: Icon(active ? Icons.stop_circle_rounded : Icons.play_circle_rounded),
       iconSize: 32,
       color: active ? cs.primary : cs.onSurfaceVariant,
-      tooltip: active ? 'Stop preview' : 'Preview from here',
+      tooltip: active ? l.chapterStopPreview : l.chapterPreviewFromHere,
     );
   }
 
   Widget _previewPanel(ColorScheme cs, _Ch c) {
+    final l = AppLocalizations.of(context)!;
     final global = _previewTrackOffset + _previewPosSec;
     final dur = _previewTrackDur > 0 ? _previewTrackDur : (_previewPosSec > 1 ? _previewPosSec : 1.0);
     final val = _previewPosSec.clamp(0.0, dur);
@@ -1156,9 +1176,9 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
           ),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Scrub to the exact spot, then set',
+              Text(l.chapterScrubHint,
                   style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
-              Text('Start at ${_clock(global)}',
+              Text(l.chapterStartAt(_clock(global)),
                   style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w700,
@@ -1192,7 +1212,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
           child: FilledButton.icon(
             onPressed: () => _adjustStart(c),
             icon: const Icon(Icons.my_location_rounded, size: 18),
-            label: const Text('Set start here'),
+            label: Text(l.chapterSetStartHere),
           ),
         ),
       ]),
@@ -1211,10 +1231,11 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
   }
 
   Widget _rowMenu(ColorScheme cs, _Ch c, bool locked) {
+    final l = AppLocalizations.of(context)!;
     return PopupMenuButton<String>(
       icon: const Icon(Icons.more_vert_rounded),
       iconSize: 24,
-      tooltip: 'More',
+      tooltip: l.chapterMore,
       onSelected: (v) {
         switch (v) {
           case 'lock':
@@ -1235,7 +1256,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
             Icon(locked ? Icons.lock_open_rounded : Icons.lock_rounded,
                 color: locked ? Colors.orange : cs.onSurfaceVariant),
             const SizedBox(width: 12),
-            Text(locked ? 'Unlock' : 'Lock'),
+            Text(locked ? l.chapterUnlock : l.chapterLock),
           ]),
         ),
         PopupMenuItem(
@@ -1243,7 +1264,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
           child: Row(children: [
             Icon(Icons.add_box_outlined, color: cs.onSurfaceVariant),
             const SizedBox(width: 12),
-            const Text('Insert below'),
+            Text(l.chapterInsertBelow),
           ]),
         ),
         if (_chapters.length > 1)
@@ -1252,7 +1273,7 @@ class _ChapterEditBodyState extends State<ChapterEditBody>
             child: Row(children: [
               Icon(Icons.delete_outline_rounded, color: cs.error),
               const SizedBox(width: 12),
-              Text('Delete', style: TextStyle(color: cs.error)),
+              Text(l.delete, style: TextStyle(color: cs.error)),
             ]),
           ),
       ],
@@ -1302,9 +1323,10 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
   }
 
   Future<void> _search() async {
+    final l = AppLocalizations.of(context)!;
     final asin = _asinCtl.text.trim();
     if (asin.isEmpty) {
-      setState(() => _error = 'Enter an ASIN');
+      setState(() => _error = l.chapterEnterAsin);
       return;
     }
     setState(() {
@@ -1316,9 +1338,9 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
     setState(() {
       _finding = false;
       if (data == null) {
-        _error = 'Lookup failed - check the ASIN';
+        _error = l.chapterLookupFailed;
       } else if (data['error'] != null) {
-        _error = 'No chapters found for that ASIN';
+        _error = l.chapterNoChaptersFound;
       } else {
         _data = data;
       }
@@ -1355,13 +1377,14 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
       );
 
   Widget _inputView(ColorScheme cs) {
+    final l = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
       child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         _handle(cs),
-        Text('Find chapters', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: cs.onSurface)),
+        Text(l.chapterFindTitle, style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: cs.onSurface)),
         const SizedBox(height: 4),
-        Text('Looks up chapters from Audible/Audnexus by ASIN.',
+        Text(l.chapterFindSubtitle,
             style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
         const SizedBox(height: 16),
         Row(children: [
@@ -1381,7 +1404,7 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
         ]),
         Row(children: [
           Checkbox(value: _removeBranding, onChanged: (v) => setState(() => _removeBranding = v ?? false)),
-          const Flexible(child: Text('Remove Audible branding (intro/outro)')),
+          Flexible(child: Text(l.chapterRemoveBranding)),
         ]),
         if (_error != null)
           Padding(
@@ -1395,7 +1418,7 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
             onPressed: _finding ? null : _search,
             child: _finding
                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                : const Text('Search'),
+                : Text(l.search),
           ),
         ),
       ]),
@@ -1403,6 +1426,7 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
   }
 
   Widget _resultsView(ColorScheme cs, Map<String, dynamic> data) {
+    final l = AppLocalizations.of(context)!;
     final chapters = (data['chapters'] as List<dynamic>? ?? []).whereType<Map<String, dynamic>>().toList();
     final runtime = (data['runtimeLengthSec'] as num?)?.toDouble() ?? 0;
     final bookDur = widget.mediaDuration;
@@ -1415,9 +1439,9 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
           IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => setState(() => _data = null)),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('${chapters.length} chapters found',
+              Text(l.chapterFoundCount(chapters.length),
                   style: TextStyle(fontWeight: FontWeight.w600, color: cs.onSurface)),
-              Text('Audible ${_clock(runtime)}  -  Book ${_clock(bookDur)}',
+              Text(l.chapterAudibleVsBook(_clock(runtime), _clock(bookDur)),
                   style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
             ]),
           ),
@@ -1428,8 +1452,8 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
           child: Text(
             runtime > bookDur
-                ? 'The Audible version is longer than your file - later chapters may not line up.'
-                : 'The Audible version is shorter than your file - chapters may not line up.',
+                ? l.chapterAudibleLonger
+                : l.chapterAudibleShorter,
             style: const TextStyle(fontSize: 12, color: Colors.orange),
           ),
         ),
@@ -1473,7 +1497,7 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
               child: OutlinedButton(
                 onPressed: () => Navigator.pop(
                     context, _LookupResult(data: data, titlesOnly: true, removeBranding: _removeBranding)),
-                child: const Text('Titles only'),
+                child: Text(l.chapterTitlesOnly),
               ),
             ),
             const SizedBox(width: 10),
@@ -1481,7 +1505,7 @@ class _ChapterLookupSheetState extends State<_ChapterLookupSheet> {
               child: FilledButton(
                 onPressed: () => Navigator.pop(
                     context, _LookupResult(data: data, titlesOnly: false, removeBranding: _removeBranding)),
-                child: const Text('Apply chapters'),
+                child: Text(l.chapterApplyChapters),
               ),
             ),
           ]),

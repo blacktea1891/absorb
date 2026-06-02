@@ -5271,4 +5271,351 @@ class AppLocalizationsIt extends AppLocalizations {
 
   @override
   String get region => 'Region';
+
+  @override
+  String get editTabDetails => 'Details';
+
+  @override
+  String get editTabCover => 'Cover';
+
+  @override
+  String get editTabMatch => 'Match';
+
+  @override
+  String get editTabEmbed => 'Embed';
+
+  @override
+  String get chapterEditorTitle => 'Edit Chapters';
+
+  @override
+  String get chapterNotConnected => 'Not connected to a server';
+
+  @override
+  String get chapterErrorFirstNotZero => 'First chapter must start at 0:00';
+
+  @override
+  String get chapterErrorStartAfterPrevious =>
+      'Start must come after the previous chapter';
+
+  @override
+  String get chapterErrorStartBeforeEnd => 'Start must be before the book ends';
+
+  @override
+  String get chapterErrorTitleRequired => 'Title required';
+
+  @override
+  String get chapterEditStartTitle => 'Edit start time';
+
+  @override
+  String get chapterTimeHintSeconds => 'Seconds';
+
+  @override
+  String get chapterTimeHintFull => 'HH:MM:SS or seconds';
+
+  @override
+  String get chapterInvalidTime => 'Invalid time';
+
+  @override
+  String get chapterLocked => 'Chapter is locked';
+
+  @override
+  String get chapterAllLocked => 'All chapters are locked';
+
+  @override
+  String chapterTrackTitle(int number) {
+    return 'Track $number';
+  }
+
+  @override
+  String get chapterNoAudioForPosition => 'No audio for this position';
+
+  @override
+  String get chapterCouldNotPlayPreview => 'Could not play preview';
+
+  @override
+  String chapterStartSetTo(String time) {
+    return 'Start set to $time';
+  }
+
+  @override
+  String get chapterAddNumberedTitle => 'Add numbered chapters';
+
+  @override
+  String chapterNextPreview(String first, String second) {
+    return 'Next: \"$first\", \"$second\", ...';
+  }
+
+  @override
+  String get chapterHowMany => 'How many chapters';
+
+  @override
+  String get add => 'Add';
+
+  @override
+  String get chapterCountRange => 'Enter a count between 1 and 150';
+
+  @override
+  String get chapterTitlesUpdated => 'Chapter titles updated';
+
+  @override
+  String get chaptersApplied => 'Chapters applied';
+
+  @override
+  String get chapterDiscardTitle => 'Discard changes?';
+
+  @override
+  String get chapterDiscardMessage => 'Revert to the saved chapters.';
+
+  @override
+  String get chapterRemoveAllTitle => 'Remove all chapters?';
+
+  @override
+  String get chapterRemoveAllMessage =>
+      'This removes every chapter from this book.';
+
+  @override
+  String get chapterAllRemoved => 'All chapters removed';
+
+  @override
+  String get chapterFixHighlighted => 'Fix the highlighted chapters first';
+
+  @override
+  String get chaptersUpdated => 'Chapters updated';
+
+  @override
+  String get ok => 'OK';
+
+  @override
+  String get chapterSaveButton => 'Save chapters';
+
+  @override
+  String get chapterAddHint => 'Add chapter (e.g. \"Chapter 01\")';
+
+  @override
+  String get chapterAddTooltip => 'Add chapter(s)';
+
+  @override
+  String get chapterRemoveAll => 'Remove All';
+
+  @override
+  String get chapterShiftTimes => 'Shift Times';
+
+  @override
+  String get chapterFromTracks => 'From Tracks';
+
+  @override
+  String get chapterLookup => 'Lookup';
+
+  @override
+  String get chapterShowSeconds => 'Show seconds';
+
+  @override
+  String get chapterShiftBySeconds => 'Shift by (seconds)';
+
+  @override
+  String get chapterShiftHint =>
+      'Shifts every unlocked chapter. Use a negative value to move them earlier.';
+
+  @override
+  String get chapterBack1Second => 'Back 1 second';
+
+  @override
+  String get chapterForward1Second => 'Forward 1 second';
+
+  @override
+  String get chapterTitleHint => 'Chapter title';
+
+  @override
+  String get chapterStopPreview => 'Stop preview';
+
+  @override
+  String get chapterPreviewFromHere => 'Preview from here';
+
+  @override
+  String get chapterScrubHint => 'Scrub to the exact spot, then set';
+
+  @override
+  String chapterStartAt(String time) {
+    return 'Start at $time';
+  }
+
+  @override
+  String get chapterSetStartHere => 'Set start here';
+
+  @override
+  String get chapterMore => 'More';
+
+  @override
+  String get chapterUnlock => 'Unlock';
+
+  @override
+  String get chapterLock => 'Lock';
+
+  @override
+  String get chapterInsertBelow => 'Insert below';
+
+  @override
+  String get chapterFindTitle => 'Find chapters';
+
+  @override
+  String get chapterFindSubtitle =>
+      'Looks up chapters from Audible/Audnexus by ASIN.';
+
+  @override
+  String get chapterEnterAsin => 'Enter an ASIN';
+
+  @override
+  String get chapterLookupFailed => 'Lookup failed - check the ASIN';
+
+  @override
+  String get chapterNoChaptersFound => 'No chapters found for that ASIN';
+
+  @override
+  String get chapterRemoveBranding => 'Remove Audible branding (intro/outro)';
+
+  @override
+  String chapterFoundCount(int count) {
+    return '$count chapters found';
+  }
+
+  @override
+  String chapterAudibleVsBook(String audible, String book) {
+    return 'Audible $audible  -  Book $book';
+  }
+
+  @override
+  String get chapterAudibleLonger =>
+      'The Audible version is longer than your file - later chapters may not line up.';
+
+  @override
+  String get chapterAudibleShorter =>
+      'The Audible version is shorter than your file - chapters may not line up.';
+
+  @override
+  String get chapterTitlesOnly => 'Titles only';
+
+  @override
+  String get chapterApplyChapters => 'Apply chapters';
+
+  @override
+  String get coverSearchTitle => 'Search for a cover';
+
+  @override
+  String get coverSearchRefineHint =>
+      'Refine the title/author to clean up results - this does not change the book.';
+
+  @override
+  String get coverNoneFound => 'No covers found';
+
+  @override
+  String get coverEnterTitleFirst => 'Enter a title first';
+
+  @override
+  String get coverUpdated => 'Cover updated';
+
+  @override
+  String get coverCouldNotUpdate => 'Could not update cover';
+
+  @override
+  String get coverApply => 'Apply cover';
+
+  @override
+  String get coverUnknownResolution => 'Unknown resolution';
+
+  @override
+  String get embedIntro =>
+      'Embed metadata into audio files including cover image and chapters.';
+
+  @override
+  String get embedBackupOption => 'Back up audio files first';
+
+  @override
+  String get embedNoteInFolder =>
+      'Metadata will be embedded in the audio tracks inside your audiobook folder.';
+
+  @override
+  String get embedNoteMultiTrack =>
+      'Chapters are not embedded in multi-track audiobooks.';
+
+  @override
+  String get embedNoteNavigateAway =>
+      'Once the task is started you can navigate away from this page.';
+
+  @override
+  String get embedStartButton => 'Start Metadata Embed';
+
+  @override
+  String embedProgress(String percent) {
+    return 'Embedding $percent%';
+  }
+
+  @override
+  String get embedProgressIndeterminate => 'Embedding...';
+
+  @override
+  String taskProgressKeepsRunning(String percent) {
+    return '$percent% - keeps running if you leave this page';
+  }
+
+  @override
+  String get taskStarting => 'Starting...';
+
+  @override
+  String get embedBackupNoteIntro =>
+      'A backup of your original audio files will be stored on the server in ';
+
+  @override
+  String embedBackupNotePath(String itemId) {
+    return '/metadata/cache/items/$itemId/';
+  }
+
+  @override
+  String get embedBackupNoteOutro =>
+      '. Make sure to periodically purge the items cache.';
+
+  @override
+  String get embedDialogTitle => 'Embed metadata';
+
+  @override
+  String embedConfirmMessage(int count, String backup) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '# audio files',
+      one: '# audio file',
+    );
+    return 'Embed metadata into $_temp0? Your audio files will be rewritten$backup.';
+  }
+
+  @override
+  String get embedConfirmBackupClause => ' (originals backed up first)';
+
+  @override
+  String get embedConfirmAction => 'Embed';
+
+  @override
+  String get embedCouldNotStart => 'Could not start embed';
+
+  @override
+  String get embedStarted => 'Embed started';
+
+  @override
+  String get embedComplete => 'Embed complete';
+
+  @override
+  String get embedFailed => 'Embed failed';
+
+  @override
+  String get encodeComplete => 'Encode complete';
+
+  @override
+  String get encodeFailedTask => 'Encode failed';
+
+  @override
+  String encodeProgress(String percent) {
+    return 'Encoding $percent%';
+  }
+
+  @override
+  String get encodeProgressIndeterminate => 'Encoding...';
 }

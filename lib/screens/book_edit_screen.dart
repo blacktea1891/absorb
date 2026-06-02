@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../l10n/app_localizations.dart';
 import '../widgets/edit_metadata_sheet.dart';
 
 /// Full-screen unified per-book editor. Thin wrapper that hosts
@@ -29,13 +30,14 @@ class BookEditScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context)!;
     return Scaffold(
       appBar: AppBar(
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Edit', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            Text(l.edit, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
             Text(bookTitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
