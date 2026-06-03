@@ -5621,4 +5621,132 @@ class AppLocalizationsRo extends AppLocalizations {
 
   @override
   String get encodeProgressIndeterminate => 'Encoding...';
+
+  @override
+  String get adminApiKeys => 'API Keys';
+
+  @override
+  String get adminApiKeysSubtitle => 'Programmatic access tokens';
+
+  @override
+  String get adminApiKeysNewTitle => 'New API Key';
+
+  @override
+  String get adminApiKeysName => 'Name';
+
+  @override
+  String get adminApiKeysNameHint => 'e.g. Home Assistant';
+
+  @override
+  String get adminApiKeysOwner => 'User';
+
+  @override
+  String get adminApiKeysExpiration => 'Expiration';
+
+  @override
+  String get adminApiKeysActive => 'Active';
+
+  @override
+  String get adminApiKeysActiveSub => 'Key works as soon as it\'s created';
+
+  @override
+  String get adminApiKeysInactive => 'Inactive';
+
+  @override
+  String get adminApiKeysExpired => 'Expired';
+
+  @override
+  String get adminApiKeysCreate => 'Create Key';
+
+  @override
+  String get adminApiKeysCreated => 'API key created';
+
+  @override
+  String get adminApiKeysTokenLabel => 'Your new API key';
+
+  @override
+  String get adminApiKeysCopyWarning =>
+      'Copy this key now. For security it won\'t be shown again.';
+
+  @override
+  String get adminApiKeysCopy => 'Copy';
+
+  @override
+  String get adminApiKeysCopied => 'Copied to clipboard';
+
+  @override
+  String get adminApiKeysDone => 'Done';
+
+  @override
+  String get adminApiKeysDeleteTitle => 'Revoke API key?';
+
+  @override
+  String get adminApiKeysDeleted => 'API key revoked';
+
+  @override
+  String get adminApiKeysRevoke => 'Revoke';
+
+  @override
+  String get adminApiKeysSetActive => 'Set active';
+
+  @override
+  String get adminApiKeysSetInactive => 'Set inactive';
+
+  @override
+  String get adminApiKeysFailedCreate => 'Couldn\'t create API key';
+
+  @override
+  String get adminApiKeysFailedDelete => 'Couldn\'t revoke API key';
+
+  @override
+  String get adminApiKeysFailedUpdate => 'Couldn\'t update API key';
+
+  @override
+  String get adminApiKeysEmpty => 'No API keys yet';
+
+  @override
+  String get adminApiKeysEmptySub =>
+      'Create one to let apps and scripts reach your server';
+
+  @override
+  String get adminApiKeysNeverUsed => 'Never used';
+
+  @override
+  String get adminApiKeysNeverExpires => 'No expiration';
+
+  @override
+  String get adminApiKeysNameRequired => 'Enter a name';
+
+  @override
+  String get adminApiKeysUserRequired => 'Pick a user';
+
+  @override
+  String get adminApiKeysExpNever => 'Never';
+
+  @override
+  String get adminApiKeysExp7d => '7 days';
+
+  @override
+  String get adminApiKeysExp30d => '30 days';
+
+  @override
+  String get adminApiKeysExp90d => '90 days';
+
+  @override
+  String get adminApiKeysExp1y => '1 year';
+
+  @override
+  String adminApiKeysLastUsed(String time) {
+    return 'Last used $time';
+  }
+
+  @override
+  String adminApiKeysExpiresOn(String date) {
+    return 'Expires $date';
+  }
+
+  @override
+  String adminApiKeysDeleteContent(String name) {
+    return 'Revoke \"$name\"? Apps using this key will lose access immediately.';
+  }
 }

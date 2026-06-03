@@ -9797,6 +9797,246 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Encoding...'**
   String get encodeProgressIndeterminate;
+
+  /// No description provided for @adminApiKeys.
+  ///
+  /// In en, this message translates to:
+  /// **'API Keys'**
+  String get adminApiKeys;
+
+  /// No description provided for @adminApiKeysSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Programmatic access tokens'**
+  String get adminApiKeysSubtitle;
+
+  /// No description provided for @adminApiKeysNewTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'New API Key'**
+  String get adminApiKeysNewTitle;
+
+  /// No description provided for @adminApiKeysName.
+  ///
+  /// In en, this message translates to:
+  /// **'Name'**
+  String get adminApiKeysName;
+
+  /// No description provided for @adminApiKeysNameHint.
+  ///
+  /// In en, this message translates to:
+  /// **'e.g. Home Assistant'**
+  String get adminApiKeysNameHint;
+
+  /// No description provided for @adminApiKeysOwner.
+  ///
+  /// In en, this message translates to:
+  /// **'User'**
+  String get adminApiKeysOwner;
+
+  /// No description provided for @adminApiKeysExpiration.
+  ///
+  /// In en, this message translates to:
+  /// **'Expiration'**
+  String get adminApiKeysExpiration;
+
+  /// No description provided for @adminApiKeysActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Active'**
+  String get adminApiKeysActive;
+
+  /// No description provided for @adminApiKeysActiveSub.
+  ///
+  /// In en, this message translates to:
+  /// **'Key works as soon as it\'s created'**
+  String get adminApiKeysActiveSub;
+
+  /// No description provided for @adminApiKeysInactive.
+  ///
+  /// In en, this message translates to:
+  /// **'Inactive'**
+  String get adminApiKeysInactive;
+
+  /// No description provided for @adminApiKeysExpired.
+  ///
+  /// In en, this message translates to:
+  /// **'Expired'**
+  String get adminApiKeysExpired;
+
+  /// No description provided for @adminApiKeysCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create Key'**
+  String get adminApiKeysCreate;
+
+  /// No description provided for @adminApiKeysCreated.
+  ///
+  /// In en, this message translates to:
+  /// **'API key created'**
+  String get adminApiKeysCreated;
+
+  /// No description provided for @adminApiKeysTokenLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Your new API key'**
+  String get adminApiKeysTokenLabel;
+
+  /// No description provided for @adminApiKeysCopyWarning.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy this key now. For security it won\'t be shown again.'**
+  String get adminApiKeysCopyWarning;
+
+  /// No description provided for @adminApiKeysCopy.
+  ///
+  /// In en, this message translates to:
+  /// **'Copy'**
+  String get adminApiKeysCopy;
+
+  /// No description provided for @adminApiKeysCopied.
+  ///
+  /// In en, this message translates to:
+  /// **'Copied to clipboard'**
+  String get adminApiKeysCopied;
+
+  /// No description provided for @adminApiKeysDone.
+  ///
+  /// In en, this message translates to:
+  /// **'Done'**
+  String get adminApiKeysDone;
+
+  /// No description provided for @adminApiKeysDeleteTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke API key?'**
+  String get adminApiKeysDeleteTitle;
+
+  /// No description provided for @adminApiKeysDeleted.
+  ///
+  /// In en, this message translates to:
+  /// **'API key revoked'**
+  String get adminApiKeysDeleted;
+
+  /// No description provided for @adminApiKeysRevoke.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke'**
+  String get adminApiKeysRevoke;
+
+  /// No description provided for @adminApiKeysSetActive.
+  ///
+  /// In en, this message translates to:
+  /// **'Set active'**
+  String get adminApiKeysSetActive;
+
+  /// No description provided for @adminApiKeysSetInactive.
+  ///
+  /// In en, this message translates to:
+  /// **'Set inactive'**
+  String get adminApiKeysSetInactive;
+
+  /// No description provided for @adminApiKeysFailedCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t create API key'**
+  String get adminApiKeysFailedCreate;
+
+  /// No description provided for @adminApiKeysFailedDelete.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t revoke API key'**
+  String get adminApiKeysFailedDelete;
+
+  /// No description provided for @adminApiKeysFailedUpdate.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t update API key'**
+  String get adminApiKeysFailedUpdate;
+
+  /// No description provided for @adminApiKeysEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No API keys yet'**
+  String get adminApiKeysEmpty;
+
+  /// No description provided for @adminApiKeysEmptySub.
+  ///
+  /// In en, this message translates to:
+  /// **'Create one to let apps and scripts reach your server'**
+  String get adminApiKeysEmptySub;
+
+  /// No description provided for @adminApiKeysNeverUsed.
+  ///
+  /// In en, this message translates to:
+  /// **'Never used'**
+  String get adminApiKeysNeverUsed;
+
+  /// No description provided for @adminApiKeysNeverExpires.
+  ///
+  /// In en, this message translates to:
+  /// **'No expiration'**
+  String get adminApiKeysNeverExpires;
+
+  /// No description provided for @adminApiKeysNameRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Enter a name'**
+  String get adminApiKeysNameRequired;
+
+  /// No description provided for @adminApiKeysUserRequired.
+  ///
+  /// In en, this message translates to:
+  /// **'Pick a user'**
+  String get adminApiKeysUserRequired;
+
+  /// No description provided for @adminApiKeysExpNever.
+  ///
+  /// In en, this message translates to:
+  /// **'Never'**
+  String get adminApiKeysExpNever;
+
+  /// No description provided for @adminApiKeysExp7d.
+  ///
+  /// In en, this message translates to:
+  /// **'7 days'**
+  String get adminApiKeysExp7d;
+
+  /// No description provided for @adminApiKeysExp30d.
+  ///
+  /// In en, this message translates to:
+  /// **'30 days'**
+  String get adminApiKeysExp30d;
+
+  /// No description provided for @adminApiKeysExp90d.
+  ///
+  /// In en, this message translates to:
+  /// **'90 days'**
+  String get adminApiKeysExp90d;
+
+  /// No description provided for @adminApiKeysExp1y.
+  ///
+  /// In en, this message translates to:
+  /// **'1 year'**
+  String get adminApiKeysExp1y;
+
+  /// No description provided for @adminApiKeysLastUsed.
+  ///
+  /// In en, this message translates to:
+  /// **'Last used {time}'**
+  String adminApiKeysLastUsed(String time);
+
+  /// No description provided for @adminApiKeysExpiresOn.
+  ///
+  /// In en, this message translates to:
+  /// **'Expires {date}'**
+  String adminApiKeysExpiresOn(String date);
+
+  /// No description provided for @adminApiKeysDeleteContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Revoke \"{name}\"? Apps using this key will lose access immediately.'**
+  String adminApiKeysDeleteContent(String name);
 }
 
 class _AppLocalizationsDelegate

@@ -1932,6 +1932,70 @@ class ApiService {
     return false;
   }
 
+  /// List all API keys (admin only). Each entry includes the expanded `user`
+  /// ({id, username, type}) plus name, isActive, expiresAt, lastUsedAt, createdAt.
+  /// The actual key string is never returned here, only on creation.
+  Future<List<dynamic>> getApiKeys() async {
+    try {
+      final r = await _authGet(Uri.parse('$_cleanBaseUrl/api/api-keys'));
+      if (r.statusCode == 200) {
+        final data = jsonDecode(r.body);
+        if (data is Map && data['apiKeys'] is List) return data['apiKeys'] as List<dynamic>;
+        if (data is List) return data;
+      }
+    } catch (e) { debugPrint('getApiKeys error: $e'); }
+    return [];
+  }
+
+  /// Create an API key (admin only). [expiresIn] is in seconds; pass null for
+  /// no expiration. Returns the created key map which — only on creation —
+  /// includes the actual token under `apiKey`.
+  Future<Map<String, dynamic>?> createApiKey({
+    required String name,
+    required String userId,
+    int? expiresIn,
+    bool isActive = true,
+  }) async {
+    try {
+      final body = <String, dynamic>{'name': name, 'userId': userId, 'isActive': isActive};
+      if (expiresIn != null) body['expiresIn'] = expiresIn;
+      final r = await _authPost(
+        Uri.parse('$_cleanBaseUrl/api/api-keys'),
+        body: jsonEncode(body),
+      );
+      if (r.statusCode == 200) {
+        final data = jsonDecode(r.body);
+        if (data is Map && data['apiKey'] is Map) return Map<String, dynamic>.from(data['apiKey'] as Map);
+      }
+    } catch (e) { debugPrint('createApiKey error: $e'); }
+    return null;
+  }
+
+  /// Update an API key (admin only). Only `isActive` and `userId` are mutable
+  /// server-side (name and expiry are baked into the JWT).
+  Future<bool> updateApiKey(String keyId, {bool? isActive, String? userId}) async {
+    try {
+      final body = <String, dynamic>{};
+      if (isActive != null) body['isActive'] = isActive;
+      if (userId != null) body['userId'] = userId;
+      final r = await _authPatch(
+        Uri.parse('$_cleanBaseUrl/api/api-keys/$keyId'),
+        body: jsonEncode(body),
+      );
+      return r.statusCode == 200;
+    } catch (e) { debugPrint('updateApiKey error: $e'); }
+    return false;
+  }
+
+  /// Delete (revoke) an API key (admin only).
+  Future<bool> deleteApiKey(String keyId) async {
+    try {
+      final r = await _authDelete(Uri.parse('$_cleanBaseUrl/api/api-keys/$keyId'));
+      return r.statusCode == 200;
+    } catch (e) { debugPrint('deleteApiKey error: $e'); }
+    return false;
+  }
+
   /// Update a library item's media metadata (admin/root only).
   /// PATCH /api/items/:id/media. Tags live on `media`, not `metadata`, so
   /// pass them via the [tags] arg to be included at the top level of the

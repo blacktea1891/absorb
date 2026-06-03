@@ -8,6 +8,7 @@ import '../l10n/app_localizations.dart';
 import 'admin_users_screen.dart';
 import 'admin_podcasts_screen.dart';
 import 'admin_email_screen.dart';
+import 'admin_api_keys_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -161,6 +162,16 @@ class _AdminScreenState extends State<AdminScreen> {
                           onTap: () {
                             Navigator.push(context, MaterialPageRoute(
                               builder: (_) => AdminEmailScreen(users: _users)));
+                          },
+                        ),
+                        const SizedBox(height: 10),
+                        _navButton(cs, tt,
+                          icon: Icons.vpn_key_rounded,
+                          label: l.adminApiKeys,
+                          subtitle: l.adminApiKeysSubtitle,
+                          onTap: () {
+                            Navigator.push(context, MaterialPageRoute(
+                              builder: (_) => AdminApiKeysScreen(users: _users)));
                           },
                         ),
                         const SizedBox(height: 10),

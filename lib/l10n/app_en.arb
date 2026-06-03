@@ -3429,5 +3429,66 @@
       }
     }
   },
-  "encodeProgressIndeterminate": "Encoding..."
+  "encodeProgressIndeterminate": "Encoding...",
+  "adminApiKeys": "API Keys",
+  "adminApiKeysSubtitle": "Programmatic access tokens",
+  "adminApiKeysNewTitle": "New API Key",
+  "adminApiKeysName": "Name",
+  "adminApiKeysNameHint": "e.g. Home Assistant",
+  "adminApiKeysOwner": "User",
+  "adminApiKeysExpiration": "Expiration",
+  "adminApiKeysActive": "Active",
+  "adminApiKeysActiveSub": "Key works as soon as it's created",
+  "adminApiKeysInactive": "Inactive",
+  "adminApiKeysExpired": "Expired",
+  "adminApiKeysCreate": "Create Key",
+  "adminApiKeysCreated": "API key created",
+  "adminApiKeysTokenLabel": "Your new API key",
+  "adminApiKeysCopyWarning": "Copy this key now. For security it won't be shown again.",
+  "adminApiKeysCopy": "Copy",
+  "adminApiKeysCopied": "Copied to clipboard",
+  "adminApiKeysDone": "Done",
+  "adminApiKeysDeleteTitle": "Revoke API key?",
+  "adminApiKeysDeleted": "API key revoked",
+  "adminApiKeysRevoke": "Revoke",
+  "adminApiKeysSetActive": "Set active",
+  "adminApiKeysSetInactive": "Set inactive",
+  "adminApiKeysFailedCreate": "Couldn't create API key",
+  "adminApiKeysFailedDelete": "Couldn't revoke API key",
+  "adminApiKeysFailedUpdate": "Couldn't update API key",
+  "adminApiKeysEmpty": "No API keys yet",
+  "adminApiKeysEmptySub": "Create one to let apps and scripts reach your server",
+  "adminApiKeysNeverUsed": "Never used",
+  "adminApiKeysNeverExpires": "No expiration",
+  "adminApiKeysNameRequired": "Enter a name",
+  "adminApiKeysUserRequired": "Pick a user",
+  "adminApiKeysExpNever": "Never",
+  "adminApiKeysExp7d": "7 days",
+  "adminApiKeysExp30d": "30 days",
+  "adminApiKeysExp90d": "90 days",
+  "adminApiKeysExp1y": "1 year",
+  "adminApiKeysLastUsed": "Last used {time}",
+  "@adminApiKeysLastUsed": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "adminApiKeysExpiresOn": "Expires {date}",
+  "@adminApiKeysExpiresOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "adminApiKeysDeleteContent": "Revoke \"{name}\"? Apps using this key will lose access immediately.",
+  "@adminApiKeysDeleteContent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -336,7 +336,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get librarySearchAuthors => 'Autoren';
 
   @override
-  String get librarySearchTags => 'Tags';
+  String get librarySearchTags => 'Schlagwörter';
 
   @override
   String get librarySearchGenres => 'Genres';
@@ -416,7 +416,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get genre => 'Genre';
 
   @override
-  String get tag => 'Tag';
+  String get tag => 'Schlagwort';
 
   @override
   String get clearFilter => 'Filter zurücksetzen';
@@ -425,7 +425,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get noGenresFound => 'Keine Genres gefunden';
 
   @override
-  String get noTagsFound => 'No tags found';
+  String get noTagsFound => 'Keine Schlagwörter gefunden';
 
   @override
   String get asc => 'AUF';
@@ -904,7 +904,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get queueModeAuto => 'Auto';
 
   @override
-  String get queueModePlaylist => 'Playlist';
+  String get queueModePlaylist => 'Wiedergabeliste';
 
   @override
   String get queueModeInfoPlaylist => 'Playlist Queue';
@@ -917,11 +917,11 @@ class AppLocalizationsDe extends AppLocalizations {
   String get queuePlaylistPickerTitle => 'Choose a playlist';
 
   @override
-  String get queuePlaylistNone => 'No playlist selected';
+  String get queuePlaylistNone => 'Keine Wiedergabeliste ausgewählt';
 
   @override
   String queuePlaylistActiveLabel(String name) {
-    return 'Playlist: $name';
+    return 'Wiedergabeliste: $name';
   }
 
   @override
@@ -929,11 +929,11 @@ class AppLocalizationsDe extends AppLocalizations {
       'Start a playlist queue by opening a playlist on the home page.';
 
   @override
-  String get exit => 'Exit';
+  String get exit => 'Beenden';
 
   @override
   String upNext(String label) {
-    return 'Up next: $label';
+    return 'Als Nächstes: $label';
   }
 
   @override
@@ -952,7 +952,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get playlistPlayAction => 'Play playlist';
 
   @override
-  String get playlistAllFinished => 'All finished';
+  String get playlistAllFinished => 'Alle abgeschlossen';
 
   @override
   String get queueModeBooks => 'Bücher';
@@ -1800,7 +1800,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get rmabConfigBaseUrlHint => 'https://rmab.example.com';
 
   @override
-  String get rmabConfigTokenLabel => 'API token';
+  String get rmabConfigTokenLabel => 'API-Token';
 
   @override
   String get rmabConfigTokenHint => 'rmab_...';
@@ -1816,27 +1816,27 @@ class AppLocalizationsDe extends AppLocalizations {
       'Paste your auto-login URL so \'Open in browser view\' lands you signed in. Leave blank to use a regular login.';
 
   @override
-  String get rmabConfigConnect => 'Connect';
+  String get rmabConfigConnect => 'Verbinden';
 
   @override
-  String get rmabConfigDisconnect => 'Disconnect';
+  String get rmabConfigDisconnect => 'Trennen';
 
   @override
-  String get rmabConfigOpenWebView => 'Open in browser view';
+  String get rmabConfigOpenWebView => 'In der Browseransicht öffnen';
 
   @override
   String rmabConfigConnectedAs(String name) {
-    return 'Connected as $name';
+    return 'Verbunden als $name';
   }
 
   @override
-  String get rmabConfigErrorInvalidUrl => 'Enter a valid http(s) URL';
+  String get rmabConfigErrorInvalidUrl => 'Gültige http(s)-URL eingeben';
 
   @override
-  String get rmabConfigErrorMissingToken => 'Enter your API token';
+  String get rmabConfigErrorMissingToken => 'API-Token eingeben';
 
   @override
-  String get rmabConfigErrorUnauthorized => 'Token rejected by server';
+  String get rmabConfigErrorUnauthorized => 'Token vom Server abgelehnt';
 
   @override
   String get rmabConfigErrorForbidden =>
@@ -1846,7 +1846,8 @@ class AppLocalizationsDe extends AppLocalizations {
   String get rmabConfigErrorNetwork => 'Couldn\'t reach RMAB. Check the URL.';
 
   @override
-  String get rmabConfigErrorGeneric => 'Couldn\'t connect';
+  String get rmabConfigErrorGeneric =>
+      'Verbindung konnte nicht hergestellt werden';
 
   @override
   String get rmabConfigSavedSnackbar => 'ReadMeABook connected';
@@ -1861,7 +1862,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get rmabSearchHeader => 'Request via ReadMeABook';
 
   @override
-  String get rmabSearchHint => 'Search by title or author';
+  String get rmabSearchHint => 'Nach Titel oder Autor suchen';
 
   @override
   String get rmabSearchEmpty => 'No matches on your ReadMeABook server';
@@ -1885,22 +1886,22 @@ class AppLocalizationsDe extends AppLocalizations {
       'This request will be sent through your ReadMeABook server. The admin will review and process it. You can track it under My Requests on the ReadMeABook tile.';
 
   @override
-  String get rmabBookAlreadyAvailable => 'Already in your library';
+  String get rmabBookAlreadyAvailable => 'Bereits in deiner Bibliothek';
 
   @override
-  String get rmabBookAlreadyRequested => 'Already requested';
+  String get rmabBookAlreadyRequested => 'Bereits angefordert';
 
   @override
-  String get rmabRequestSubmitting => 'Submitting…';
+  String get rmabRequestSubmitting => 'Wird übermittelt…';
 
   @override
-  String get rmabRequestSent => 'Request sent';
+  String get rmabRequestSent => 'Anfrage gesendet';
 
   @override
-  String get rmabRequestErrorAlreadyAvailable => 'Already in your library';
+  String get rmabRequestErrorAlreadyAvailable => 'Bereits in deiner Bibliothek';
 
   @override
-  String get rmabRequestErrorBeingProcessed => 'Already being processed';
+  String get rmabRequestErrorBeingProcessed => 'Wird bereits bearbeitet';
 
   @override
   String get rmabRequestErrorDuplicate => 'You\'ve already requested this';
@@ -1923,10 +1924,10 @@ class AppLocalizationsDe extends AppLocalizations {
       'Token rejected by server. Reconnect ReadMeABook.';
 
   @override
-  String get rmabMyRequestsTab => 'My Requests';
+  String get rmabMyRequestsTab => 'Meine Anfragen';
 
   @override
-  String get rmabSetupTab => 'Setup';
+  String get rmabSetupTab => 'Einrichtung';
 
   @override
   String get rmabMyRequestsEmpty => 'You haven\'t requested any books yet';
@@ -1935,7 +1936,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get rmabMyRequestsError => 'Couldn\'t load requests';
 
   @override
-  String get rmabMyRequestsRefresh => 'Refresh';
+  String get rmabMyRequestsRefresh => 'Aktualisieren';
 
   @override
   String get rmabRequestDetailTitle => 'Request details';
@@ -1950,31 +1951,31 @@ class AppLocalizationsDe extends AppLocalizations {
   String get rmabRequestDetailCompletedOn => 'Completed on';
 
   @override
-  String get rmabRequestDetailProgress => 'Progress';
+  String get rmabRequestDetailProgress => 'Fortschritt';
 
   @override
-  String get rmabStatusActive => 'In progress';
+  String get rmabStatusActive => 'Im Gang';
 
   @override
-  String get rmabStatusWaiting => 'Waiting';
+  String get rmabStatusWaiting => 'Warten';
 
   @override
-  String get rmabStatusAvailable => 'Available';
+  String get rmabStatusAvailable => 'Verfügbar';
 
   @override
-  String get rmabStatusDownloaded => 'Downloaded';
+  String get rmabStatusDownloaded => 'Heruntergeladen';
 
   @override
-  String get rmabStatusFailed => 'Failed';
+  String get rmabStatusFailed => 'Fehlgeschlagen';
 
   @override
-  String get rmabStatusCancelled => 'Cancelled';
+  String get rmabStatusCancelled => 'Abgebrochen';
 
   @override
-  String get rmabStatusDenied => 'Denied';
+  String get rmabStatusDenied => 'Verweigert';
 
   @override
-  String get rmabStatusUnknown => 'Unknown';
+  String get rmabStatusUnknown => 'Unbekannt';
 
   @override
   String narratedBy(String narrator) {
@@ -2066,7 +2067,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get editServerDetails => 'Server-Details bearbeiten';
 
   @override
-  String get encodeTab => 'Encode';
+  String get encodeTab => 'Verschlüsseln';
 
   @override
   String get codec => 'Codec';
@@ -2075,7 +2076,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get bitrate => 'Bitrate';
 
   @override
-  String get channels => 'Channels';
+  String get channels => 'Kanäle';
 
   @override
   String get mono => 'Mono';
@@ -2087,7 +2088,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get startM4bEncode => 'Start M4B Encode';
 
   @override
-  String get encodeStarted => 'M4B encode started';
+  String get encodeStarted => 'M4B Encodierung gestartet';
 
   @override
   String get encodeFailed => 'Failed to start encode';
@@ -2096,7 +2097,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get encodeFinished => 'M4B encode finished';
 
   @override
-  String get currentlyLabel => 'Currently:';
+  String get currentlyLabel => 'Momentan:';
 
   @override
   String encodeOutputPathNote(String path) {
@@ -2418,7 +2419,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get genresLabel => 'Genres';
 
   @override
-  String get tagsLabel => 'Tags';
+  String get tagsLabel => 'Schlagwörter';
 
   @override
   String get commaSeparated => 'Komma-getrennt';
@@ -2926,45 +2927,46 @@ class AppLocalizationsDe extends AppLocalizations {
   String get downloadButton => 'Herunterladen';
 
   @override
-  String get updateDownloading => 'Downloading update...';
+  String get updateDownloading => 'Update wird heruntergeladen...';
 
   @override
   String get updateInstallPermissionDenied =>
       'Install permission denied. Enable \"Install unknown apps\" for Absorb in system settings.';
 
   @override
-  String get updateOpeningInBrowser => 'In-app update failed, opening browser';
+  String get updateOpeningInBrowser =>
+      'Das In-App-Update ist fehlgeschlagen, Browser wird geöffnet';
 
   @override
-  String get sendToEreader => 'Send to E-Reader';
+  String get sendToEreader => 'An E-Reader senden';
 
   @override
   String sendingToEreader(String device) {
-    return 'Sending to $device...';
+    return 'Sende an $device...';
   }
 
   @override
   String sendToEreaderSuccess(String device) {
-    return 'Sent to $device';
+    return 'Gesendet an $device';
   }
 
   @override
-  String get sendToEreaderFailed => 'Couldn\'t send the ebook';
+  String get sendToEreaderFailed => 'Das E-Book konnte nicht gesendet werden';
 
   @override
-  String get pickEreaderDevice => 'Pick a device';
+  String get pickEreaderDevice => 'Wähle ein Gerät';
 
   @override
-  String get adminEmail => 'Email';
+  String get adminEmail => 'E-Mail';
 
   @override
-  String get adminEmailSubtitle => 'SMTP and e-reader devices';
+  String get adminEmailSubtitle => 'SMTP und E-Reader-Geräte';
 
   @override
   String get smtpSection => 'SMTP';
 
   @override
-  String get smtpSetupGuide => 'Setup guide';
+  String get smtpSetupGuide => 'Einrichtungsanleitung';
 
   @override
   String get smtpHost => 'Host';
@@ -2973,87 +2975,90 @@ class AppLocalizationsDe extends AppLocalizations {
   String get smtpPort => 'Port';
 
   @override
-  String get smtpSecure => 'Secure';
+  String get smtpSecure => 'Sicher';
 
   @override
-  String get smtpRejectUnauthorized => 'Reject unauthorized TLS';
+  String get smtpRejectUnauthorized => 'Unzulässiges TLS ablehnen';
 
   @override
-  String get smtpUser => 'Username';
+  String get smtpUser => 'Benutzername';
 
   @override
-  String get smtpPass => 'Password';
+  String get smtpPass => 'Passwort';
 
   @override
-  String get smtpFromAddress => 'From address';
+  String get smtpFromAddress => 'Absenderadresse';
 
   @override
-  String get smtpTestAddress => 'Test address';
+  String get smtpTestAddress => 'Testadresse';
 
   @override
-  String get smtpSendTest => 'Send test';
+  String get smtpSendTest => 'Test senden';
 
   @override
-  String get smtpSaveSettings => 'Save';
+  String get smtpSaveSettings => 'Speichern';
 
   @override
-  String get smtpSaved => 'Email settings saved';
+  String get smtpSaved => 'E-Mail-Einstellungen gespeichert';
 
   @override
-  String get smtpSaveFailed => 'Couldn\'t save email settings';
+  String get smtpSaveFailed =>
+      'Die E-Mail-Einstellungen konnten nicht gespeichert werden';
 
   @override
-  String get smtpTestSent => 'Test email sent';
+  String get smtpTestSent => 'Test-E-Mail gesendet';
 
   @override
-  String get smtpTestFailed => 'Test email failed';
+  String get smtpTestFailed => 'Test-E-Mail fehlgeschlagen';
 
   @override
-  String get ereaderDevicesTitle => 'E-Reader devices';
+  String get ereaderDevicesTitle => 'E-Reader-Geräte';
 
   @override
-  String get ereaderDevicesEmpty => 'No devices yet. Add one below.';
+  String get ereaderDevicesEmpty =>
+      'Noch keine Geräte. Füge unten eines hinzu.';
 
   @override
-  String get addEreaderDevice => 'Add device';
+  String get addEreaderDevice => 'Gerät hinzufügen';
 
   @override
-  String get editEreaderDevice => 'Edit device';
+  String get editEreaderDevice => 'Gerät bearbeiten';
 
   @override
-  String get deleteEreaderDevice => 'Delete';
+  String get deleteEreaderDevice => 'Löschen';
 
   @override
   String get ereaderDeviceName => 'Name';
 
   @override
-  String get ereaderDeviceEmail => 'Email';
+  String get ereaderDeviceEmail => 'E-Mail';
 
   @override
-  String get ereaderAvailability => 'Who can use this device';
+  String get ereaderAvailability => 'Wer kann dieses Gerät verwenden';
 
   @override
-  String get ereaderAvailAdminOrUp => 'Admins only';
+  String get ereaderAvailAdminOrUp => 'Nur für Administratoren';
 
   @override
-  String get ereaderAvailUserOrUp => 'All users';
+  String get ereaderAvailUserOrUp => 'Alle Benutzer';
 
   @override
-  String get ereaderAvailGuestOrUp => 'Everyone';
+  String get ereaderAvailGuestOrUp => 'Jeder';
 
   @override
-  String get ereaderAvailSpecificUsers => 'Specific users';
+  String get ereaderAvailSpecificUsers => 'Bestimmte Benutzer';
 
   @override
   String ereaderSpecificUsersN(int count) {
-    return 'Specific users ($count)';
+    return 'Bestimmte Benutzer ($count)';
   }
 
   @override
-  String get ereaderDevicesSaved => 'Devices saved';
+  String get ereaderDevicesSaved => 'Geräte gespeichert';
 
   @override
-  String get ereaderDevicesSaveFailed => 'Couldn\'t save devices';
+  String get ereaderDevicesSaveFailed =>
+      'Geräte konnten nicht gespeichert werden';
 
   @override
   String libraryCountOne(int count) {
@@ -5286,45 +5291,46 @@ class AppLocalizationsDe extends AppLocalizations {
       'Geschwindigkeits-Voreinstellungen zurückgesetzt';
 
   @override
-  String get editAuthor => 'Edit author';
+  String get editAuthor => 'Autor bearbeiten';
 
   @override
   String get authorName => 'Name';
 
   @override
-  String get authorImage => 'Author image';
+  String get authorImage => 'Autorenbild';
 
   @override
-  String get authorRemoveImage => 'Remove image';
+  String get authorRemoveImage => 'Bild entfernen';
 
   @override
-  String get authorRemoveImageTitle => 'Remove author image?';
+  String get authorRemoveImageTitle => 'Autorenbild entfernen?';
 
   @override
   String get authorRemoveImageConfirm =>
-      'This deletes the image on the server.';
+      'Dadurch wird das Bild auf dem Server gelöscht.';
 
   @override
-  String get authorImageRemoved => 'Image removed';
+  String get authorImageRemoved => 'Bild entfernt';
 
   @override
-  String get authorImageFailed => 'Couldn\'t update author image';
+  String get authorImageFailed =>
+      'Das Autorenbild konnte nicht aktualisiert werden';
 
   @override
-  String get authorUpdated => 'Author updated';
+  String get authorUpdated => 'Autor aktualisiert';
 
   @override
-  String get authorUpdateFailed => 'Couldn\'t update author';
+  String get authorUpdateFailed => 'Der Autor konnte nicht aktualisiert werden';
 
   @override
   String get authorMatched => 'Author updated from match';
 
   @override
-  String get authorNoMatchFound => 'No match found';
+  String get authorNoMatchFound => 'Kein Treffer gefunden';
 
   @override
   String authorMergedInto(String name) {
-    return 'Merged into $name';
+    return 'Zusammengeführt in $name';
   }
 
   @override
@@ -5451,16 +5457,16 @@ class AppLocalizationsDe extends AppLocalizations {
   String get chapterSaveButton => 'Save chapters';
 
   @override
-  String get chapterAddHint => 'Add chapter (e.g. \"Chapter 01\")';
+  String get chapterAddHint => 'Kapitel hinzufügen (z.B. \"Kapitel 01\")';
 
   @override
   String get chapterAddTooltip => 'Add chapter(s)';
 
   @override
-  String get chapterRemoveAll => 'Remove All';
+  String get chapterRemoveAll => 'Alle entfernen';
 
   @override
-  String get chapterShiftTimes => 'Shift Times';
+  String get chapterShiftTimes => 'Zeiten verschieben';
 
   @override
   String get chapterFromTracks => 'From Tracks';
@@ -5469,10 +5475,10 @@ class AppLocalizationsDe extends AppLocalizations {
   String get chapterLookup => 'Lookup';
 
   @override
-  String get chapterShowSeconds => 'Show seconds';
+  String get chapterShowSeconds => 'Sekunden anzeigen';
 
   @override
-  String get chapterShiftBySeconds => 'Shift by (seconds)';
+  String get chapterShiftBySeconds => 'Verschieben um (Sekunden)';
 
   @override
   String get chapterShiftHint =>
@@ -5560,7 +5566,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get chapterApplyChapters => 'Apply chapters';
 
   @override
-  String get coverSearchTitle => 'Search for a cover';
+  String get coverSearchTitle => 'Nach einem Cover suchen';
 
   @override
   String get coverSearchRefineHint =>
@@ -5570,7 +5576,7 @@ class AppLocalizationsDe extends AppLocalizations {
   String get coverNoneFound => 'No covers found';
 
   @override
-  String get coverEnterTitleFirst => 'Enter a title first';
+  String get coverEnterTitleFirst => 'Gebe zuerst einen Titel ein';
 
   @override
   String get coverUpdated => 'Cover updated';
@@ -5680,4 +5686,132 @@ class AppLocalizationsDe extends AppLocalizations {
 
   @override
   String get encodeProgressIndeterminate => 'Encoding...';
+
+  @override
+  String get adminApiKeys => 'API Keys';
+
+  @override
+  String get adminApiKeysSubtitle => 'Programmatic access tokens';
+
+  @override
+  String get adminApiKeysNewTitle => 'New API Key';
+
+  @override
+  String get adminApiKeysName => 'Name';
+
+  @override
+  String get adminApiKeysNameHint => 'e.g. Home Assistant';
+
+  @override
+  String get adminApiKeysOwner => 'User';
+
+  @override
+  String get adminApiKeysExpiration => 'Expiration';
+
+  @override
+  String get adminApiKeysActive => 'Active';
+
+  @override
+  String get adminApiKeysActiveSub => 'Key works as soon as it\'s created';
+
+  @override
+  String get adminApiKeysInactive => 'Inactive';
+
+  @override
+  String get adminApiKeysExpired => 'Expired';
+
+  @override
+  String get adminApiKeysCreate => 'Create Key';
+
+  @override
+  String get adminApiKeysCreated => 'API key created';
+
+  @override
+  String get adminApiKeysTokenLabel => 'Your new API key';
+
+  @override
+  String get adminApiKeysCopyWarning =>
+      'Copy this key now. For security it won\'t be shown again.';
+
+  @override
+  String get adminApiKeysCopy => 'Copy';
+
+  @override
+  String get adminApiKeysCopied => 'Copied to clipboard';
+
+  @override
+  String get adminApiKeysDone => 'Done';
+
+  @override
+  String get adminApiKeysDeleteTitle => 'Revoke API key?';
+
+  @override
+  String get adminApiKeysDeleted => 'API key revoked';
+
+  @override
+  String get adminApiKeysRevoke => 'Revoke';
+
+  @override
+  String get adminApiKeysSetActive => 'Set active';
+
+  @override
+  String get adminApiKeysSetInactive => 'Set inactive';
+
+  @override
+  String get adminApiKeysFailedCreate => 'Couldn\'t create API key';
+
+  @override
+  String get adminApiKeysFailedDelete => 'Couldn\'t revoke API key';
+
+  @override
+  String get adminApiKeysFailedUpdate => 'Couldn\'t update API key';
+
+  @override
+  String get adminApiKeysEmpty => 'No API keys yet';
+
+  @override
+  String get adminApiKeysEmptySub =>
+      'Create one to let apps and scripts reach your server';
+
+  @override
+  String get adminApiKeysNeverUsed => 'Never used';
+
+  @override
+  String get adminApiKeysNeverExpires => 'No expiration';
+
+  @override
+  String get adminApiKeysNameRequired => 'Enter a name';
+
+  @override
+  String get adminApiKeysUserRequired => 'Pick a user';
+
+  @override
+  String get adminApiKeysExpNever => 'Never';
+
+  @override
+  String get adminApiKeysExp7d => '7 days';
+
+  @override
+  String get adminApiKeysExp30d => '30 days';
+
+  @override
+  String get adminApiKeysExp90d => '90 days';
+
+  @override
+  String get adminApiKeysExp1y => '1 year';
+
+  @override
+  String adminApiKeysLastUsed(String time) {
+    return 'Last used $time';
+  }
+
+  @override
+  String adminApiKeysExpiresOn(String date) {
+    return 'Expires $date';
+  }
+
+  @override
+  String adminApiKeysDeleteContent(String name) {
+    return 'Revoke \"$name\"? Apps using this key will lose access immediately.';
+  }
 }
