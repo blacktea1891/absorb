@@ -40,12 +40,18 @@ class LibraryProvider extends ChangeNotifier
     });
     AudioPlayerService.setOnPeekNextItemCallback(peekNextQueueItemForPreBuffer);
     AudioPlayerService.setOnPlayStartedCallback((key) {
+      // Auto-download the book/episode you're listening to kicks off quickly so
+      // it doesn't feel broken; the short wait still skips it if you stop or
+      // switch right away. Rolling/queue look-ahead stays deferred to keep the
+      // moment playback starts light.
+      Future.delayed(const Duration(seconds: 5), () {
+        if (!AudioPlayerService().isPlaying) return;
+        _checkAutoDownloadOnStream(key);
+      });
       Future.delayed(const Duration(seconds: 30), () {
-        final stillPlaying = AudioPlayerService().isPlaying;
-        if (!stillPlaying) return;
+        if (!AudioPlayerService().isPlaying) return;
         _checkRollingDownloads(key);
         _checkQueueAutoDownloads(key);
-        _checkAutoDownloadOnStream(key);
       });
     });
     AudioPlayerService.setOnPlaybackStateChangedCallback((playing) {

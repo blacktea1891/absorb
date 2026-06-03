@@ -1167,28 +1167,27 @@ class AppLocalizationsJa extends AppLocalizations {
   String get sectionDownloadsAndStorage => 'Downloads & Storage';
 
   @override
-  String get downloadOverWifiOnly => 'Download over Wi-Fi only';
+  String get downloadOverWifiOnly => 'Download network';
 
   @override
-  String get downloadOverWifiOnSubtitle =>
-      'On - mobile data blocked for downloads';
+  String get downloadOverWifiOnSubtitle => 'Wi-Fi only';
 
   @override
-  String get downloadOverWifiOffSubtitle => 'Off - downloads on any connection';
+  String get downloadOverWifiOffSubtitle => 'Any connection';
 
   @override
-  String get autoDownloadOnWifi => 'Auto download on Wi-Fi';
+  String get autoDownloadOnWifi => 'Auto-download books you start';
 
   @override
-  String get autoDownloadOnWifiInfoTitle => 'Auto Download on Wi-Fi';
+  String get autoDownloadOnWifiInfoTitle => 'Auto-Download Books You Start';
 
   @override
   String get autoDownloadOnWifiInfoContent =>
-      'When you start streaming a book over Wi-Fi, it will automatically begin downloading the full book in the background. This way you\'ll have it available offline without having to manually start the download.';
+      'When you start streaming a book, the full book downloads in the background so you\'ll have it offline without starting the download yourself. These downloads follow your Download network setting above, so set it to Any connection if you want them to run on mobile data too.';
 
   @override
   String get autoDownloadOnWifiOnSubtitle =>
-      'Books download in the background when you start streaming on Wi-Fi';
+      'Streamed books download in the background automatically';
 
   @override
   String get autoDownloadOnWifiOffSubtitle => 'Off';

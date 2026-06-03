@@ -2227,43 +2227,43 @@ abstract class AppLocalizations {
   /// No description provided for @downloadOverWifiOnly.
   ///
   /// In en, this message translates to:
-  /// **'Download over Wi-Fi only'**
+  /// **'Download network'**
   String get downloadOverWifiOnly;
 
   /// No description provided for @downloadOverWifiOnSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'On - mobile data blocked for downloads'**
+  /// **'Wi-Fi only'**
   String get downloadOverWifiOnSubtitle;
 
   /// No description provided for @downloadOverWifiOffSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Off - downloads on any connection'**
+  /// **'Any connection'**
   String get downloadOverWifiOffSubtitle;
 
   /// No description provided for @autoDownloadOnWifi.
   ///
   /// In en, this message translates to:
-  /// **'Auto download on Wi-Fi'**
+  /// **'Auto-download books you start'**
   String get autoDownloadOnWifi;
 
   /// No description provided for @autoDownloadOnWifiInfoTitle.
   ///
   /// In en, this message translates to:
-  /// **'Auto Download on Wi-Fi'**
+  /// **'Auto-Download Books You Start'**
   String get autoDownloadOnWifiInfoTitle;
 
   /// No description provided for @autoDownloadOnWifiInfoContent.
   ///
   /// In en, this message translates to:
-  /// **'When you start streaming a book over Wi-Fi, it will automatically begin downloading the full book in the background. This way you\'ll have it available offline without having to manually start the download.'**
+  /// **'When you start streaming a book, the full book downloads in the background so you\'ll have it offline without starting the download yourself. These downloads follow your Download network setting above, so set it to Any connection if you want them to run on mobile data too.'**
   String get autoDownloadOnWifiInfoContent;
 
   /// No description provided for @autoDownloadOnWifiOnSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Books download in the background when you start streaming on Wi-Fi'**
+  /// **'Streamed books download in the background automatically'**
   String get autoDownloadOnWifiOnSubtitle;
 
   /// No description provided for @autoDownloadOnWifiOffSubtitle.

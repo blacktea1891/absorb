@@ -1821,16 +1821,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   isExpanded: _expandedSection == 'Downloads & Storage',
                   onExpansionChanged: (v) => _onSectionExpanded('Downloads & Storage', v),
                   children: [
-                    SwitchListTile(
-                      title: Text(l.downloadOverWifiOnly),
-                      subtitle: Text(
-                        _wifiOnlyDownloads ? l.downloadOverWifiOnSubtitle : l.downloadOverWifiOffSubtitle,
-                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                      value: _wifiOnlyDownloads,
-                      onChanged: _loaded ? (v) {
-                        setState(() => _wifiOnlyDownloads = v);
-                        PlayerSettings.setWifiOnlyDownloads(v);
-                      } : null,
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const SizedBox(height: 12),
+                          Text(l.downloadOverWifiOnly, style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+                          const SizedBox(height: 8),
+                          SizedBox(width: double.infinity, child: SegmentedButton<bool>(
+                            showSelectedIcon: false,
+                            segments: [
+                              ButtonSegment(value: true, label: Text(l.downloadOverWifiOnSubtitle)),
+                              ButtonSegment(value: false, label: Text(l.downloadOverWifiOffSubtitle)),
+                            ],
+                            selected: {_wifiOnlyDownloads},
+                            onSelectionChanged: _loaded ? (v) {
+                              setState(() => _wifiOnlyDownloads = v.first);
+                              PlayerSettings.setWifiOnlyDownloads(v.first);
+                            } : null,
+                          )),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     SwitchListTile(

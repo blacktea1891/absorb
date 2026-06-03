@@ -2065,19 +2065,22 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       return;
     }
 
-    final connectivity = await Connectivity().checkConnectivity();
-    if (!connectivity.contains(ConnectivityResult.wifi)) return;
-
+    // Network policy (Wi-Fi only vs Wi-Fi & mobile) is enforced centrally by
+    // downloadItem(), so this honors the user's Download network setting rather
+    // than forcing Wi-Fi.
     final dl = DownloadService();
     if (dl.isDownloaded(playingKey) || dl.isDownloading(playingKey)) return;
 
     final player = AudioPlayerService();
-    final itemId = player.currentItemId;
-    if (itemId == null) return;
+    if (player.currentItemId == null) return;
 
+    // playingKey is the composite 'itemId-episodeId' for podcast episodes (plain
+    // itemId for books), which is exactly what downloadItem expects - it slices
+    // the episode part back off to reach the library item. Passing the plain
+    // podcast id here would corrupt that id and silently fail the download.
     dl.downloadItem(
       api: _api!,
-      itemId: itemId,
+      itemId: playingKey,
       title: player.currentTitle ?? '',
       author: player.currentAuthor ?? '',
       coverUrl: player.currentCoverUrl,
