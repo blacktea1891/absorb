@@ -1868,12 +1868,13 @@ class AudioPlayerService extends ChangeNotifier {
             _wasOnBluetooth = await _isBluetoothAudioConnected();
             if (_wasOnBluetooth) _lastPlayedOnBtAt = DateTime.now();
             debugPrint('[AudioSession] Was on BT: $_wasOnBluetooth');
-            // Pause the underlying player directly — NOT service.pause() —
-            // to keep the interruption lightweight. service.pause() saves progress,
-            // syncs to server, clears _wasPlayingBeforeInterrupt, and sets
-            // _lastPauseTime (triggering auto-rewind on resume). For transient
-            // notification interruptions we just need to duck the audio briefly.
+            // Pause the underlying player directly, not service.pause(), to keep
+            // the interruption lightweight (service.pause() also saves and syncs,
+            // which a transient duck doesn't need). Still stamp _lastPauseTime so
+            // resume runs auto-rewind per the user's settings: calls and nav
+            // prompts rewind like a manual pause, gated by activationDelay.
             await service._player?.pause();
+            service._lastPauseTime = DateTime.now();
             service._wasPlayingBeforeInterrupt = true;
           }
         } else {
@@ -2706,10 +2707,15 @@ class AudioPlayerService extends ChangeNotifier {
         );
       }
 
-      // Check if server position is ahead (another client advanced)
+      // Check if server position is ahead (another client advanced). Gate on a
+      // newer server timestamp, not position alone, so a stale pre-rewind
+      // position left on the server can't yank us forward (see _resumeServerSync).
       final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
+      final serverTs = (sessionData['updatedAt'] as num?)?.toInt() ?? 0;
       final localPos = position.inMilliseconds / 1000.0;
-      if (serverPos > localPos + 5.0) {
+      final pKey = _currentEpisodeId != null ? '$itemId-$_currentEpisodeId' : itemId;
+      final localTs = await _progressSync.getSavedTimestamp(pKey);
+      if (serverTs > localTs && serverPos > localPos + 5.0) {
         debugPrint('[Player] Server is ahead on cache-start: server=${serverPos}s vs local=${localPos}s - seeking');
         await _seekAbsolute(serverPos);
       }
@@ -4199,8 +4205,17 @@ class AudioPlayerService extends ChangeNotifier {
     // (e.g. jumped to a different chapter) — respect the intentional seek.
     final skipOverride = _seekedWhilePaused;
     _seekedWhilePaused = false;
+    final pKey = _currentEpisodeId != null
+        ? '$_currentItemId-$_currentEpisodeId'
+        : _currentItemId!;
     _recreatingSession = true;
     try {
+      // Only let the server pull us forward if its progress is genuinely newer
+      // (another device advanced it). Position alone is wrong right after an
+      // auto-rewind: our pre-rewind position still sits on the server, so a big
+      // rewind looks like "server ahead" and gets erased. Gate on timestamp,
+      // like the sync path, since _lastAutoRewindAmount only covers one rewind.
+      final localTs = await _progressSync.getSavedTimestamp(pKey);
       if (_playbackSessionId == null) {
         // Session expired - re-create it
         final sessionData = _currentEpisodeId != null
@@ -4211,9 +4226,12 @@ class AudioPlayerService extends ChangeNotifier {
           debugPrint('[Player] Re-created session on resume: $_playbackSessionId');
           if (!skipOverride) {
             final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
+            final serverTs = (sessionData['updatedAt'] as num?)?.toInt() ?? 0;
             final localPos = position.inMilliseconds / 1000.0;
-            if (serverPos > localPos + _lastAutoRewindAmount + 5.0) {
-              debugPrint('[Player] Server is ahead on resume: server=${serverPos}s vs local=${localPos}s - seeking');
+            final ahead = serverTs > localTs && serverPos > localPos + _lastAutoRewindAmount + 5.0;
+            // [AlphaDiag] log inputs; strip before beta.
+            debugPrint('[Player] Resume server-check (recreated): server=${serverPos}s(ts=$serverTs) vs local=${localPos}s(ts=$localTs) rewindAmt=$_lastAutoRewindAmount -> ${ahead ? "SEEKING" : "keep local"}');
+            if (ahead) {
               await _seekAbsolute(serverPos);
             }
           }
@@ -4221,15 +4239,16 @@ class AudioPlayerService extends ChangeNotifier {
       } else {
         // Session still active - check server progress in case another client advanced
         if (!skipOverride) {
-          final pKey = _currentEpisodeId != null
-              ? '$_currentItemId-$_currentEpisodeId'
-              : _currentItemId!;
           final serverProgress = await _api!.getItemProgress(pKey);
           if (serverProgress != null) {
             final serverPos = (serverProgress['currentTime'] as num?)?.toDouble() ?? 0;
+            final serverTs = (serverProgress['lastUpdate'] as num?)?.toInt() ?? 0;
             final localPos = position.inMilliseconds / 1000.0;
-            if (serverPos > localPos + _lastAutoRewindAmount + 5.0) {
-              debugPrint('[Player] Server is ahead on resume: server=${serverPos}s vs local=${localPos}s - seeking');
+            final ahead = serverTs > localTs && serverPos > localPos + _lastAutoRewindAmount + 5.0;
+            // [AlphaDiag] log the inputs so we can tell a stale pre-rewind server
+            // position from a real cross-device advance. Strip before beta.
+            debugPrint('[Player] Resume server-check (active): server=${serverPos}s(ts=$serverTs) vs local=${localPos}s(ts=$localTs) rewindAmt=$_lastAutoRewindAmount -> ${ahead ? "SEEKING" : "keep local"}');
+            if (ahead) {
               await _seekAbsolute(serverPos);
             }
           }
