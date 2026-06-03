@@ -135,14 +135,23 @@ jobs:
               --title "$VERSION_TAG"
           fi
 
-      - name: Upload to TestFlight
+      # Upload the IPA to TestFlight but DO NOT submit it for beta review. The
+      # build still lands in TestFlight (available to internal testers) once Apple
+      # finishes processing. We drop the `--testflight` flag on purpose: that flag
+      # also submits the build for external beta review, which Apple rejects with a
+      # 422 ("Another build is in review") whenever an earlier build in the same
+      # version train is still in review, failing the whole run even though the
+      # upload itself succeeded. External beta review / group assignment is handled
+      # by the opt-in best-effort step below (pass `beta_group`), or done by hand in
+      # App Store Connect.
+      - name: Upload to TestFlight (no beta-review submission)
         env:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_KEY_IDENTIFIER: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
           IPA_PATH=$(ls build/ios/ipa/*.ipa | head -1)
-          app-store-connect publish --path "$IPA_PATH" --testflight
+          app-store-connect publish --path "$IPA_PATH"
 
       # Notes + beta-group assignment happen after Apple processes the build.
       # They commonly fail with a timeout even when the upload itself worked,
