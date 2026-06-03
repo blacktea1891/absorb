@@ -5670,4 +5670,10 @@ class AppLocalizationsZh extends AppLocalizations {
   String adminApiKeysDeleteContent(String name) {
     return 'Revoke \"$name\"? Apps using this key will lose access immediately.';
   }
+
+  @override
+  String get endOfEpisode => 'End of Episode';
+
+  @override
+  String get sleepTimerSheetEpisodeSleepStart => 'Sleep at end of episode';
 }

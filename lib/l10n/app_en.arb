@@ -3490,5 +3490,7 @@
         "type": "String"
       }
     }
-  }
+  },
+  "endOfEpisode": "End of Episode",
+  "sleepTimerSheetEpisodeSleepStart": "Sleep at end of episode"
 }

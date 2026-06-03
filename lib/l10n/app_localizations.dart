@@ -10037,6 +10037,18 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Revoke \"{name}\"? Apps using this key will lose access immediately.'**
   String adminApiKeysDeleteContent(String name);
+
+  /// No description provided for @endOfEpisode.
+  ///
+  /// In en, this message translates to:
+  /// **'End of Episode'**
+  String get endOfEpisode;
+
+  /// No description provided for @sleepTimerSheetEpisodeSleepStart.
+  ///
+  /// In en, this message translates to:
+  /// **'Sleep at end of episode'**
+  String get sleepTimerSheetEpisodeSleepStart;
 }
 
 class _AppLocalizationsDelegate
