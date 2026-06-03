@@ -2038,8 +2038,15 @@ class AudioPlayerService extends ChangeNotifier {
         service._syncToServer(service.position);
       }
     }
-    // Re-activate audio session to get a fresh system token
-    try { (await AudioSession.instance).setActive(true); } catch (_) {}
+    // Re-activate audio session to get a fresh system token — but only while
+    // actually playing. Doing it on every foreground grabbed AUDIOFOCUS_GAIN
+    // even when paused/idle, pausing other apps' audio (e.g. Spotify) the
+    // moment Absorb was opened without the user ever pressing play. When not
+    // playing we don't need focus; the MediaSession refresh below doesn't
+    // require it, and play()/startLocalPlayback reacquire focus themselves.
+    if (service.isPlaying) {
+      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+    }
     // Re-push playback state so the system re-registers the MediaSession
     _handler?.refreshPlaybackState();
     // Re-push media item so notification metadata is fresh

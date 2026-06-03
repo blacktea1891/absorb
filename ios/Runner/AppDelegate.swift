@@ -26,12 +26,16 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
     // Now Playing from appearing on scene-based lifecycle apps.
     application.beginReceivingRemoteControlEvents()
 
-    // Pre-configure audio session for playback so iOS knows this app
-    // plays audio before the Flutter engine finishes initializing.
+    // Pre-configure the audio session category for playback so iOS knows this
+    // app plays long-form audio (lock screen / Control Center controls) before
+    // the Flutter engine finishes initializing. Do NOT activate the session
+    // here: setActive(true) at launch interrupts other apps' audio (e.g.
+    // Spotify) the moment Absorb opens, before the user presses play. The
+    // playback paths (AbsorbAudioEngine / AbsorbPlayerCore / IOSQueueAdvancer)
+    // activate the session themselves when audio actually starts.
     let session = AVAudioSession.sharedInstance()
     do {
       try session.setCategory(.playback, mode: .spokenAudio)
-      try session.setActive(true)
     } catch {
       print("[AppDelegate] Audio session setup failed: \(error)")
     }
