@@ -50,15 +50,23 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
               IconButton(icon: Icon(Icons.close_rounded, color: cs.onSurfaceVariant), onPressed: () => Navigator.pop(context)),
             ]),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           Expanded(
             child: RefreshIndicator(
               onRefresh: _reload,
-              child: ListView.builder(
-                padding: const EdgeInsets.only(bottom: 80),
-                itemCount: _users.length,
-                itemBuilder: (_, i) => _userTile(cs, tt, _users[i]),
-              ),
+              child: LayoutBuilder(builder: (ctx, constraints) {
+                const gap = 10.0;
+                final cellW = (constraints.maxWidth - 32 - gap * 2) / 3;
+                return SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 90),
+                  child: Wrap(
+                    spacing: gap,
+                    runSpacing: gap,
+                    children: _sortedUsers.map((u) => SizedBox(width: cellW, child: _userCell(cs, tt, u))).toList(),
+                  ),
+                );
+              }),
             ),
           ),
         ]),
@@ -66,61 +74,114 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
     );
   }
 
-  Widget _userTile(ColorScheme cs, TextTheme tt, dynamic user) {
-    final l = AppLocalizations.of(context)!;
-    final username = user['username'] as String? ?? l.unknown;
+  bool _isOnline(Map<String, dynamic> user) {
     final userId = user['id'] as String? ?? '';
-    final type = user['type'] as String? ?? 'user';
-    final isActive = user['isActive'] as bool? ?? true;
-    final isLocked = user['isLocked'] as bool? ?? false;
-    final isOnline = _onlineUsers.any((o) {
+    final username = user['username'] as String? ?? '';
+    return _onlineUsers.any((o) {
       if (o is! Map) return false;
       final oId = o['id'] as String? ?? '';
       if (oId.isNotEmpty && oId == userId) return true;
       final oName = o['username'] as String? ?? '';
       return oName.isNotEmpty && oName == username;
     });
+  }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: GestureDetector(
-        onTap: () => _showUserDetail(user as Map<String, dynamic>),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(16)),
-          child: Row(children: [
-            if (isOnline) ...[
-              Container(width: 8, height: 8, decoration: const BoxDecoration(shape: BoxShape.circle, color: Color(0xFF4CAF50))),
-              const SizedBox(width: 10),
-            ],
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Flexible(child: Text(username, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface), overflow: TextOverflow.ellipsis)),
-                const SizedBox(width: 6),
-                if (type == 'root') Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(color: Colors.amber.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(4)),
-                  child: Text(l.adminUsersRootBadge, style: tt.labelSmall?.copyWith(color: Colors.amber, fontSize: 9, fontWeight: FontWeight.w600)))
-                else if (type == 'admin') Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                  decoration: BoxDecoration(color: cs.primary.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(4)),
-                  child: Text(l.adminUsersAdminBadge, style: tt.labelSmall?.copyWith(color: cs.primary, fontSize: 9, fontWeight: FontWeight.w600))),
-                if (isLocked) ...[const SizedBox(width: 4), Icon(Icons.lock_rounded, size: 12, color: Colors.red.withValues(alpha: 0.6))],
-                if (!isActive) ...[const SizedBox(width: 4), Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                  decoration: BoxDecoration(color: Colors.red.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(4)),
-                  child: Text(l.adminUsersDisabledBadge, style: tt.labelSmall?.copyWith(color: Colors.red.withValues(alpha: 0.7), fontSize: 9)))],
-              ]),
-              if (!isActive) ...[
-                const SizedBox(height: 2),
-                Text(l.disabled, style: tt.labelSmall?.copyWith(color: Colors.red.withValues(alpha: 0.5), fontSize: 10)),
-              ],
-            ])),
-            Icon(Icons.chevron_right_rounded, size: 18, color: cs.onSurface.withValues(alpha: 0.15)),
-          ]),
+  /// Online users first, then alphabetical so the green pills cluster at the top.
+  List<Map<String, dynamic>> get _sortedUsers {
+    final list = _users.whereType<Map<String, dynamic>>().toList();
+    list.sort((a, b) {
+      final ao = _isOnline(a), bo = _isOnline(b);
+      if (ao != bo) return ao ? -1 : 1;
+      final an = (a['username'] as String? ?? '').toLowerCase();
+      final bn = (b['username'] as String? ?? '').toLowerCase();
+      return an.compareTo(bn);
+    });
+    return list;
+  }
+
+  Widget _userCell(ColorScheme cs, TextTheme tt, Map<String, dynamic> user) {
+    final l = AppLocalizations.of(context)!;
+    final username = user['username'] as String? ?? l.unknown;
+    final type = user['type'] as String? ?? 'user';
+    final isActive = user['isActive'] as bool? ?? true;
+    final isLocked = user['isLocked'] as bool? ?? false;
+    final isOnline = _isOnline(user);
+    final lastSeen = user['lastSeen'] as num?;
+
+    const green = Color(0xFF4CAF50);
+    final dotColor = type == 'root'
+        ? Colors.amber
+        : type == 'admin'
+            ? cs.primary
+            : isOnline
+                ? green
+                : null;
+    final borderColor = isOnline ? green : cs.onSurface.withValues(alpha: 0.08);
+    final textColor = isActive ? cs.onSurface : cs.onSurface.withValues(alpha: 0.35);
+
+    final String subtext;
+    final Color subColor;
+    if (!isActive) {
+      subtext = l.disabled;
+      subColor = Colors.red.withValues(alpha: 0.5);
+    } else if (isOnline) {
+      subtext = l.adminUsersOnlineNow;
+      subColor = green.withValues(alpha: 0.85);
+    } else if (lastSeen != null) {
+      subtext = _timeAgo(DateTime.fromMillisecondsSinceEpoch(lastSeen.toInt()));
+      subColor = cs.onSurface.withValues(alpha: 0.32);
+    } else {
+      subtext = l.adminUsersNever;
+      subColor = cs.onSurface.withValues(alpha: 0.32);
+    }
+
+    return GestureDetector(
+      onTap: () => _showUserDetail(user),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+        decoration: BoxDecoration(
+          color: isOnline ? green.withValues(alpha: 0.08) : cs.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: borderColor, width: isOnline ? 1.5 : 1),
+          boxShadow: isOnline
+              ? [BoxShadow(color: green.withValues(alpha: 0.2), blurRadius: 10, spreadRadius: -2)]
+              : null,
         ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            if (dotColor != null) ...[
+              Container(width: 6, height: 6, decoration: BoxDecoration(shape: BoxShape.circle, color: dotColor)),
+              const SizedBox(width: 6),
+            ],
+            Flexible(child: Text(username, textAlign: TextAlign.center, maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: tt.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: textColor,
+                decoration: isActive ? null : TextDecoration.lineThrough,
+                decorationColor: cs.onSurface.withValues(alpha: 0.35),
+              ))),
+            if (isLocked) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.lock_rounded, size: 11, color: Colors.red.withValues(alpha: 0.6)),
+            ],
+          ]),
+          const SizedBox(height: 3),
+          Text(subtext, maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: tt.labelSmall?.copyWith(color: subColor, fontSize: 10)),
+        ]),
       ),
     );
+  }
+
+  String _timeAgo(DateTime dt) {
+    final l = AppLocalizations.of(context)!;
+    final d = DateTime.now().difference(dt);
+    if (d.inSeconds < 60) return l.justNow;
+    if (d.inMinutes < 60) return l.minutesAgo(d.inMinutes);
+    if (d.inHours < 24) return l.hoursAgo(d.inHours);
+    if (d.inDays < 30) return l.daysAgo(d.inDays);
+    return l.adminUsersMonthsAgo((d.inDays / 30).floor());
   }
 
   void _showUserDetail(Map<String, dynamic> user) {
