@@ -66,6 +66,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _rollingDownloadDeleteFinished = false;
   bool _showBookSlider = false;
   bool _notifChapterProgress = false;
+  bool _notifSpeedBookmark = false;
   bool _speedAdjustedTime = true;
   int _forwardSkip = 30;
   int _backSkip = 10;
@@ -337,7 +338,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getLanguage(),                                           // 49
       PlayerSettings.getClassicWording(),                                     // 50
       PlayerSettings.getQueuePlaylistId(),                                    // 51
-      PlayerSettings.getProgressTextScale(),                                  // 52
+      PlayerSettings.getMediaControlsSpeedBookmark(),                         // 52
+      PlayerSettings.getProgressTextScale(),                                  // 53
     ]);
     final s = results[0] as AutoRewindSettings;
     final progressScale = results.last as double;
@@ -389,6 +391,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final language = results[46] as String;
     final classicWording = results[47] as bool;
     final qpId = results[48] as String?;
+    final notifSpeedBookmark = results[49] as bool;
     final rmabBaseUrl = await ScopedPrefs.getString(kRmabBaseUrlKey);
     final rmabApiToken = await ScopedPrefs.getString(kRmabApiTokenKey);
     final sleepRewind = await PlayerSettings.getSleepRewindSeconds();
@@ -404,6 +407,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _rollingDownloadDeleteFinished = rollingDelete;
       _showBookSlider = bookSlider;
       _notifChapterProgress = notifChapter;
+      _notifSpeedBookmark = notifSpeedBookmark;
       _speedAdjustedTime = speedAdj;
       _forwardSkip = fwd;
       _backSkip = bk;
@@ -1340,9 +1344,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     SwitchListTile(
-                      title: Text(l.chapterProgressInNotification),
+                      title: Text(Platform.isIOS
+                          ? l.chapterProgressInNotificationIos
+                          : l.chapterProgressInNotification),
                       subtitle: Text(
-                        _notifChapterProgress ? l.chapterProgressOnSubtitle : l.chapterProgressOffSubtitle,
+                        _notifChapterProgress
+                            ? (Platform.isIOS
+                                ? l.chapterProgressOnSubtitleIos
+                                : l.chapterProgressOnSubtitle)
+                            : l.chapterProgressOffSubtitle,
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                       value: _notifChapterProgress,
                       onChanged: _loaded ? (v) {
@@ -1350,6 +1360,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         PlayerSettings.setNotificationChapterProgress(v);
                       } : null,
                     ),
+                    // Android only: chooses which pair fills the phone media
+                    // player's two extra slots. iOS uses CarPlay's own buttons.
+                    if (Platform.isAndroid) ...[
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      SwitchListTile(
+                        title: Text(l.speedBookmarkInControls),
+                        subtitle: Text(
+                          _notifSpeedBookmark
+                              ? l.speedBookmarkOnSubtitle
+                              : l.speedBookmarkOffSubtitle,
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        value: _notifSpeedBookmark,
+                        onChanged: _loaded ? (v) {
+                          setState(() => _notifSpeedBookmark = v);
+                          PlayerSettings.setMediaControlsSpeedBookmark(v);
+                        } : null,
+                      ),
+                    ],
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     // ── Auto-Rewind ──
                     SwitchListTile(

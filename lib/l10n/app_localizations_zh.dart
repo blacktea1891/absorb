@@ -965,6 +965,25 @@ class AppLocalizationsZh extends AppLocalizations {
   String get chapterProgressOffSubtitle => '关闭 - 锁屏显示全书进度';
 
   @override
+  String get chapterProgressInNotificationIos =>
+      'Chapter progress on lock screen & CarPlay';
+
+  @override
+  String get chapterProgressOnSubtitleIos =>
+      'On - lock screen & CarPlay show chapter progress';
+
+  @override
+  String get speedBookmarkInControls => 'Speed & bookmark in media controls';
+
+  @override
+  String get speedBookmarkOnSubtitle =>
+      'On - notification shows speed & bookmark; chapter skip stays in Android Auto';
+
+  @override
+  String get speedBookmarkOffSubtitle =>
+      'Off - notification shows chapter skip; speed & bookmark stay in Android Auto';
+
+  @override
   String get autoRewindOnResume => '恢复播放时自动倒退';
 
   @override

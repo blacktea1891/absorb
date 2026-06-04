@@ -984,15 +984,33 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get chapterProgressInNotification =>
-      'Chapter progress in notification';
+      'Chapter progress in notification & Android Auto';
 
   @override
   String get chapterProgressOnSubtitle =>
-      'On - lockscreen shows chapter progress';
+      'On - notification & Android Auto show chapter progress';
 
   @override
-  String get chapterProgressOffSubtitle =>
-      'Off - lockscreen shows full book progress';
+  String get chapterProgressOffSubtitle => 'Off - they show full book progress';
+
+  @override
+  String get chapterProgressInNotificationIos =>
+      'Chapter progress on lock screen & CarPlay';
+
+  @override
+  String get chapterProgressOnSubtitleIos =>
+      'On - lock screen & CarPlay show chapter progress';
+
+  @override
+  String get speedBookmarkInControls => 'Speed & bookmark in media controls';
+
+  @override
+  String get speedBookmarkOnSubtitle =>
+      'On - notification shows speed & bookmark; chapter skip stays in Android Auto';
+
+  @override
+  String get speedBookmarkOffSubtitle =>
+      'Off - notification shows chapter skip; speed & bookmark stay in Android Auto';
 
   @override
   String get autoRewindOnResume => 'Auto-rewind on resume';

@@ -258,6 +258,10 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
     IOSQueueAdvancer.shared.register(with: messenger)
     AbsorbAudioBridge.shared.register(with: messenger)
 
+    // CarPlay Now Playing custom buttons (chapter nav, speed, bookmark). These
+    // decorate CPNowPlayingTemplate only — the lock screen is untouched.
+    CarPlayNowPlaying.shared.register(with: messenger)
+
     // iOS audio output device switching is not implemented yet — iOS routes
     // through the system's MPVolumeView/AVRoutePicker rather than letting apps
     // pick output devices directly. Stub these so the channel responds.

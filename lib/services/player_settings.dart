@@ -272,6 +272,12 @@ class PlayerSettings {
   static Future<bool> getNotificationChapterProgress() => _get('notificationChapterProgress', false);
   static Future<void> setNotificationChapterProgress(bool value) => _set('notificationChapterProgress', value, notify: true);
 
+  // Android only: when true, the phone media controls show speed + bookmark in
+  // the two extra slots instead of chapter skip. Android Auto shows all of them
+  // either way; this just reorders which pair the phone "borrows".
+  static Future<bool> getMediaControlsSpeedBookmark() => _get('mediaControlsSpeedBookmark', false);
+  static Future<void> setMediaControlsSpeedBookmark(bool value) => _set('mediaControlsSpeedBookmark', value, notify: true);
+
   // ── Sleep timer settings ──
 
   // 'off', 'addTime', 'resetTimer'

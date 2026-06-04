@@ -21,6 +21,7 @@ import 'cold_start_play_policy.dart';
 import 'player_settings.dart';
 import 'session_cache.dart';
 import 'home_widget_service.dart';
+import 'bookmark_service.dart';
 export 'player_settings.dart';
 
 // ─── AudioHandler (runs in background, controls notification) ───
@@ -54,6 +55,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   // Cached skip amounts for notification icon selection (updated when settings change)
   int _cachedForwardSkip = 30;
   int _cachedBackSkip = 10;
+  // Android: which pair fills the phone media player's two extra slots - speed +
+  // bookmark (true) or chapter skip (false). Android Auto shows all of them
+  // regardless. See PlayerSettings.getMediaControlsSpeedBookmark.
+  bool _cachedNotifSpeedBookmark = false;
 
   AudioPlayer get player => _player;
 
@@ -116,6 +121,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   bool? _lastPlaying;
   ProcessingState? _lastProcessingState;
 
+  // Brief "Saved" flash on the Android Auto bookmark button after a save.
+  bool _bookmarkSavedFlash = false;
+  Timer? _bookmarkFlashTimer;
+
   void _subscribePlaybackEvents() {
     _player.playbackEventStream.map(_transformEvent).listen(
       (state) {
@@ -173,6 +182,22 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   }
 
 
+  // The Android Auto speed button shows a pre-baked badge for the current rate.
+  // We snap to the nearest 0.05 within the baked range (0.5x..3.0x); every step
+  // has a generated ic_speed_*x drawable (rendered from Roboto Bold).
+  String _speedBadgeIcon() {
+    final speed = _service?.speed ?? _player.speed;
+    var rate = (speed * 20).round() / 20; // nearest 0.05
+    if (rate < 0.5) rate = 0.5;
+    if (rate > 3.0) rate = 3.0;
+    // 1.0 -> "1x", 1.2 -> "1_2x", 1.25 -> "1_25x" (matches the generated files).
+    final s = rate
+        .toStringAsFixed(2)
+        .replaceAll(RegExp(r'0+$'), '')
+        .replaceAll(RegExp(r'\.$'), '');
+    return 'drawable/ic_speed_${s.replaceAll('.', '_')}x';
+  }
+
   PlaybackState _transformEvent(PlaybackEvent event) {
     final playPause = _player.playing ? MediaControl.pause : MediaControl.play;
 
@@ -187,9 +212,51 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       action: MediaAction.fastForward,
     );
 
-    // 3 controls: rewind | play | forward.
-    final controls = [rewindControl, playPause, fastForwardControl];
+    // Base 3 controls (rewind | play | forward) feed both the phone
+    // notification and Android Auto. compactIndices keeps the glanceable
+    // notification to just these three.
+    final controls = <MediaControl>[rewindControl, playPause, fastForwardControl];
     final compactIndices = const [0, 1, 2];
+
+    // Extra Android Auto controls (custom actions). On Android 12 and below they
+    // show only in AA; on 13+ they also feed the phone's media player. We always
+    // add the chapter buttons - they no-op when the item has no chapters - which
+    // (a) keeps the layout identical for books and podcasts and (b) since the
+    // phone player caps at 5 buttons, makes the two chapter buttons push speed +
+    // bookmark to AA-only for every item type. iOS uses the CarPlay Now Playing
+    // buttons instead, so these are never added on iOS (lock screen stays as-is).
+    if (Platform.isAndroid) {
+      final prevChapter = MediaControl.custom(
+        androidIcon: 'drawable/ic_widget_prev_chapter',
+        label: 'Previous chapter',
+        name: 'previousChapter',
+      );
+      final nextChapter = MediaControl.custom(
+        androidIcon: 'drawable/ic_widget_next_chapter',
+        label: 'Next chapter',
+        name: 'nextChapter',
+      );
+      final speed = MediaControl.custom(
+        androidIcon: _speedBadgeIcon(),
+        label: 'Speed',
+        name: 'cycleSpeed',
+      );
+      // Bookmark icon/label briefly flip to a checkmark + "Saved" after a save,
+      // as on-screen confirmation for Android Auto (the CarPlay banner equivalent).
+      final bookmark = MediaControl.custom(
+        androidIcon: _bookmarkSavedFlash ? 'drawable/ic_check' : 'drawable/ic_bookmark',
+        label: _bookmarkSavedFlash ? 'Saved' : 'Bookmark',
+        name: 'bookmark',
+      );
+      // The phone media player (Android 13+) only shows the first 2 of these
+      // extras (after rewind/forward); the rest stay Android-Auto-only. Order so
+      // the user's chosen pair lands on the phone. Default: chapter skip.
+      if (_cachedNotifSpeedBookmark) {
+        controls.addAll([speed, bookmark, prevChapter, nextChapter]);
+      } else {
+        controls.addAll([prevChapter, nextChapter, speed, bookmark]);
+      }
+    }
 
     return PlaybackState(
       controls: controls,
@@ -664,7 +731,64 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       case 'previousChapter':
         if (_service != null) await _service!.skipToPreviousChapter();
         break;
+      case 'cycleSpeed':
+        await _cycleSpeed();
+        break;
+      case 'bookmark':
+        return await _bookmarkCurrentPosition();
     }
+  }
+
+  /// Step playback speed up to the next configured preset, wrapping back to the
+  /// slowest once past the top. Used by the CarPlay / Android Auto speed button.
+  Future<void> _cycleSpeed() async {
+    final presets = await PlayerSettings.getSpeedPresets();
+    if (presets.isEmpty) return;
+    final cur = _service?.speed ?? _player.speed;
+    var next = presets.first; // wrap to slowest when already at/above the top
+    for (final p in presets) {
+      if (p > cur + 0.001) {
+        next = p;
+        break;
+      }
+    }
+    if (_service != null) {
+      await _service!.setSpeed(next);
+    } else {
+      await setSpeed(next);
+    }
+  }
+
+  /// Save a bookmark at the current position, mirroring the in-app car-mode
+  /// button (chapter title as the label, pushed to the server via the API).
+  Future<bool> _bookmarkCurrentPosition() async {
+    final svc = _service;
+    if (svc == null) return false;
+    // Podcasts don't support bookmarks - the button stays for a consistent car
+    // layout but does nothing on an episode.
+    if (svc.currentEpisodeId != null) return false;
+    final itemId = svc.currentItemId;
+    if (itemId == null) return false;
+    final pos = svc.position.inMilliseconds / 1000.0;
+    final chTitle = svc.currentChapter?['title'] as String?;
+    await BookmarkService().addBookmark(
+      itemId: itemId,
+      positionSeconds: pos,
+      title: (chTitle != null && chTitle.isNotEmpty) ? chTitle : 'Bookmark',
+      api: svc.currentApi,
+    );
+    if (Platform.isAndroid) {
+      // Flash a checkmark on the Android Auto bookmark button for ~2s. iOS gets
+      // its confirmation via the CarPlay banner instead.
+      _bookmarkSavedFlash = true;
+      refreshPlaybackState();
+      _bookmarkFlashTimer?.cancel();
+      _bookmarkFlashTimer = Timer(const Duration(seconds: 2), () {
+        _bookmarkSavedFlash = false;
+        refreshPlaybackState();
+      });
+    }
+    return true;
   }
 
   // ─── Chapter queue (for Android Auto queue button) ─────────────────
@@ -1086,6 +1210,12 @@ class AudioPlayerService extends ChangeNotifier {
     PlayerSettings.getBackSkip().then((v) {
       if (_handler != null && v != _handler!._cachedBackSkip) {
         _handler!._cachedBackSkip = v;
+        _handler!.refreshPlaybackState();
+      }
+    });
+    PlayerSettings.getMediaControlsSpeedBookmark().then((v) {
+      if (_handler != null && v != _handler!._cachedNotifSpeedBookmark) {
+        _handler!._cachedNotifSpeedBookmark = v;
         _handler!.refreshPlaybackState();
       }
     });
@@ -1751,6 +1881,8 @@ class AudioPlayerService extends ChangeNotifier {
       // Initialize cached skip amounts so notification icons show the correct values
       _handler!._cachedForwardSkip = fwdSkip;
       _handler!._cachedBackSkip = backSkip;
+      _handler!._cachedNotifSpeedBookmark =
+          await PlayerSettings.getMediaControlsSpeedBookmark();
       debugPrint('[Player] AudioService initialized');
       // Configure streaming cache if enabled
       final cacheSizeMb = await PlayerSettings.getStreamingCacheSizeMb();
@@ -4476,6 +4608,8 @@ class AudioPlayerService extends ChangeNotifier {
             _currentCoverUrl, _totalDuration, chapter: chTitle);
       }
     }
+    // Refresh the PlaybackState so Android Auto's speed badge tracks the rate.
+    _handler?.refreshPlaybackState();
     notifyListeners();
   }
 

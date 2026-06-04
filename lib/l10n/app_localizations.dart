@@ -1909,20 +1909,50 @@ abstract class AppLocalizations {
   /// No description provided for @chapterProgressInNotification.
   ///
   /// In en, this message translates to:
-  /// **'Chapter progress in notification'**
+  /// **'Chapter progress in notification & Android Auto'**
   String get chapterProgressInNotification;
 
   /// No description provided for @chapterProgressOnSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'On - lockscreen shows chapter progress'**
+  /// **'On - notification & Android Auto show chapter progress'**
   String get chapterProgressOnSubtitle;
 
   /// No description provided for @chapterProgressOffSubtitle.
   ///
   /// In en, this message translates to:
-  /// **'Off - lockscreen shows full book progress'**
+  /// **'Off - they show full book progress'**
   String get chapterProgressOffSubtitle;
+
+  /// No description provided for @chapterProgressInNotificationIos.
+  ///
+  /// In en, this message translates to:
+  /// **'Chapter progress on lock screen & CarPlay'**
+  String get chapterProgressInNotificationIos;
+
+  /// No description provided for @chapterProgressOnSubtitleIos.
+  ///
+  /// In en, this message translates to:
+  /// **'On - lock screen & CarPlay show chapter progress'**
+  String get chapterProgressOnSubtitleIos;
+
+  /// No description provided for @speedBookmarkInControls.
+  ///
+  /// In en, this message translates to:
+  /// **'Speed & bookmark in media controls'**
+  String get speedBookmarkInControls;
+
+  /// No description provided for @speedBookmarkOnSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On - notification shows speed & bookmark; chapter skip stays in Android Auto'**
+  String get speedBookmarkOnSubtitle;
+
+  /// No description provided for @speedBookmarkOffSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Off - notification shows chapter skip; speed & bookmark stay in Android Auto'**
+  String get speedBookmarkOffSubtitle;
 
   /// No description provided for @autoRewindOnResume.
   ///
