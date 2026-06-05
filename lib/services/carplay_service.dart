@@ -22,7 +22,6 @@ class CarPlayService {
   /// only on CPNowPlayingTemplate, so the iOS lock screen is never affected.
   static const _nowPlayingChannel = MethodChannel('com.absorb.carplay');
 
-  bool _connected = false;
   double _lastPushedSpeed = -1;
   bool _bannerShowing = false;
   Timer? _bannerDismissTimer;
@@ -103,13 +102,11 @@ class CarPlayService {
   void _onConnectionChange(ConnectionStatusTypes status) {
     debugPrint('[CarPlay] Connection status: $status');
     if (status == ConnectionStatusTypes.disconnected) {
-      _connected = false;
       _rootTemplate = null;
       _lastRootBuilt = null;
       return;
     }
     if (status != ConnectionStatusTypes.connected) return;
-    _connected = true;
 
     // Guard duplicate `connected` events that iOS fires in quick succession.
     final now = DateTime.now();
@@ -244,10 +241,13 @@ class CarPlayService {
     }
   }
 
-  /// Refresh the CarPlay speed button when the rate changes anywhere. Cheap:
-  /// short-circuits when not connected or when the speed hasn't moved.
+  /// Refresh the CarPlay speed button when the rate changes anywhere. No
+  /// "connected" gate on purpose: on a cold CarPlay launch the connected event
+  /// fires before our listener registers and is missed, so that flag can stay
+  /// false the whole session and would freeze the badge at its initial value.
+  /// The speed-diff check keeps this cheap; re-pushing while disconnected just
+  /// primes the shared Now Playing template, which is harmless.
   void _onPlayerChanged() {
-    if (!_connected) return;
     final speed = AudioPlayerService().speed;
     if ((speed - _lastPushedSpeed).abs() < 0.001) return;
     _configureNowPlayingButtons();
