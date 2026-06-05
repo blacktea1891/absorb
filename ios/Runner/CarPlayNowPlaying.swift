@@ -64,12 +64,11 @@ import UIKit
   }
 
   /// SF Symbols are template images, so CarPlay tints them to match the head
-  /// unit theme automatically.
+  /// unit theme automatically. We deliberately pass NO size configuration so
+  /// CarPlay applies its own now-playing button metrics - forcing a large
+  /// point size is what made these icons look oversized and bulky.
   private static func symbol(_ name: String) -> UIImage {
-    let config = UIImage.SymbolConfiguration(pointSize: 36, weight: .medium)
-    return UIImage(systemName: name, withConfiguration: config)
-      ?? UIImage(systemName: name)
-      ?? UIImage()
+    return UIImage(systemName: name) ?? UIImage()
   }
 
   /// Renders the current playback rate (e.g. "1.5x") into a template image so it
