@@ -640,5 +640,9 @@ class CarPlayService {
     // deprecated compat shim wired only in the old AudioService.start() flow;
     // with the modern AudioService.init() it routes to a no-op BaseAudioHandler.
     AudioPlayerService.handler?.playFromMediaId(mediaId);
+    // Jump straight to Now Playing on tap, like the native apps, instead of
+    // making the user find the Now Playing button. pushIfNotExist on the native
+    // side means it's a no-op if Now Playing is already on screen.
+    FlutterCarplay.showSharedNowPlaying();
   }
 }
