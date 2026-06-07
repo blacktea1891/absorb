@@ -1233,7 +1233,10 @@ class AndroidAutoService {
   // any bucket that's still too big - so a huge letter splits rather than being
   // truncated. We also skip characters that don't split (e.g. the space in
   // "The ") so the pile breaks by the real word.
-  static const int bucketThreshold = 100;
+  // 50 keeps final lists short and scannable (more letter drilldown) on both
+  // surfaces; CarPlay's memory is handled by the patched plugin image loader,
+  // so this is a navigation-feel choice, not a crash guard.
+  static const int bucketThreshold = 50;
 
   // Cached full (title-sorted) book list per library so re-navigating doesn't
   // re-fetch the whole library each time.

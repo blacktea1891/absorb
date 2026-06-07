@@ -1,7 +1,7 @@
 name: absorb
 description: An Audiobookshelf Client
 publish_to: 'none'
-version: 1.8.97+167
+version: 1.8.97+168
 
 environment:
   sdk: '>=3.1.0 <4.0.0'
@@ -39,8 +39,10 @@ dependencies:
   audio_service:
     path: packages/audio_service
 
-  # CarPlay
-  flutter_carplay: ^1.2.11
+  # CarPlay - vendored copy of 1.2.11 with a patched image loader (downsampled +
+  # cached list thumbnails) so large browse lists don't run CarPlay out of memory.
+  flutter_carplay:
+    path: packages/flutter_carplay
   
   # Permissions
   permission_handler: ^12.0.1
