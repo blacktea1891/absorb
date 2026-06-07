@@ -802,6 +802,8 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
   final Set<String> _selectedLibraries = {};
   bool _saving = false;
   bool _deleting = false;
+  bool _unlinking = false;
+  late bool _hasOpenIDLink;
 
   bool get _isNew => widget.user == null;
 
@@ -822,6 +824,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     _accessAllLibraries = p['accessAllLibraries'] as bool? ?? true;
     final accessible = (u?['librariesAccessible'] as List?)?.cast<String>() ?? [];
     _selectedLibraries.addAll(accessible);
+    _hasOpenIDLink = u?['hasOpenIDLink'] as bool? ?? false;
   }
 
   @override
@@ -895,6 +898,20 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
                   ),
                 ));
               }),
+            ],
+            if (!_isNew && _hasOpenIDLink) ...[
+              const SizedBox(height: 20),
+              SizedBox(width: double.infinity, child: OutlinedButton.icon(
+                onPressed: _unlinking ? null : _unlinkOpenID,
+                icon: _unlinking
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.error))
+                  : Icon(Icons.link_off_rounded, size: 18, color: cs.error),
+                label: Text(l.adminUsersUnlinkOpenId, style: TextStyle(color: cs.error, fontWeight: FontWeight.w600)),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  side: BorderSide(color: cs.error.withValues(alpha: 0.4)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+              )),
             ],
           ]))),
         Padding(padding: EdgeInsets.fromLTRB(20, 8, 20, MediaQuery.of(context).padding.bottom + 12),
@@ -986,6 +1003,27 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
       setState(() => _deleting = false);
       if (ok) { widget.onSaved(); Navigator.pop(context); _snk(l2.adminUsersUserDeleted(name)); }
       else { _snk(l2.adminUsersFailedDelete); }
+    }
+  }
+
+  Future<void> _unlinkOpenID() async {
+    final l = AppLocalizations.of(context)!;
+    final name = widget.user?['username'] as String? ?? l.adminUsersThisUser;
+    final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
+      title: Text(l.adminUsersUnlinkOpenIdTitle),
+      content: Text(l.adminUsersUnlinkOpenIdContent(name)),
+      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
+        TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.adminUsersUnlinkOpenId, style: TextStyle(color: Colors.red.shade300)))],
+    ));
+    if (yes != true) return;
+    final api = context.read<AuthProvider>().apiService; if (api == null) return;
+    setState(() => _unlinking = true);
+    final ok = await api.unlinkOpenID(widget.user!['id'] as String);
+    if (mounted) {
+      final l2 = AppLocalizations.of(context)!;
+      setState(() { _unlinking = false; if (ok) _hasOpenIDLink = false; });
+      if (ok) { widget.onSaved(); _snk(l2.adminUsersOpenIdUnlinked); }
+      else { _snk(l2.adminUsersFailedUnlinkOpenId); }
     }
   }
 

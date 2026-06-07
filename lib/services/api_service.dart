@@ -1932,6 +1932,19 @@ class ApiService {
     return false;
   }
 
+  /// Unlink a user from their OpenID/SSO connection (admin only). Clears the
+  /// server's stored authOpenIDSub so the user can re-enroll. The server
+  /// returns 200 even if there was no link to begin with.
+  Future<bool> unlinkOpenID(String userId) async {
+    try {
+      final r = await _authPatch(
+        Uri.parse('$_cleanBaseUrl/api/users/$userId/openid-unlink'),
+      );
+      return r.statusCode == 200;
+    } catch (e) { debugPrint('unlinkOpenID error: $e'); }
+    return false;
+  }
+
   /// List all API keys (admin only). Each entry includes the expanded `user`
   /// ({id, username, type}) plus name, isActive, expiresAt, lastUsedAt, createdAt.
   /// The actual key string is never returned here, only on creation.

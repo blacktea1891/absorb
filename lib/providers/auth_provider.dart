@@ -955,6 +955,44 @@ class AuthProvider extends ChangeNotifier {
     return true;
   }
 
+  /// Change the server URL of a saved account in place (e.g. a dynamic-DNS
+  /// hostname changed) without re-adding it. The account's per-user data is
+  /// migrated to the new scope by [UserAccountService.updateAccountUrl]. If the
+  /// edited account is the live session, its URL is updated immediately so the
+  /// next API call (and the [apiService] getter) uses the new address.
+  /// Returns true if the account was found and updated.
+  Future<bool> editServerUrl(SavedAccount account, String newServerUrl) async {
+    // Normalize the same way login() does.
+    String url = newServerUrl.trim();
+    if (url.isEmpty) return false;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'http://$url';
+    }
+    if (url.endsWith('/')) {
+      url = url.substring(0, url.length - 1);
+    }
+    if (url == account.serverUrl) return true; // nothing to change
+
+    final ok = await UserAccountService()
+        .updateAccountUrl(account.serverUrl, account.username, url);
+    if (!ok) return false;
+
+    // If we just edited the currently active session, update it live.
+    final isActiveSession =
+        account.serverUrl == _serverUrl && account.username == _username;
+    if (isActiveSession) {
+      _serverUrl = url;
+      _serverReachable = true;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('server_url', url);
+      } catch (_) {}
+      _pushSessionToWear();
+      notifyListeners();
+    }
+    return true;
+  }
+
   /// Get all saved accounts (for the account switcher UI).
   List<SavedAccount> get savedAccounts => UserAccountService().accounts;
 }
