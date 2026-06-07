@@ -219,7 +219,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
     }
   }
 
-  Future<void> _applyMatch(Map<String, dynamic> result) async {
+  Future<void> _applyMatch(Map<String, dynamic> result, Set<String> selected) async {
     final book = result['book'] as Map<String, dynamic>? ?? result;
     final api = context.read<AuthProvider>().apiService;
     if (api == null) return;
@@ -227,6 +227,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
     final update = <String, dynamic>{};
 
     void add(String key, dynamic value) {
+      if (!selected.contains(key)) return;
       final s = _safeString(value);
       if (s.isNotEmpty) update[key] = s;
     }
@@ -241,46 +242,56 @@ class _MetadataEditViewState extends State<MetadataEditView>
     add('language', book['language']);
 
     // Authors/narrators are arrays in ABS
-    final authorStr = _safeString(book['author']).isNotEmpty
-        ? _safeString(book['author'])
-        : _safeString(book['authorName']);
-    if (authorStr.isNotEmpty) {
-      update['authors'] = authorStr.split(',').map((a) => {'name': a.trim()}).where((a) => (a['name'] as String).isNotEmpty).toList();
+    if (selected.contains('author')) {
+      final authorStr = _safeString(book['author']).isNotEmpty
+          ? _safeString(book['author'])
+          : _safeString(book['authorName']);
+      if (authorStr.isNotEmpty) {
+        update['authors'] = authorStr.split(',').map((a) => {'name': a.trim()}).where((a) => (a['name'] as String).isNotEmpty).toList();
+      }
     }
 
-    final narratorStr = _safeString(book['narrator']).isNotEmpty
-        ? _safeString(book['narrator'])
-        : _safeString(book['narratorName']);
-    if (narratorStr.isNotEmpty) {
-      update['narrators'] = narratorStr.split(',').map((n) => {'name': n.trim()}).where((n) => (n['name'] as String).isNotEmpty).toList();
+    if (selected.contains('narrator')) {
+      final narratorStr = _safeString(book['narrator']).isNotEmpty
+          ? _safeString(book['narrator'])
+          : _safeString(book['narratorName']);
+      if (narratorStr.isNotEmpty) {
+        update['narrators'] = narratorStr.split(',').map((n) => {'name': n.trim()}).where((n) => (n['name'] as String).isNotEmpty).toList();
+      }
     }
 
     // Genres
-    final genres = book['genres'] ?? book['tags'];
-    if (genres is List && genres.isNotEmpty) {
-      update['genres'] = genres.whereType<String>().toList();
+    if (selected.contains('genres')) {
+      final genres = book['genres'] ?? book['tags'];
+      if (genres is List && genres.isNotEmpty) {
+        update['genres'] = genres.whereType<String>().toList();
+      }
     }
 
     // Series
-    final series = book['series'];
-    if (series is List && series.isNotEmpty) {
-      update['series'] = series;
-    } else if (series is String && series.isNotEmpty) {
-      update['series'] = [
-        {'name': series, 'sequence': _safeString(book['volumeNumber'] ?? book['sequence'])}
-      ];
+    if (selected.contains('series')) {
+      final series = book['series'];
+      if (series is List && series.isNotEmpty) {
+        update['series'] = series;
+      } else if (series is String && series.isNotEmpty) {
+        update['series'] = [
+          {'name': series, 'sequence': _safeString(book['volumeNumber'] ?? book['sequence'])}
+        ];
+      }
     }
 
     setState(() => _saving = true);
 
-    bool ok = await api.updateItemMedia(widget.itemId, update);
+    bool ok = update.isEmpty ? true : await api.updateItemMedia(widget.itemId, update);
 
     // Cover
-    final coverUrl = _safeString(book['cover']).isNotEmpty
-        ? _safeString(book['cover'])
-        : _safeString(book['image']);
-    if (ok && coverUrl.isNotEmpty) {
-      await api.updateItemCoverUrl(widget.itemId, coverUrl);
+    if (ok && selected.contains('cover')) {
+      final coverUrl = _safeString(book['cover']).isNotEmpty
+          ? _safeString(book['cover'])
+          : _safeString(book['image']);
+      if (coverUrl.isNotEmpty) {
+        await api.updateItemCoverUrl(widget.itemId, coverUrl);
+      }
     }
 
     if (!mounted) return;
@@ -313,24 +324,109 @@ class _MetadataEditViewState extends State<MetadataEditView>
 
   void _confirmMatch(Map<String, dynamic> result) {
     final book = result['book'] as Map<String, dynamic>? ?? result;
-    final title = _safeString(book['title']);
-    final author = _safeString(book['author']).isNotEmpty
-        ? _safeString(book['author'])
-        : _safeString(book['authorName']);
     final l = AppLocalizations.of(context)!;
+
+    // Build the fields this match offers (key -> preview), so the user can pick
+    // which to apply instead of overwriting everything.
+    final fields = <String, String>{};
+    void tryAdd(String key, dynamic value) {
+      final s = _safeString(value);
+      if (s.isNotEmpty) fields[key] = s;
+    }
+    tryAdd('title', book['title']);
+    tryAdd('subtitle', book['subtitle']);
+    tryAdd('author', book['author'] ?? book['authorName']);
+    tryAdd('narrator', book['narrator'] ?? book['narratorName']);
+    tryAdd('description', book['description']);
+    tryAdd('publisher', book['publisher']);
+    tryAdd('publishedYear', book['publishedYear'] ?? book['publishedDate']);
+    tryAdd('asin', book['asin']);
+    tryAdd('isbn', book['isbn']);
+    tryAdd('language', book['language']);
+
+    final genres = book['genres'] ?? book['tags'];
+    if (genres is List && genres.isNotEmpty) {
+      fields['genres'] = genres.whereType<String>().join(', ');
+    }
+    final series = book['series'];
+    if (series is String && series.isNotEmpty) {
+      fields['series'] = series;
+    } else if (series is List && series.isNotEmpty && series[0] is Map) {
+      fields['series'] = (series[0] as Map)['name']?.toString() ?? '';
+    }
+    final cover = _safeString(book['cover']).isNotEmpty
+        ? _safeString(book['cover'])
+        : _safeString(book['image']);
+    if (cover.isNotEmpty) fields['cover'] = cover;
+
+    if (fields.isEmpty) return;
+
+    final selected = Set<String>.from(fields.keys);
+    final labels = {
+      'title': l.titleLabel,
+      'subtitle': l.subtitleLabel,
+      'author': l.authorLabel,
+      'narrator': l.narratorLabel,
+      'description': l.descriptionLabel,
+      'publisher': l.publisherLabel,
+      'publishedYear': l.yearLabel,
+      'asin': l.asinLabel,
+      'isbn': l.isbnLabel,
+      'language': l.languageLabel,
+      'genres': l.genresLabel,
+      'series': l.seriesLabel,
+      'cover': l.metadataLookupCover,
+    };
 
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(l.applyThisMatch),
-        content: Text(author.isNotEmpty
-            ? l.editMetadataConfirmMatchWithAuthor(title, author)
-            : l.editMetadataConfirmMatch(title)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
-          FilledButton(onPressed: () { Navigator.pop(ctx); _applyMatch(result); }, child: Text(l.apply)),
-        ],
-      ),
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setDialogState) {
+          final cs = Theme.of(ctx).colorScheme;
+          final tt = Theme.of(ctx).textTheme;
+          return AlertDialog(
+            title: Text(l.metadataLookupChooseFields),
+            content: SizedBox(
+              width: double.maxFinite,
+              child: ListView(
+                shrinkWrap: true,
+                children: fields.entries.map((e) {
+                  final label = labels[e.key] ?? e.key;
+                  final clean = e.value.replaceAll(RegExp(r'<[^>]*>'), '');
+                  final preview = clean.length > 60 ? '${clean.substring(0, 57)}...' : clean;
+                  return CheckboxListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(label, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                    subtitle: Text(preview, maxLines: 1, overflow: TextOverflow.ellipsis,
+                        style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
+                    value: selected.contains(e.key),
+                    onChanged: (v) => setDialogState(() {
+                      if (v == true) {
+                        selected.add(e.key);
+                      } else {
+                        selected.remove(e.key);
+                      }
+                    }),
+                  );
+                }).toList(),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
+              FilledButton(
+                onPressed: selected.isEmpty
+                    ? null
+                    : () {
+                        Navigator.pop(ctx);
+                        _applyMatch(result, selected);
+                      },
+                child: Text(l.metadataLookupApplyFields(selected.length)),
+              ),
+            ],
+          );
+        });
+      },
     );
   }
 

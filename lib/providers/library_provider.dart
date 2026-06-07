@@ -14,6 +14,7 @@ import '../services/android_auto_service.dart';
 import '../services/carplay_service.dart';
 import '../services/chromecast_service.dart';
 import '../services/bookmark_service.dart';
+import '../services/metadata_override_service.dart';
 import '../services/session_cache.dart';
 import '../services/socket_service.dart';
 import '../services/home_widget_service.dart';
@@ -136,6 +137,10 @@ class LibraryProvider extends ChangeNotifier
         notifyListeners();
       }
 
+      // Refresh the local metadata cover overrides for this account so the
+      // grid/card covers reflect them, then repaint once loaded.
+      MetadataOverrideService().loadAll().then((_) => notifyListeners());
+
       restoreOfflineMode().then((_) async {
         debugPrint(
             '[Library] restoreOfflineMode done, serverReachable=${auth.serverReachable} api=${_api != null} offline=$isOffline');
@@ -222,6 +227,11 @@ class LibraryProvider extends ChangeNotifier
       notifyListeners();
     }
   }
+
+  /// Repaint listeners after a local metadata cover override is saved or
+  /// cleared, so the grid/absorbing card re-resolve [getCoverUrl] (the cache
+  /// is already updated synchronously by MetadataOverrideService).
+  void notifyCoverOverridesChanged() => notifyListeners();
 
   Future<void> loadLibraries() async {
     if (_api == null) return;

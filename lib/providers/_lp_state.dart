@@ -319,6 +319,11 @@ mixin _StateMixin on ChangeNotifier {
     if (_itemsWithoutCover.contains(apiItemId)) return null;
 
     if (_api != null && !isOffline) {
+      // A local metadata override cover wins over the server cover so the
+      // chosen art shows everywhere (grid, absorbing card), not just the
+      // book sheet.
+      final overrideCover = MetadataOverrideService().coverUrlFor(itemId);
+      if (overrideCover != null && overrideCover.isNotEmpty) return overrideCover;
       final ts = _itemUpdatedAt[apiItemId];
       return _api!.getCoverUrl(apiItemId, width: width, updatedAt: ts);
     }

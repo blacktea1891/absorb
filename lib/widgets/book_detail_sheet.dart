@@ -686,6 +686,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     final continueSeriesId = lib.continueSeriesShelfMatch(bookSeriesIds);
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -697,6 +698,9 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+              Flexible(
+                child: SingleChildScrollView(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
               _moreItem(cs, lib.isOnAbsorbingList(widget.itemId)
                   ? Icons.remove_circle_outline_rounded : Icons.add_circle_outline_rounded,
                 lib.isOnAbsorbingList(widget.itemId) ? Wording.of(context).removeFromAbsorbing : Wording.of(context).addToAbsorbing,
@@ -781,6 +785,9 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                     style: TextStyle(color: cs.onSurface.withValues(alpha: 0.25), fontSize: 11)),
                 ),
               ],
+                  ]),
+                ),
+              ),
             ]),
           ),
         );
@@ -1568,8 +1575,12 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
           initialAuthor: author,
           currentMetadata: (_item?['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>?,
           onApplied: () {
-            // Reload the item to show the new override
+            // Reload the item to show the new override, and repaint the
+            // library so the grid/absorbing card pick up the override cover.
             _loadItem();
+            if (mounted) {
+              context.read<LibraryProvider>().notifyCoverOverridesChanged();
+            }
           },
         ),
       ),
@@ -1599,6 +1610,8 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
       setState(() => _hasLocalOverride = false);
       await _loadItem();
       if (context.mounted) {
+        // Repaint the library so the grid/card drop the override cover too.
+        context.read<LibraryProvider>().notifyCoverOverridesChanged();
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(l.localMetadataCleared),
           behavior: SnackBarBehavior.floating,
