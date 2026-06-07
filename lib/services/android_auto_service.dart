@@ -1323,6 +1323,37 @@ class AndroidAutoService {
     }
   }
 
+  /// Flatten the recursive prefix tree into a single ordered list of LEAF
+  /// buckets (each <= [bucketThreshold] books). Used by CarPlay, where the
+  /// recursive push drilldown isn't possible: CarPlay caps the navigation
+  /// stack (~5 templates), so we show one bucket level then the books instead
+  /// of pushing a template per letter the way Android Auto can.
+  List<({String prefix, int count})> flattenedBookBuckets(List<AutoBookEntry> all) {
+    final out = <({String prefix, int count})>[];
+    void walk(String prefix) {
+      final level = resolveBrowseLevel(all, prefix);
+      if (level.books != null) {
+        if (level.books!.isNotEmpty) {
+          out.add((prefix: prefix, count: level.books!.length));
+        }
+        return;
+      }
+      for (final b in level.buckets!) {
+        walk(b.prefix);
+      }
+    }
+
+    walk('');
+    return out;
+  }
+
+  /// All books whose title falls under [prefix] (a leaf bucket from
+  /// [flattenedBookBuckets]). Empty prefix = the whole library.
+  List<AutoBookEntry> booksForPrefix(List<AutoBookEntry> all, String prefix) {
+    if (prefix.isEmpty) return all;
+    return all.where((b) => _normTitle(b.title).startsWith(prefix)).toList();
+  }
+
   /// Android Auto children for a books browse level at [prefix] (empty = top).
   Future<List<MediaItem>> _fetchBooksAtPrefix(String libraryId, String prefix) async {
     final all = await fetchAllBooks(libraryId);
