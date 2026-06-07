@@ -59,6 +59,9 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   // bookmark (true) or chapter skip (false). Android Auto shows all of them
   // regardless. See PlayerSettings.getMediaControlsSpeedBookmark.
   bool _cachedNotifSpeedBookmark = false;
+  // When true, the system scrubber is non-draggable (seek action dropped from
+  // the playback state). See PlayerSettings.getLockSeekBar.
+  bool _cachedLockSeekBar = false;
 
   AudioPlayer get player => _player;
 
@@ -262,7 +265,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       controls: controls,
       // iOS-only: declaring on Android adds prev/next buttons to the notification.
       systemActions: {
-        MediaAction.seek,
+        // Dropping seek locks the scrubber: Android omits ACTION_SEEK_TO and iOS
+        // omits changePlaybackPositionCommand, so it shows progress but can't be
+        // dragged. The skip (rewind/forward) buttons stay functional.
+        if (!_cachedLockSeekBar) MediaAction.seek,
         MediaAction.seekForward,
         MediaAction.seekBackward,
         MediaAction.skipToQueueItem,
@@ -1219,6 +1225,12 @@ class AudioPlayerService extends ChangeNotifier {
         _handler!.refreshPlaybackState();
       }
     });
+    PlayerSettings.getLockSeekBar().then((v) {
+      if (_handler != null && v != _handler!._cachedLockSeekBar) {
+        _handler!._cachedLockSeekBar = v;
+        _handler!.refreshPlaybackState();
+      }
+    });
   }
 
   /// The last seek target in seconds (absolute book position).
@@ -1883,6 +1895,7 @@ class AudioPlayerService extends ChangeNotifier {
       _handler!._cachedBackSkip = backSkip;
       _handler!._cachedNotifSpeedBookmark =
           await PlayerSettings.getMediaControlsSpeedBookmark();
+      _handler!._cachedLockSeekBar = await PlayerSettings.getLockSeekBar();
       debugPrint('[Player] AudioService initialized');
       // Configure streaming cache if enabled
       final cacheSizeMb = await PlayerSettings.getStreamingCacheSizeMb();

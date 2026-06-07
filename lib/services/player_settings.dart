@@ -278,6 +278,14 @@ class PlayerSettings {
   static Future<bool> getMediaControlsSpeedBookmark() => _get('mediaControlsSpeedBookmark', false);
   static Future<void> setMediaControlsSpeedBookmark(bool value) => _set('mediaControlsSpeedBookmark', value, notify: true);
 
+  // When true, the system media scrubber still shows progress but can't be
+  // dragged to seek - stops accidental position jumps from the notification,
+  // lockscreen, Android Auto and CarPlay. Implemented by dropping the seek
+  // action from the playback state (Android ACTION_SEEK_TO / iOS
+  // changePlaybackPositionCommand). Default off.
+  static Future<bool> getLockSeekBar() => _get('lockSeekBar', false);
+  static Future<void> setLockSeekBar(bool value) => _set('lockSeekBar', value, notify: true);
+
   // ── Sleep timer settings ──
 
   // 'off', 'addTime', 'resetTimer'

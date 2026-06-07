@@ -67,6 +67,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _showBookSlider = false;
   bool _notifChapterProgress = false;
   bool _notifSpeedBookmark = false;
+  bool _lockSeekBar = false;
   bool _speedAdjustedTime = true;
   int _forwardSkip = 30;
   int _backSkip = 10;
@@ -339,7 +340,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getClassicWording(),                                     // 50
       PlayerSettings.getQueuePlaylistId(),                                    // 51
       PlayerSettings.getMediaControlsSpeedBookmark(),                         // 52
-      PlayerSettings.getProgressTextScale(),                                  // 53
+      PlayerSettings.getLockSeekBar(),                                        // 53
+      PlayerSettings.getProgressTextScale(),                                  // 54
     ]);
     final s = results[0] as AutoRewindSettings;
     final progressScale = results.last as double;
@@ -392,6 +394,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final classicWording = results[47] as bool;
     final qpId = results[48] as String?;
     final notifSpeedBookmark = results[49] as bool;
+    final lockSeek = results[50] as bool;
     final rmabBaseUrl = await ScopedPrefs.getString(kRmabBaseUrlKey);
     final rmabApiToken = await ScopedPrefs.getString(kRmabApiTokenKey);
     final sleepRewind = await PlayerSettings.getSleepRewindSeconds();
@@ -408,6 +411,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _showBookSlider = bookSlider;
       _notifChapterProgress = notifChapter;
       _notifSpeedBookmark = notifSpeedBookmark;
+      _lockSeekBar = lockSeek;
       _speedAdjustedTime = speedAdj;
       _forwardSkip = fwd;
       _backSkip = bk;
@@ -1343,42 +1347,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       } : null,
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
-                    SwitchListTile(
-                      title: Text(Platform.isIOS
-                          ? l.chapterProgressInNotificationIos
-                          : l.chapterProgressInNotification),
-                      subtitle: Text(
-                        _notifChapterProgress
-                            ? (Platform.isIOS
-                                ? l.chapterProgressOnSubtitleIos
-                                : l.chapterProgressOnSubtitle)
-                            : l.chapterProgressOffSubtitle,
-                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                      value: _notifChapterProgress,
-                      onChanged: _loaded ? (v) {
-                        setState(() => _notifChapterProgress = v);
-                        PlayerSettings.setNotificationChapterProgress(v);
-                      } : null,
-                    ),
-                    // Android only: chooses which pair fills the phone media
-                    // player's two extra slots. iOS uses CarPlay's own buttons.
-                    if (Platform.isAndroid) ...[
-                      const Divider(height: 1, indent: 16, endIndent: 16),
-                      SwitchListTile(
-                        title: Text(l.speedBookmarkInControls),
-                        subtitle: Text(
-                          _notifSpeedBookmark
-                              ? l.speedBookmarkOnSubtitle
-                              : l.speedBookmarkOffSubtitle,
-                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
-                        value: _notifSpeedBookmark,
-                        onChanged: _loaded ? (v) {
-                          setState(() => _notifSpeedBookmark = v);
-                          PlayerSettings.setMediaControlsSpeedBookmark(v);
-                        } : null,
-                      ),
-                    ],
-                    const Divider(height: 1, indent: 16, endIndent: 16),
                     // ── Auto-Rewind ──
                     SwitchListTile(
                       title: Text(l.autoRewindOnResume),
@@ -1523,6 +1491,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             ],
                           ),
                         ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // ── Media Controls ──
+                CollapsibleSection(
+                  key: _keyFor('Media Controls'),
+                  icon: Icons.dvr_rounded,
+                  title: l.sectionMediaControls,
+                  cs: cs,
+                  isExpanded: _expandedSection == 'Media Controls',
+                  onExpansionChanged: (v) => _onSectionExpanded('Media Controls', v),
+                  children: [
+                    SwitchListTile(
+                      title: Text(Platform.isIOS
+                          ? l.chapterProgressInNotificationIos
+                          : l.chapterProgressInNotification),
+                      subtitle: Text(
+                        _notifChapterProgress
+                            ? (Platform.isIOS
+                                ? l.chapterProgressOnSubtitleIos
+                                : l.chapterProgressOnSubtitle)
+                            : l.chapterProgressOffSubtitle,
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _notifChapterProgress,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _notifChapterProgress = v);
+                        PlayerSettings.setNotificationChapterProgress(v);
+                      } : null,
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    // Cross-platform: drops the seek action so the scrubber in the
+                    // notification / lockscreen / car can't be dragged.
+                    SwitchListTile(
+                      title: Text(l.lockSeekBar),
+                      subtitle: Text(
+                        _lockSeekBar ? l.lockSeekBarOnSubtitle : l.lockSeekBarOffSubtitle,
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                      value: _lockSeekBar,
+                      onChanged: _loaded ? (v) {
+                        setState(() => _lockSeekBar = v);
+                        PlayerSettings.setLockSeekBar(v);
+                      } : null,
+                    ),
+                    // Android only: chooses which pair fills the phone media
+                    // player's two extra slots. iOS uses CarPlay's own buttons.
+                    if (Platform.isAndroid) ...[
+                      const Divider(height: 1, indent: 16, endIndent: 16),
+                      SwitchListTile(
+                        title: Text(l.speedBookmarkInControls),
+                        subtitle: Text(
+                          _notifSpeedBookmark
+                              ? l.speedBookmarkOnSubtitle
+                              : l.speedBookmarkOffSubtitle,
+                          style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                        value: _notifSpeedBookmark,
+                        onChanged: _loaded ? (v) {
+                          setState(() => _notifSpeedBookmark = v);
+                          PlayerSettings.setMediaControlsSpeedBookmark(v);
+                        } : null,
                       ),
                     ],
                   ],
@@ -3073,6 +3103,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final otherAccounts = accounts.where((a) =>
       !(a.serverUrl == auth.serverUrl && a.username == auth.username)
     ).toList();
+    SavedAccount? activeAccount;
+    for (final a in accounts) {
+      if (a.serverUrl == auth.serverUrl && a.username == auth.username) {
+        activeAccount = a;
+        break;
+      }
+    }
 
     final shortServer = auth.serverUrl?.replaceAll(RegExp(r'^https?://'), '').replaceAll(RegExp(r'/+$'), '') ?? '';
     final userType = auth.isRoot ? l.rootAdmin : auth.isAdmin ? l.admin : l.userFallback;
@@ -3103,6 +3140,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const SizedBox(width: 6),
                 Expanded(child: Text(shortServer, style: tt.labelSmall?.copyWith(
                   color: cs.onSurfaceVariant.withValues(alpha: 0.5)), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                if (activeAccount != null)
+                  InkResponse(
+                    onTap: () { Navigator.pop(ctx); _editServerUrl(context, activeAccount!); },
+                    radius: 22,
+                    child: Padding(padding: const EdgeInsets.all(6),
+                      child: Icon(Icons.edit_rounded, size: 18, color: cs.onSurfaceVariant.withValues(alpha: 0.7))),
+                  ),
               ]),
               const SizedBox(height: 3),
               Row(children: [
@@ -3143,7 +3187,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   .replaceAll(RegExp(r'/+$'), '');
               return InkWell(
                 onTap: () { Navigator.pop(ctx); _switchAccount(context, account); },
-                onLongPress: () { Navigator.pop(ctx); _removeAccount(context, account); },
+                onLongPress: () { Navigator.pop(ctx); _accountOptions(context, account); },
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
                   child: Row(children: [
@@ -3272,6 +3316,88 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await lib.refresh();
       if (context.mounted) AppShell.goToAbsorbingGlobal();
     }
+  }
+
+  /// Long-press menu for a saved (non-active) account: edit its server
+  /// address or remove it.
+  void _accountOptions(BuildContext context, SavedAccount account) {
+    final cs = Theme.of(context).colorScheme;
+    final l = AppLocalizations.of(context)!;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cs.surfaceContainerHigh,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => SafeArea(child: Column(mainAxisSize: MainAxisSize.min, children: [
+        const SizedBox(height: 10),
+        Center(child: Container(width: 36, height: 4,
+          decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(2)))),
+        const SizedBox(height: 8),
+        ListTile(
+          leading: Icon(Icons.dns_rounded, color: cs.primary),
+          title: Text(l.editServerAddressAction),
+          onTap: () { Navigator.pop(ctx); _editServerUrl(context, account); }),
+        ListTile(
+          leading: Icon(Icons.delete_outline_rounded, color: cs.error),
+          title: Text(l.removeAccountAction, style: TextStyle(color: cs.error)),
+          onTap: () { Navigator.pop(ctx); _removeAccount(context, account); }),
+        const SizedBox(height: 8),
+      ])),
+    );
+  }
+
+  /// Edit the server URL of a saved account in place (dynamic-DNS hostname
+  /// changed, etc.) without losing the account's data. See
+  /// [AuthProvider.editServerUrl].
+  void _editServerUrl(BuildContext context, SavedAccount account) {
+    final l = AppLocalizations.of(context)!;
+    final ctrl = TextEditingController(text: account.serverUrl);
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: Text(l.editServerAddressTitle),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(l.editServerAddressSubtitle(account.username),
+              style: Theme.of(ctx).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: ctrl,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              decoration: InputDecoration(
+                labelText: l.editServerAddressField,
+                hintText: 'https://example.com',
+                border: const OutlineInputBorder()),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
+            FilledButton(
+              onPressed: () async {
+                final newUrl = ctrl.text.trim();
+                Navigator.pop(ctx);
+                if (newUrl.isEmpty) return;
+                final auth = context.read<AuthProvider>();
+                final wasActive = account.serverUrl == auth.serverUrl && account.username == auth.username;
+                final ok = await auth.editServerUrl(account, newUrl);
+                if (!context.mounted) return;
+                // Re-pull the active library from the new address.
+                if (ok && wasActive) context.read<LibraryProvider>().refresh();
+                if (context.mounted) setState(() {});
+                ScaffoldMessenger.of(context)
+                  ..clearSnackBars()
+                  ..showSnackBar(SnackBar(
+                    content: Text(ok ? l.editServerAddressUpdated : l.editServerAddressFailed),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+              },
+              child: Text(l.save)),
+          ],
+        );
+      },
+    );
   }
 
   void _removeAccount(BuildContext context, SavedAccount account) async {
