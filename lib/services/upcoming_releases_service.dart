@@ -465,6 +465,21 @@ class UpcomingReleasesService extends ChangeNotifier {
     }
   }
 
+  /// Remove a book from the current results, whether it's upcoming, recent,
+  /// owned or missing. This only edits the cached list - a fresh full rescan
+  /// re-discovers the book, so it's a manual declutter rather than a permanent
+  /// block.
+  Future<void> removeBook(String asin) async {
+    if (asin.isEmpty) return;
+    for (final result in _results) {
+      result.upcomingBooks.removeWhere((b) => b['asin'] == asin);
+      result.recentBooks.removeWhere((b) => b['asin'] == asin);
+    }
+    _results.removeWhere((r) => r.upcomingBooks.isEmpty && r.recentBooks.isEmpty);
+    notifyListeners();
+    await _saveCache();
+  }
+
   /// Try to find the Audible series ASIN from the books' metadata ASINs via Audnexus.
   /// Only checks up to [_maxAsinAttempts] books to avoid excessive API calls on huge series.
   static const _maxAsinAttempts = 5;

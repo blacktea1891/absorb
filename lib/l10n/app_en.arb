@@ -2519,6 +2519,8 @@
   },
   "upcomingReleasesNoReleaseDateFound": "No release date found",
   "upcomingReleasesRescanFailed": "Rescan failed",
+  "upcomingReleasesRemoveFromList": "Remove from list",
+  "upcomingReleasesRemovedFromList": "Removed from list",
   "upcomingReleasesDateChip": "Date",
   "upcomingReleasesCheckingSeries": "Checking {name}... ({processed}/{total})",
   "@upcomingReleasesCheckingSeries": {

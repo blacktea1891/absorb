@@ -4271,6 +4271,12 @@ class AppLocalizationsZh extends AppLocalizations {
   String get upcomingReleasesRescanFailed => 'Rescan failed';
 
   @override
+  String get upcomingReleasesRemoveFromList => 'Remove from list';
+
+  @override
+  String get upcomingReleasesRemovedFromList => 'Removed from list';
+
+  @override
   String get upcomingReleasesDateChip => 'Date';
 
   @override

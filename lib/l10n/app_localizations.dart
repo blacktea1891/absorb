@@ -7764,6 +7764,18 @@ abstract class AppLocalizations {
   /// **'Rescan failed'**
   String get upcomingReleasesRescanFailed;
 
+  /// No description provided for @upcomingReleasesRemoveFromList.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from list'**
+  String get upcomingReleasesRemoveFromList;
+
+  /// No description provided for @upcomingReleasesRemovedFromList.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed from list'**
+  String get upcomingReleasesRemovedFromList;
+
   /// No description provided for @upcomingReleasesDateChip.
   ///
   /// In en, this message translates to:
