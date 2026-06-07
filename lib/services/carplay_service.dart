@@ -423,13 +423,43 @@ class CarPlayService {
 
   // ─── Books list ────────────────────────────────────────────────────
 
-  Future<CPListTemplate> _buildBooksList(String libraryId) async {
+  Future<CPListTemplate> _buildBooksList(String libraryId) =>
+      _buildBooksAtPrefix(libraryId, '');
+
+  /// Recursive alphabetical drilldown: a leaf list of books, or deeper prefix
+  /// buckets when there are too many to show (so only one prefix's covers load
+  /// at a time). Mirrors the Android Auto side via the shared resolver.
+  Future<CPListTemplate> _buildBooksAtPrefix(String libraryId, String prefix) async {
     final api = await _autoService.getApi();
-    final entries = await _autoService.fetchLibraryBooksData(libraryId);
-    final items = entries.map((e) => _playableListItem(e, api)).toList();
+    final all = await _autoService.fetchAllBooks(libraryId);
+    final level = _autoService.resolveBrowseLevel(all, prefix);
+    final title = prefix.isEmpty ? 'Books' : prefix;
+
+    final books = level.books;
+    if (books != null) {
+      final items = books.map((e) => _playableListItem(e, api)).toList();
+      return CPListTemplate(
+        sections: [CPListSection(items: items)],
+        title: title,
+        systemIcon: 'book.fill',
+      );
+    }
+
+    final items = level.buckets!.map((b) {
+      return CPListItem(
+        text: b.prefix,
+        detailText: '${b.count}',
+        accessoryType: CPListItemAccessoryTypes.disclosureIndicator,
+        onPress: (complete, self) async {
+          final template = await _buildBooksAtPrefix(libraryId, b.prefix);
+          FlutterCarplay.push(template: template);
+          complete();
+        },
+      );
+    }).toList();
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'Books',
+      title: title,
       systemIcon: 'book.fill',
     );
   }
