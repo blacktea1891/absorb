@@ -464,6 +464,7 @@
   },
   "autoDownloadQueueOffSubtitle": "Off - manual downloads only",
   "sectionPlayback": "Playback",
+  "sectionMediaControls": "Media Controls",
   "defaultSpeed": "Default speed",
   "defaultSpeedSubtitle": "New books start at this speed - each book remembers its own",
   "skipBack": "Skip back",
@@ -476,6 +477,9 @@
   "speedBookmarkInControls": "Speed & bookmark in media controls",
   "speedBookmarkOnSubtitle": "On - notification shows speed & bookmark; chapter skip stays in Android Auto",
   "speedBookmarkOffSubtitle": "Off - notification shows chapter skip; speed & bookmark stay in Android Auto",
+  "lockSeekBar": "Lock the seek bar",
+  "lockSeekBarOnSubtitle": "On - the scrubber in the notification, lockscreen and car shows progress but can't be dragged",
+  "lockSeekBarOffSubtitle": "Off - drag the scrubber in the notification, lockscreen and car to jump around",
   "autoRewindOnResume": "Auto-rewind on resume",
   "autoRewindOnSubtitle": "On - {min}s to {max}s based on pause length",
   "@autoRewindOnSubtitle": {
@@ -802,6 +806,20 @@
   "logOutTitle": "Log out?",
   "logOutContent": "This will sign you out. Your downloads will stay on this device.",
   "signOut": "Sign Out",
+  "editServerAddressTitle": "Edit Server Address",
+  "editServerAddressSubtitle": "Update the address for {username}. Use this if your server's address changed - it's still the same server, just a new URL. Your stats and downloads are kept.",
+  "@editServerAddressSubtitle": {
+    "placeholders": {
+      "username": {
+        "type": "String"
+      }
+    }
+  },
+  "editServerAddressField": "Server Address",
+  "editServerAddressUpdated": "Server address updated",
+  "editServerAddressFailed": "Couldn't update server address",
+  "editServerAddressAction": "Edit server address",
+  "removeAccountAction": "Remove account",
   "removeAccountTitle": "Remove Account?",
   "removeAccountContent": "Remove {username} on {server} from saved accounts?\n\nYou can always add it back later by signing in again.",
   "@removeAccountContent": {
@@ -1848,6 +1866,18 @@
     }
   },
   "adminUsersFailedDelete": "Failed to delete user",
+  "adminUsersUnlinkOpenId": "Unlink OpenID",
+  "adminUsersUnlinkOpenIdTitle": "Unlink OpenID?",
+  "adminUsersUnlinkOpenIdContent": "Remove the OpenID connection for {name}? They'll need to sign in with OpenID again to re-link.",
+  "@adminUsersUnlinkOpenIdContent": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "adminUsersOpenIdUnlinked": "OpenID unlinked",
+  "adminUsersFailedUnlinkOpenId": "Failed to unlink OpenID",
   "adminUsersByAuthor": "by {author}",
   "@adminUsersByAuthor": {
     "placeholders": {
@@ -3497,5 +3527,8 @@
     }
   },
   "endOfEpisode": "End of Episode",
-  "sleepTimerSheetEpisodeSleepStart": "Sleep at end of episode"
+  "sleepTimerSheetEpisodeSleepStart": "Sleep at end of episode",
+  "bookmarkListen": "Listen",
+  "bookmarkPause": "Pause",
+  "bookmarkPreviewFailed": "Couldn't play this spot."
 }

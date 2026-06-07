@@ -1882,6 +1882,12 @@ abstract class AppLocalizations {
   /// **'Playback'**
   String get sectionPlayback;
 
+  /// No description provided for @sectionMediaControls.
+  ///
+  /// In en, this message translates to:
+  /// **'Media Controls'**
+  String get sectionMediaControls;
+
   /// No description provided for @defaultSpeed.
   ///
   /// In en, this message translates to:
@@ -1953,6 +1959,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Off - notification shows chapter skip; speed & bookmark stay in Android Auto'**
   String get speedBookmarkOffSubtitle;
+
+  /// No description provided for @lockSeekBar.
+  ///
+  /// In en, this message translates to:
+  /// **'Lock the seek bar'**
+  String get lockSeekBar;
+
+  /// No description provided for @lockSeekBarOnSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'On - the scrubber in the notification, lockscreen and car shows progress but can\'t be dragged'**
+  String get lockSeekBarOnSubtitle;
+
+  /// No description provided for @lockSeekBarOffSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Off - drag the scrubber in the notification, lockscreen and car to jump around'**
+  String get lockSeekBarOffSubtitle;
 
   /// No description provided for @autoRewindOnResume.
   ///
@@ -2961,6 +2985,48 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sign Out'**
   String get signOut;
+
+  /// No description provided for @editServerAddressTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit Server Address'**
+  String get editServerAddressTitle;
+
+  /// No description provided for @editServerAddressSubtitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Update the address for {username}. Use this if your server\'s address changed - it\'s still the same server, just a new URL. Your stats and downloads are kept.'**
+  String editServerAddressSubtitle(String username);
+
+  /// No description provided for @editServerAddressField.
+  ///
+  /// In en, this message translates to:
+  /// **'Server Address'**
+  String get editServerAddressField;
+
+  /// No description provided for @editServerAddressUpdated.
+  ///
+  /// In en, this message translates to:
+  /// **'Server address updated'**
+  String get editServerAddressUpdated;
+
+  /// No description provided for @editServerAddressFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t update server address'**
+  String get editServerAddressFailed;
+
+  /// No description provided for @editServerAddressAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Edit server address'**
+  String get editServerAddressAction;
+
+  /// No description provided for @removeAccountAction.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove account'**
+  String get removeAccountAction;
 
   /// No description provided for @removeAccountTitle.
   ///
@@ -6208,6 +6274,36 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Failed to delete user'**
   String get adminUsersFailedDelete;
+
+  /// No description provided for @adminUsersUnlinkOpenId.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlink OpenID'**
+  String get adminUsersUnlinkOpenId;
+
+  /// No description provided for @adminUsersUnlinkOpenIdTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Unlink OpenID?'**
+  String get adminUsersUnlinkOpenIdTitle;
+
+  /// No description provided for @adminUsersUnlinkOpenIdContent.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove the OpenID connection for {name}? They\'ll need to sign in with OpenID again to re-link.'**
+  String adminUsersUnlinkOpenIdContent(String name);
+
+  /// No description provided for @adminUsersOpenIdUnlinked.
+  ///
+  /// In en, this message translates to:
+  /// **'OpenID unlinked'**
+  String get adminUsersOpenIdUnlinked;
+
+  /// No description provided for @adminUsersFailedUnlinkOpenId.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to unlink OpenID'**
+  String get adminUsersFailedUnlinkOpenId;
 
   /// No description provided for @adminUsersByAuthor.
   ///
@@ -10079,6 +10175,24 @@ abstract class AppLocalizations {
   /// In en, this message translates to:
   /// **'Sleep at end of episode'**
   String get sleepTimerSheetEpisodeSleepStart;
+
+  /// No description provided for @bookmarkListen.
+  ///
+  /// In en, this message translates to:
+  /// **'Listen'**
+  String get bookmarkListen;
+
+  /// No description provided for @bookmarkPause.
+  ///
+  /// In en, this message translates to:
+  /// **'Pause'**
+  String get bookmarkPause;
+
+  /// No description provided for @bookmarkPreviewFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Couldn\'t play this spot.'**
+  String get bookmarkPreviewFailed;
 }
 
 class _AppLocalizationsDelegate

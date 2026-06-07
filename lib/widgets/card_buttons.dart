@@ -18,6 +18,7 @@ import '../services/sleep_timer_service.dart';
 import 'absorb_slider.dart';
 import 'absorbing_shared.dart';
 import 'book_detail_sheet.dart';
+import 'bookmark_detail_dialog.dart';
 import 'card_button_config.dart';
 import 'card_chapters_sheet.dart';
 import 'chromecast_button.dart';
@@ -840,19 +841,24 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                       final hasNote = bm.note != null && bm.note!.isNotEmpty;
                       return InkWell(
                         onTap: () async {
-                          final confirmed = await showDialog<bool>(context: ctx, builder: (dlg) => AlertDialog(
-                            title: Text(l.bookmarksJumpTitle),
-                            content: Text(l.bookmarksJumpShortContent(bm.title, bm.formattedPosition)),
-                            actions: [
-                              TextButton(onPressed: () => Navigator.pop(dlg, false), child: Text(l.cancel)),
-                              FilledButton(onPressed: () => Navigator.pop(dlg, true), child: Text(l.bookmarksJump)),
-                            ],
-                          ));
-                          if (confirmed != true || !ctx.mounted) return;
+                          final result = await showDialog<BookmarkDetailResult>(
+                            context: ctx,
+                            builder: (_) => BookmarkDetailDialog(
+                              itemId: widget.itemId,
+                              bookmark: bm,
+                              api: context.read<AuthProvider>().apiService,
+                            ),
+                          );
+                          if (!ctx.mounted) return;
+                          if (result == null || result.action != 'jump') {
+                            _load(); // reflect any saved title/note/time edits
+                            return;
+                          }
+                          final position = result.position;
                           final isActive = widget.player.currentItemId == widget.itemId;
                           Navigator.pop(ctx); // Close bookmark sheet first
                           if (isActive || _isCasting) {
-                            final seekDur = Duration(seconds: bm.positionSeconds.round());
+                            final seekDur = Duration(seconds: position.round());
                             if (_isCasting) {
                               ChromecastService().seekTo(seekDur);
                             } else {
@@ -860,7 +866,7 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                               if (!widget.player.isPlaying) widget.player.play();
                             }
                           } else {
-                            await _startPlaybackAt(bm.positionSeconds);
+                            await _startPlaybackAt(position);
                           }
                         },
                         onLongPress: () => _editBookmark(bm),

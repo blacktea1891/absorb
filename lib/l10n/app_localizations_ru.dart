@@ -970,6 +970,9 @@ class AppLocalizationsRu extends AppLocalizations {
   String get sectionPlayback => 'Воспроизведение';
 
   @override
+  String get sectionMediaControls => 'Media Controls';
+
+  @override
   String get defaultSpeed => 'Default speed';
 
   @override
@@ -1011,6 +1014,17 @@ class AppLocalizationsRu extends AppLocalizations {
   @override
   String get speedBookmarkOffSubtitle =>
       'Off - notification shows chapter skip; speed & bookmark stay in Android Auto';
+
+  @override
+  String get lockSeekBar => 'Lock the seek bar';
+
+  @override
+  String get lockSeekBarOnSubtitle =>
+      'On - the scrubber in the notification, lockscreen and car shows progress but can\'t be dragged';
+
+  @override
+  String get lockSeekBarOffSubtitle =>
+      'Off - drag the scrubber in the notification, lockscreen and car to jump around';
 
   @override
   String get autoRewindOnResume => 'Auto-rewind on resume';
@@ -1590,6 +1604,29 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get signOut => 'Выйти';
+
+  @override
+  String get editServerAddressTitle => 'Edit Server Address';
+
+  @override
+  String editServerAddressSubtitle(String username) {
+    return 'Update the address for $username. Use this if your server\'s address changed - it\'s still the same server, just a new URL. Your stats and downloads are kept.';
+  }
+
+  @override
+  String get editServerAddressField => 'Server Address';
+
+  @override
+  String get editServerAddressUpdated => 'Server address updated';
+
+  @override
+  String get editServerAddressFailed => 'Couldn\'t update server address';
+
+  @override
+  String get editServerAddressAction => 'Edit server address';
+
+  @override
+  String get removeAccountAction => 'Remove account';
 
   @override
   String get removeAccountTitle => 'Remove Account?';
@@ -3399,6 +3436,23 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get adminUsersFailedDelete => 'Failed to delete user';
+
+  @override
+  String get adminUsersUnlinkOpenId => 'Unlink OpenID';
+
+  @override
+  String get adminUsersUnlinkOpenIdTitle => 'Unlink OpenID?';
+
+  @override
+  String adminUsersUnlinkOpenIdContent(String name) {
+    return 'Remove the OpenID connection for $name? They\'ll need to sign in with OpenID again to re-link.';
+  }
+
+  @override
+  String get adminUsersOpenIdUnlinked => 'OpenID unlinked';
+
+  @override
+  String get adminUsersFailedUnlinkOpenId => 'Failed to unlink OpenID';
 
   @override
   String adminUsersByAuthor(String author) {
@@ -5775,4 +5829,13 @@ class AppLocalizationsRu extends AppLocalizations {
 
   @override
   String get sleepTimerSheetEpisodeSleepStart => 'Sleep at end of episode';
+
+  @override
+  String get bookmarkListen => 'Listen';
+
+  @override
+  String get bookmarkPause => 'Pause';
+
+  @override
+  String get bookmarkPreviewFailed => 'Couldn\'t play this spot.';
 }
