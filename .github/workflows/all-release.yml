@@ -13,6 +13,11 @@ name: All Platforms Release
 on:
   workflow_dispatch:
     inputs:
+      prerelease:
+        description: "Pre-release? Uploads to v<version>-pre, marks it prerelease, adds -pre to the filenames"
+        required: false
+        type: boolean
+        default: false
       beta_test_notes:
         description: "What to Test (TestFlight notes, optional)"
         required: false
@@ -66,11 +71,23 @@ jobs:
 
       - name: Read pubspec version
         id: version
+        env:
+          PRE: ${{ inputs.prerelease }}
         run: |
           RAW=$(grep '^version:' pubspec.yaml | sed 's/version: *//')
           VERSION_NAME="${RAW%%+*}"
+          # Unified artifact basename: dash (URL-safe, unlike +) between version
+          # and build number, plus a -pre suffix for prereleases.
+          BASE="absorb-${RAW//+/-}"
+          if [ "$PRE" = "true" ]; then
+            echo "tag=v${VERSION_NAME}-pre" >> "$GITHUB_OUTPUT"
+            echo "fname=${BASE}-pre" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v${VERSION_NAME}" >> "$GITHUB_OUTPUT"
+            echo "fname=${BASE}" >> "$GITHUB_OUTPUT"
+          fi
           echo "raw=$RAW" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "pre=$PRE" >> "$GITHUB_OUTPUT"
 
       - name: Notify Discord (build started)
         if: env.DISCORD_WEBHOOK_URL != ''
@@ -148,24 +165,25 @@ jobs:
       - name: Build iOS IPA
         run: flutter build ipa --release --export-options-plist=$HOME/export_options.plist
 
-      - name: Rename APK, AAB and IPA with version
+      - name: Rename APK, AAB and IPA
         env:
-          RAW: ${{ steps.version.outputs.raw }}
+          FNAME: ${{ steps.version.outputs.fname }}
         run: |
           # gradle already names the APK absorb-<version>-<code>.apk, so skip
           # the mv when source and destination are the same file.
           APK_SRC=$(ls build/app/outputs/apk/github/release/*.apk | head -1)
-          APK_DST="build/app/outputs/apk/github/release/absorb-${RAW//+/-}.apk"
+          APK_DST="build/app/outputs/apk/github/release/${FNAME}.apk"
           [ "$APK_SRC" = "$APK_DST" ] || mv "$APK_SRC" "$APK_DST"
           AAB_SRC=$(ls build/app/outputs/bundle/playstoreRelease/*.aab | head -1)
-          mv "$AAB_SRC" "build/app/outputs/bundle/playstoreRelease/absorb-${RAW}.aab"
+          mv "$AAB_SRC" "build/app/outputs/bundle/playstoreRelease/${FNAME}.aab"
           IPA_SRC=$(ls build/ios/ipa/*.ipa | head -1)
-          mv "$IPA_SRC" "build/ios/ipa/absorb-${RAW}.ipa"
+          mv "$IPA_SRC" "build/ios/ipa/${FNAME}.ipa"
 
       - name: Upload all to GitHub draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION_TAG: ${{ steps.version.outputs.tag }}
+          PRE: ${{ steps.version.outputs.pre }}
         run: |
           if gh release view "$VERSION_TAG" &>/dev/null; then
             gh release upload "$VERSION_TAG" \
@@ -174,12 +192,13 @@ jobs:
               build/ios/ipa/*.ipa \
               --clobber
           else
+            CREATE_ARGS=(--draft --title "$VERSION_TAG")
+            [ "$PRE" = "true" ] && CREATE_ARGS+=(--prerelease)
             gh release create "$VERSION_TAG" \
               build/app/outputs/apk/github/release/*.apk \
               build/app/outputs/bundle/playstoreRelease/*.aab \
               build/ios/ipa/*.ipa \
-              --draft \
-              --title "$VERSION_TAG"
+              "${CREATE_ARGS[@]}"
           fi
 
       # Upload the AAB to Play Console as a DRAFT on the internal track. It just
