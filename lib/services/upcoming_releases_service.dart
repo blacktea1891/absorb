@@ -480,6 +480,75 @@ class UpcomingReleasesService extends ChangeNotifier {
     await _saveCache();
   }
 
+  /// Manually add a single discovered Audible book to the upcoming page,
+  /// grouping it under [seriesName] / [audibleAsin]. Lets the user surface a
+  /// freshly-added series' release without rescanning the whole library.
+  ///
+  /// Only upcoming or recently-released (last 30 days) books are accepted -
+  /// anything else doesn't belong on this page. Returns true if added, false
+  /// if the book is already present or not eligible.
+  Future<bool> addBook(
+    Map<String, dynamic> book, {
+    required String seriesName,
+    required String audibleAsin,
+    required String region,
+    bool owned = false,
+  }) async {
+    final asin = book['asin'] as String? ?? '';
+    if (asin.isEmpty) return false;
+
+    final upcoming = _isUpcoming(book);
+    final recent = !upcoming && _isRecentRelease(book);
+    if (!upcoming && !recent) return false;
+
+    // If the upcoming page hasn't been opened this session our in-memory list
+    // is empty even though a previous scan sits on disk. Load it first so we
+    // append to the existing set instead of clobbering it on the next save.
+    if (_results.isEmpty && !_isRunning) {
+      _region = region;
+      await loadCache();
+    }
+
+    // Skip if the book is already on the page anywhere.
+    for (final r in _results) {
+      if (r.upcomingBooks.any((b) => b['asin'] == asin) ||
+          r.recentBooks.any((b) => b['asin'] == asin)) {
+        return false;
+      }
+    }
+
+    // Reuse this series' bucket if it's already on the page, else start one.
+    UpcomingSeriesResult? target;
+    for (final r in _results) {
+      if ((audibleAsin.isNotEmpty && r.audibleAsin == audibleAsin) ||
+          r.seriesName == seriesName) {
+        target = r;
+        break;
+      }
+    }
+    if (target == null) {
+      target = UpcomingSeriesResult(
+        seriesId: '',
+        seriesName: seriesName,
+        audibleAsin: audibleAsin,
+        upcomingBooks: [],
+        recentBooks: [],
+      );
+      _results.add(target);
+    }
+
+    if (upcoming) {
+      target.upcomingBooks.add(Map<String, dynamic>.from(book));
+    } else {
+      target.recentBooks.add({...book, '_owned': owned});
+    }
+
+    if (!_isRunning) _isComplete = true;
+    notifyListeners();
+    await _saveCache();
+    return true;
+  }
+
   /// Try to find the Audible series ASIN from the books' metadata ASINs via Audnexus.
   /// Only checks up to [_maxAsinAttempts] books to avoid excessive API calls on huge series.
   static const _maxAsinAttempts = 5;

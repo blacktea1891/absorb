@@ -4585,6 +4585,15 @@ class AppLocalizationsDe extends AppLocalizations {
   String get audibleSeriesAddToCalendar => 'Zum Kalender hinzufügen';
 
   @override
+  String get audibleSeriesAddToUpcoming => 'Add to upcoming releases';
+
+  @override
+  String get audibleSeriesAddedToUpcoming => 'Added to upcoming releases';
+
+  @override
+  String get audibleSeriesAlreadyInUpcoming => 'Already on the upcoming page';
+
+  @override
   String get audibleSeriesCouldNotOpenAudible =>
       'Audible konnte nicht geöffnet werden';
 

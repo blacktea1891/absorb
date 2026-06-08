@@ -8052,6 +8052,24 @@ abstract class AppLocalizations {
   /// **'Add to Calendar'**
   String get audibleSeriesAddToCalendar;
 
+  /// No description provided for @audibleSeriesAddToUpcoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Add to upcoming releases'**
+  String get audibleSeriesAddToUpcoming;
+
+  /// No description provided for @audibleSeriesAddedToUpcoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Added to upcoming releases'**
+  String get audibleSeriesAddedToUpcoming;
+
+  /// No description provided for @audibleSeriesAlreadyInUpcoming.
+  ///
+  /// In en, this message translates to:
+  /// **'Already on the upcoming page'**
+  String get audibleSeriesAlreadyInUpcoming;
+
   /// No description provided for @audibleSeriesCouldNotOpenAudible.
   ///
   /// In en, this message translates to:
