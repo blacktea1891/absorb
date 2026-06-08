@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'overlay_toast.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
+import '../utils/cover_accent.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
@@ -247,9 +248,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     PaletteGenerator.fromImageProvider(provider, maximumColorCount: 16)
         .then((palette) {
       debugPrint('[BookDetail] PaletteGenerator ok in ${DateTime.now().difference(t0).inMilliseconds}ms');
-      final seedColor = palette.vibrantColor?.color
-          ?? palette.dominantColor?.color
-          ?? palette.colors.firstOrNull;
+      final seedColor = accentFromCoverPalette(palette);
       if (seedColor == null || !mounted) return;
       setState(() => _coverScheme = ColorScheme.fromSeed(
         seedColor: seedColor, brightness: brightness));

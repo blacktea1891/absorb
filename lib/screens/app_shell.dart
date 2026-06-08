@@ -12,6 +12,7 @@ import '../services/sleep_timer_service.dart';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
+import '../utils/cover_accent.dart';
 import '../main.dart'
     show snappyTransitionsNotifier, coverSchemeNotifier, rootNavigatorKey;
 import '../l10n/app_localizations.dart';
@@ -390,9 +391,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
     final brightness = Theme.of(context).brightness;
     PaletteGenerator.fromImageProvider(provider, maximumColorCount: 16)
         .then((palette) {
-      final seedColor = palette.vibrantColor?.color
-          ?? palette.dominantColor?.color
-          ?? palette.colors.firstOrNull;
+      final seedColor = accentFromCoverPalette(palette);
       if (seedColor == null) {
         _lastCoverItemId = null;
         return;

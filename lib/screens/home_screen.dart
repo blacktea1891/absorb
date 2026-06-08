@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:palette_generator/palette_generator.dart';
+import '../utils/cover_accent.dart';
 import '../widgets/absorbing_shared.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
@@ -748,11 +749,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
     }
     PaletteGenerator.fromImageProvider(provider, maximumColorCount: 16)
         .then((palette) {
-          final picked = palette.vibrantColor?.color
-              ?? palette.lightVibrantColor?.color
-              ?? palette.darkVibrantColor?.color
-              ?? palette.dominantColor?.color
-              ?? palette.colors.firstOrNull;
+          final picked = accentFromCoverPalette(palette);
           if (picked == null) return;
           _accentCache[coverUrl] = picked;
           if (!mounted) return;
