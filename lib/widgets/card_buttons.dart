@@ -762,12 +762,20 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
   @override void initState() { super.initState(); _loadSort(); }
   Future<void> _loadSort() async {
     _sort = await PlayerSettings.getBookmarkSort();
-    // Sync first, then load
+    // Show the local bookmarks first so the sheet never hangs on a slow or
+    // unreachable server (it used to await the sync before loading anything,
+    // which spun forever if the server didn't respond). Then sync in the
+    // background and refresh with whatever it pulled in.
+    await _load();
     final api = AudioPlayerService().currentApi;
     if (api != null) {
-      await BookmarkService().syncBookmarks(widget.itemId, api);
+      try {
+        await BookmarkService()
+            .syncBookmarks(widget.itemId, api)
+            .timeout(const Duration(seconds: 12));
+      } catch (_) {}
+      await _load();
     }
-    _load();
   }
   Future<void> _load() async {
     final bm = await BookmarkService().getBookmarks(widget.itemId, sort: _sort);
