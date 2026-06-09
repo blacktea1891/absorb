@@ -160,25 +160,26 @@ class MoreMenuItem extends StatelessWidget {
 
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    // Grid pill: centered icon over a short label, fills its (fixed-height)
+    // grid cell. Matches the book menu's quick-actions pills. The loose
+    // Flexible lets a long label ellipsise inside the cell at big font scales.
     return Pressable(
       onTap: enabled ? onTap : () => showInactiveToast(context),
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
         decoration: BoxDecoration(
-          color: cs.onSurface.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(14),
+          color: cs.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
         ),
-        child: Row(
-          children: [
-            Icon(icon, size: 20, color: enabled ? accent.withValues(alpha: 0.7) : cs.onSurface.withValues(alpha: 0.24)),
-            const SizedBox(width: 14),
-            Expanded(child: Text(label, style: TextStyle(
-              color: enabled ? cs.onSurface.withValues(alpha: 0.8) : cs.onSurface.withValues(alpha: 0.24),
-              fontSize: 14, fontWeight: FontWeight.w500))),
-            Icon(Icons.chevron_right_rounded, size: 18, color: enabled ? cs.onSurface.withValues(alpha: 0.24) : cs.onSurface.withValues(alpha: 0.12)),
-          ],
-        ),
+        child: Column(mainAxisSize: MainAxisSize.max, mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(icon, size: 22, color: enabled ? accent.withValues(alpha: 0.85) : cs.onSurface.withValues(alpha: 0.24)),
+          const SizedBox(height: 7),
+          Flexible(child: Text(label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: enabled ? cs.onSurface.withValues(alpha: 0.85) : cs.onSurface.withValues(alpha: 0.24),
+              fontSize: 11, fontWeight: FontWeight.w500, height: 1.15))),
+        ]),
       ),
     );
   }
@@ -1107,10 +1108,20 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
                 ],
               ),
               const SizedBox(height: 12),
-              for (int i = 0; i < widget.overflowIds.length; i++) ...[
-                widget.buildItem(widget.overflowIds[i]),
-                if (i < widget.overflowIds.length - 1) const SizedBox(height: 6),
-              ],
+              // Overflow actions as a responsive pill grid (matches the book
+              // menu): 3 across normally, 2 on a narrow screen or large font
+              // scale, with cell height that tracks the text scale.
+              LayoutBuilder(builder: (ctx, constraints) {
+                const gap = 10.0;
+                final textScale = MediaQuery.textScalerOf(context).scale(1.0);
+                final cols = (constraints.maxWidth < 340 || textScale >= 1.3) ? 2 : 3;
+                final cellW = (constraints.maxWidth - gap * (cols - 1)) / cols;
+                final cellH = (cols == 2 ? 72.0 : 80.0) * textScale.clamp(1.0, 1.7) + 8;
+                return Wrap(spacing: gap, runSpacing: gap, children: [
+                  for (final id in widget.overflowIds)
+                    SizedBox(width: cellW, height: cellH, child: widget.buildItem(id)),
+                ]);
+              }),
               const SizedBox(height: 8),
             ],
           ),
