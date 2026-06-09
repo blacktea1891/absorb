@@ -111,6 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _classicWording = false;
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
+  String _cardBackground = 'blurred';
   double _progressTextScale = 1.0;
   String _themeMode = 'dark';
   String _language = '';
@@ -341,7 +342,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       PlayerSettings.getQueuePlaylistId(),                                    // 51
       PlayerSettings.getMediaControlsSpeedBookmark(),                         // 52
       PlayerSettings.getLockSeekBar(),                                        // 53
-      PlayerSettings.getProgressTextScale(),                                  // 54
+      PlayerSettings.getCardBackground(),                                     // card background
+      PlayerSettings.getProgressTextScale(),                                  // 54 (kept last — read via results.last)
     ]);
     final s = results[0] as AutoRewindSettings;
     final progressScale = results.last as double;
@@ -395,6 +397,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final qpId = results[48] as String?;
     final notifSpeedBookmark = results[49] as bool;
     final lockSeek = results[50] as bool;
+    final cardBg = results[51] as String;
     final rmabBaseUrl = await ScopedPrefs.getString(kRmabBaseUrlKey);
     final rmabApiToken = await ScopedPrefs.getString(kRmabApiTokenKey);
     final sleepRewind = await PlayerSettings.getSleepRewindSeconds();
@@ -448,6 +451,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       // cardBtnLayout removed (now managed in edit sheet)
       _rectangleCovers = rectCovers;
       _coverPlayButton = coverPlay;
+      _cardBackground = cardBg;
       _progressTextScale = progressScale;
       _skipChapterBarrier = skipBarrier;
       _trustAllCerts = trustCerts;
@@ -983,6 +987,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         setState(() => _coverPlayButton = v);
                         PlayerSettings.setCoverPlayButton(v);
                       } : null,
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        Text(l.cardBackground, style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
+                        const SizedBox(height: 8),
+                        SizedBox(width: double.infinity, child: SegmentedButton<String>(
+                          showSelectedIcon: false,
+                          segments: [
+                            ButtonSegment(value: 'blurred', icon: const Icon(Icons.blur_on_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.cardBackgroundBlurred))),
+                            ButtonSegment(value: 'gradient', icon: const Icon(Icons.gradient_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.cardBackgroundGradient))),
+                            ButtonSegment(value: 'off', icon: const Icon(Icons.block_rounded, size: 18), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.off))),
+                          ],
+                          selected: {_cardBackground},
+                          onSelectionChanged: _loaded ? (s) {
+                            if (s.isEmpty) return;
+                            setState(() => _cardBackground = s.first);
+                            PlayerSettings.setCardBackground(s.first);
+                          } : null,
+                          style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                        )),
+                      ]),
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     SwitchListTile(

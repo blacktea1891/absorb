@@ -52,6 +52,7 @@ class ExpandedCard extends StatefulWidget {
   final ColorScheme? initialCoverScheme;
   final ui.Image? initialBlurredCover;
   final List<dynamic>? initialChapters;
+  final String initialCardBackground;
 
   const ExpandedCard({
     super.key,
@@ -60,6 +61,7 @@ class ExpandedCard extends StatefulWidget {
     this.initialCoverScheme,
     this.initialBlurredCover,
     this.initialChapters,
+    this.initialCardBackground = 'blurred',
   });
 
   @override
@@ -87,6 +89,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   bool _moreInline = false;
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
+  String _cardBackground = 'blurred';
   bool _speedAdjustedTime = true;
   double _progressTextScale = 1.0;
 
@@ -164,6 +167,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
     super.initState();
     _item = widget.item;
     _coverScheme = widget.initialCoverScheme;
+    _cardBackground = widget.initialCardBackground;
     _fetchedChapters = widget.initialChapters;
     _currentItemId = widget.player.currentItemId;
     _currentEpisodeId = widget.player.currentEpisodeId;
@@ -174,8 +178,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
     _reloadButtonOrder();
     _startChapterTracking();
     _fetchChaptersIfNeeded();
-    // Generate our own blurred cover
-    _generateBlur();
+    // Always derive the cover scheme (accent + gradient colors); only build the
+    // blurred bitmap when the blurred background is actually in use.
+    _deriveCoverScheme();
+    if (_cardBackground == 'blurred') _generateBlur();
   }
 
   void _onCastChanged() {
@@ -219,6 +225,12 @@ class _ExpandedCardState extends State<ExpandedCard> {
     });
     PlayerSettings.getProgressTextScale().then((v) {
       if (mounted && v != _progressTextScale) setState(() => _progressTextScale = v);
+    });
+    PlayerSettings.getCardBackground().then((v) {
+      if (!mounted) return;
+      if (v != _cardBackground) setState(() => _cardBackground = v);
+      // Switched to the blurred background after open — build the bitmap now.
+      if (v == 'blurred' && _blurredCover == null) _generateBlur();
     });
   }
 
@@ -429,6 +441,21 @@ class _ExpandedCardState extends State<ExpandedCard> {
     _rederiveCoverScheme();
   }
 
+  /// Resolve the cover image to derive [_coverScheme] without building the blur
+  /// (used by the gradient / off backgrounds, which never paint the cover).
+  void _deriveCoverScheme() {
+    if (_coverScheme != null || _coverProvider != null) return;
+    final url = _coverUrl;
+    if (url == null) return;
+    final ImageProvider provider;
+    if (url.startsWith('/')) {
+      provider = FileImage(File(url));
+    } else {
+      provider = CachedNetworkImageProvider(url, headers: context.read<LibraryProvider>().mediaHeaders);
+    }
+    _onCoverLoaded(provider);
+  }
+
   void _rederiveCoverScheme() {
     final provider = _coverProvider;
     if (provider == null) return;
@@ -553,10 +580,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
       body: Stack(
               fit: StackFit.expand,
               children: [
-                // Layer 1: Blurred cover background
+                // Layer 1: Card background (blurred cover / color gradient / plain surface)
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 600),
-                  child: _buildBackground(isDark, mediaHeaders),
+                  child: _buildBackground(isDark, cs, mediaHeaders),
                 ),
                 // Layer 2: Scrim
                 Positioned.fill(
@@ -565,17 +592,31 @@ class _ExpandedCardState extends State<ExpandedCard> {
                       gradient: LinearGradient(
                         begin: Alignment.topCenter,
                         end: Alignment.bottomCenter,
-                        colors: isDark
-                          ? [
-                              Colors.black.withValues(alpha: 0.3),
-                              Colors.black.withValues(alpha: 0.6),
-                              Colors.black.withValues(alpha: 0.85),
-                            ]
-                          : [
-                              Colors.white.withValues(alpha: 0.4),
-                              Colors.white.withValues(alpha: 0.7),
-                              Colors.white.withValues(alpha: 0.9),
-                            ],
+                        // Lighter scrim over the gradient/off backgrounds so the cover
+                        // tint reads through; the blurred photo still needs the heavier one.
+                        colors: _cardBackground == 'blurred'
+                          ? (isDark
+                              ? [
+                                  Colors.black.withValues(alpha: 0.3),
+                                  Colors.black.withValues(alpha: 0.6),
+                                  Colors.black.withValues(alpha: 0.85),
+                                ]
+                              : [
+                                  Colors.white.withValues(alpha: 0.4),
+                                  Colors.white.withValues(alpha: 0.7),
+                                  Colors.white.withValues(alpha: 0.9),
+                                ])
+                          : (isDark
+                              ? [
+                                  Colors.black.withValues(alpha: 0.15),
+                                  Colors.black.withValues(alpha: 0.4),
+                                  Colors.black.withValues(alpha: 0.68),
+                                ]
+                              : [
+                                  Colors.white.withValues(alpha: 0.25),
+                                  Colors.white.withValues(alpha: 0.55),
+                                  Colors.white.withValues(alpha: 0.8),
+                                ]),
                       ),
                     ),
                   ),
@@ -889,7 +930,29 @@ class _ExpandedCardState extends State<ExpandedCard> {
 
   // ── Background builder ──
 
-  Widget _buildBackground(bool isDark, Map<String, String> mediaHeaders) {
+  Widget _buildBackground(bool isDark, ColorScheme cs, Map<String, String> mediaHeaders) {
+    if (_cardBackground == 'off') {
+      // SizedBox.expand: the AnimatedSwitcher's Stack gives loose constraints,
+      // so an unsized box would collapse to 0x0 and never show.
+      return SizedBox.expand(
+        key: const ValueKey('bg-off'),
+        child: ColoredBox(color: Theme.of(context).colorScheme.surface),
+      );
+    }
+    if (_cardBackground == 'gradient') {
+      return SizedBox.expand(
+        key: const ValueKey('bg-gradient'),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [cs.primaryContainer, cs.surface],
+            ),
+          ),
+        ),
+      );
+    }
     if (_blurredCover != null) {
       return RepaintBoundary(
         key: ValueKey('blur-$_itemId'),

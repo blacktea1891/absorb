@@ -5086,6 +5086,24 @@ abstract class AppLocalizations {
   /// **'Off - dedicated play/pause button in controls'**
   String get coverPlayPauseOffSubtitle;
 
+  /// No description provided for @cardBackground.
+  ///
+  /// In en, this message translates to:
+  /// **'Card background'**
+  String get cardBackground;
+
+  /// No description provided for @cardBackgroundBlurred.
+  ///
+  /// In en, this message translates to:
+  /// **'Blurred'**
+  String get cardBackgroundBlurred;
+
+  /// No description provided for @cardBackgroundGradient.
+  ///
+  /// In en, this message translates to:
+  /// **'Gradient'**
+  String get cardBackgroundGradient;
+
   /// No description provided for @queueModeMergedSubtitle.
   ///
   /// In en, this message translates to:

@@ -2770,6 +2770,15 @@ class AppLocalizationsDe extends AppLocalizations {
       'Aus - eigener Play/Pause-Button in den Steuerelementen';
 
   @override
+  String get cardBackground => 'Card background';
+
+  @override
+  String get cardBackgroundBlurred => 'Blurred';
+
+  @override
+  String get cardBackgroundGradient => 'Gradient';
+
+  @override
   String get queueModeMergedSubtitle =>
       'Wiedergabe stoppt, manuelle Warteschlange oder Auto-Absorb des nächsten Elements';
 

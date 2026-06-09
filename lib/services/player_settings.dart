@@ -443,6 +443,11 @@ class PlayerSettings {
   static Future<bool> getCoverPlayButton() => _get('coverPlayButton', false);
   static Future<void> setCoverPlayButton(bool value) => _set('coverPlayButton', value, notify: true);
 
+  /// Absorbing-card background style: 'blurred' (cover blur, default), 'gradient'
+  /// (gradient from the extracted cover colors), or 'off' (plain theme surface).
+  static Future<String> getCardBackground() => _get('cardBackground', 'blurred');
+  static Future<void> setCardBackground(String value) => _set('cardBackground', value, notify: true);
+
   // ── Self-signed certificates (global, not per-user) ──
 
   static Future<bool> getTrustAllCerts() async {

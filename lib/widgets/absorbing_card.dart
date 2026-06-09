@@ -43,6 +43,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   bool _moreInline = false;
   bool _rectangleCovers = false;
   bool _coverPlayButton = false;
+  String _cardBackground = 'blurred';
   bool _speedAdjustedTime = true;
   double _progressTextScale = 1.0; // elapsed/remaining/percent text size (GH #230)
   double _savedSpeed = 1.0; // per-book or default speed for inactive display
@@ -176,6 +177,9 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     });
     PlayerSettings.getProgressTextScale().then((v) {
       if (mounted && v != _progressTextScale) setState(() => _progressTextScale = v);
+    });
+    PlayerSettings.getCardBackground().then((v) {
+      if (mounted && v != _cardBackground) setState(() => _cardBackground = v);
     });
     _loadSavedSpeed();
   }
@@ -323,11 +327,26 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   void _onCoverLoaded(ImageProvider provider) {
     _coverProvider = provider;
     _rederiveCoverScheme();
-    // Precache the blurred version of the cover
-    if (_blurredCover == null) {
+    // Precache the blurred version of the cover, but only when the blurred
+    // background is actually in use (skip the work for gradient / off modes).
+    if (_cardBackground == 'blurred' && _blurredCover == null) {
       _blurredCoverUrl = _coverUrl;
       _precacheBlur(provider);
     }
+  }
+
+  /// In gradient/off mode the cover image isn't painted, so resolve it directly
+  /// to keep the extracted [_coverScheme] (accent + gradient colors) available.
+  void _ensureCoverScheme() {
+    if (_coverProvider != null || _coverUrl == null) return;
+    final headers = context.read<LibraryProvider>().mediaHeaders;
+    final ImageProvider provider;
+    if (_isLocalCover) {
+      provider = FileImage(File(_coverUrl!));
+    } else {
+      provider = CachedNetworkImageProvider(_coverUrl!, headers: headers);
+    }
+    _onCoverLoaded(provider);
   }
 
   void _rederiveCoverScheme() {
@@ -444,6 +463,8 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       _blurredCover?.dispose();
       _blurredCover = null;
     }
+    // In gradient/off mode the cover image isn't painted, so derive its scheme separately.
+    if (_cardBackground != 'blurred') _ensureCoverScheme();
 
     final showBookBar = (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty);
     return GestureDetector(
@@ -461,8 +482,21 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
         child: Stack(
           fit: StackFit.expand,
           children: [
-          // Layer 1: Pre-blurred cover background (cached bitmap — no per-frame blur)
-          if (_blurredCover != null)
+          // Layer 1: Card background — blurred cover, color gradient, or plain surface
+          if (_cardBackground == 'off')
+            ColoredBox(color: Theme.of(context).colorScheme.surface)
+          else if (_cardBackground == 'gradient')
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [cs.primaryContainer, cs.surface],
+                ),
+              ),
+            )
+          // Pre-blurred cover background (cached bitmap — no per-frame blur)
+          else if (_blurredCover != null)
             RepaintBoundary(
               child: RawImage(
                 image: _blurredCover,
@@ -506,17 +540,31 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 gradient: LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: isDark
-                    ? [
-                        Colors.black.withValues(alpha: 0.3),
-                        Colors.black.withValues(alpha: 0.6),
-                        Colors.black.withValues(alpha: 0.85),
-                      ]
-                    : [
-                        Colors.white.withValues(alpha: 0.4),
-                        Colors.white.withValues(alpha: 0.7),
-                        Colors.white.withValues(alpha: 0.9),
-                      ],
+                  // Lighter scrim over the gradient/off backgrounds so the cover
+                  // tint reads through; the blurred photo still needs the heavier one.
+                  colors: _cardBackground == 'blurred'
+                    ? (isDark
+                        ? [
+                            Colors.black.withValues(alpha: 0.3),
+                            Colors.black.withValues(alpha: 0.6),
+                            Colors.black.withValues(alpha: 0.85),
+                          ]
+                        : [
+                            Colors.white.withValues(alpha: 0.4),
+                            Colors.white.withValues(alpha: 0.7),
+                            Colors.white.withValues(alpha: 0.9),
+                          ])
+                    : (isDark
+                        ? [
+                            Colors.black.withValues(alpha: 0.15),
+                            Colors.black.withValues(alpha: 0.4),
+                            Colors.black.withValues(alpha: 0.68),
+                          ]
+                        : [
+                            Colors.white.withValues(alpha: 0.25),
+                            Colors.white.withValues(alpha: 0.55),
+                            Colors.white.withValues(alpha: 0.8),
+                          ]),
                 ),
               ),
             ),
@@ -961,6 +1009,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
           initialCoverScheme: _coverScheme,
           initialBlurredCover: _blurredCover,
           initialChapters: _fetchedChapters,
+          initialCardBackground: _cardBackground,
         ),
       ),
     ).then((_) => AppShell.setExpandedOpen(false));

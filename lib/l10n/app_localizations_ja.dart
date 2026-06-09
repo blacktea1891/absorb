@@ -2742,6 +2742,15 @@ class AppLocalizationsJa extends AppLocalizations {
       'Off - dedicated play/pause button in controls';
 
   @override
+  String get cardBackground => 'Card background';
+
+  @override
+  String get cardBackgroundBlurred => 'Blurred';
+
+  @override
+  String get cardBackgroundGradient => 'Gradient';
+
+  @override
   String get queueModeMergedSubtitle =>
       'Playback stops, manual queue, or auto-plays next item';
 
