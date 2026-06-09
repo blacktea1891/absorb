@@ -858,6 +858,16 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
       }
     }
 
+    // Long-press opens the quick-actions sheet for books; podcasts keep the
+    // existing open-details behaviour (quick actions are book-only for now).
+    void openQuickActions() {
+      if (lib.isPodcastLibrary) {
+        openDetails();
+      } else {
+        showQuickActionsSheet(context, itemId, initialItem: item);
+      }
+    }
+
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(14),
@@ -873,7 +883,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
         ),
         child: InkWell(
           onTap: resume,
-          onLongPress: openDetails,
+          onLongPress: openQuickActions,
           borderRadius: BorderRadius.circular(14),
           child: SizedBox(
             width: 150,

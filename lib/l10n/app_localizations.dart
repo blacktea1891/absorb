@@ -3829,7 +3829,7 @@ abstract class AppLocalizations {
   /// No description provided for @removeSeriesFromContinueSeries.
   ///
   /// In en, this message translates to:
-  /// **'Remove Series from Continue Series'**
+  /// **'Remove from Continue Series'**
   String get removeSeriesFromContinueSeries;
 
   /// No description provided for @removedSeriesFromContinueSeries.

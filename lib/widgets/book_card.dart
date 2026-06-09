@@ -74,6 +74,18 @@ class BookCard extends StatelessWidget {
     }
   }
 
+  /// Long-press shortcut to the quick-actions sheet (podcasts skipped — they
+  /// keep the normal open-details behaviour).
+  void _onLongPress(BuildContext context) {
+    final itemId = item['id'] as String?;
+    if (itemId == null) return;
+    if (context.read<LibraryProvider>().isPodcastLibrary) {
+      _navigateToDetail(context);
+      return;
+    }
+    showQuickActionsSheet(context, itemId, initialItem: item);
+  }
+
   /// Wide "continue listening" card with square cover + text side-by-side.
   /// Uses IntrinsicHeight so the row sizes to the square cover without overflow.
   Widget _buildWideCard(
@@ -95,6 +107,7 @@ class BookCard extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => _navigateToDetail(context),
+        onLongPress: () => _onLongPress(context),
         borderRadius: BorderRadius.circular(16),
         child: Row(
           children: [
@@ -222,6 +235,7 @@ class BookCard extends StatelessWidget {
           aspectRatio: coverAspectRatio,
           child: _PressableCard(
             onTap: () => _navigateToDetail(context),
+            onLongPress: () => _onLongPress(context),
             borderRadius: 12,
             child: Card(
               elevation: 0,
@@ -438,11 +452,13 @@ class _CoverImage extends StatelessWidget {
 class _PressableCard extends StatefulWidget {
   final Widget child;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final double borderRadius;
 
   const _PressableCard({
     required this.child,
     required this.onTap,
+    this.onLongPress,
     this.borderRadius = 12,
   });
 
@@ -483,6 +499,12 @@ class _PressableCardState extends State<_PressableCard>
         widget.onTap();
       },
       onTapCancel: () => _controller.reverse(),
+      onLongPress: widget.onLongPress == null
+          ? null
+          : () {
+              _controller.reverse();
+              widget.onLongPress!();
+            },
       child: ScaleTransition(
         scale: _scale,
         child: widget.child,

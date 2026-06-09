@@ -2001,8 +2001,7 @@ class AppLocalizationsZh extends AppLocalizations {
   String get removedFromContinueListening => 'Removed from Continue Listening';
 
   @override
-  String get removeSeriesFromContinueSeries =>
-      'Remove Series from Continue Series';
+  String get removeSeriesFromContinueSeries => 'Remove from Continue Series';
 
   @override
   String get removedSeriesFromContinueSeries => 'Removed from Continue Series';
