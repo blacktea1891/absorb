@@ -15,6 +15,7 @@ import 'library_grid_tiles.dart';
 import 'episode_list_sheet.dart';
 import 'stackable_sheet.dart';
 import 'audible_series_sheet.dart';
+import 'action_pill.dart';
 import '../services/api_service.dart';
 
 /// Show a bottom sheet with all books in a series, sorted by sequence.
@@ -750,71 +751,62 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
-              if (!allDownloaded)
-                _moreItem(cs, Icons.download_rounded,
-                  downloaded > 0 ? l.downloadRemainingCount((_totalBooks > 0 ? _totalBooks : _books.length) - downloaded) : l.downloadAll,
-                  onTap: () { Navigator.pop(ctx); _downloadAll(); }),
-              _moreItem(cs,
-                allDone ? Icons.remove_done_rounded : Icons.done_all_rounded,
-                allDone ? l.markAllNotFinished : l.markAllFinished,
-                onTap: () async {
-                  Navigator.pop(ctx);
-                  if (allDone) {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (dlg) => AlertDialog(
-                        title: Text(l.markAllNotFinishedQuestion),
-                        content: Text(l.seriesBooksMarkAllNotFinishedContent(_books.length)),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(dlg, false), child: Text(l.cancel)),
-                          FilledButton(onPressed: () => Navigator.pop(dlg, true), child: Text(l.seriesBooksUnmarkAll)),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true) _markAllNotFinished();
-                  } else {
-                    final confirmed = await showDialog<bool>(
-                      context: context,
-                      builder: (dlg) => AlertDialog(
-                        title: Text(Wording.of(context).fullyAbsorbSeries),
-                        content: Text(l.seriesBooksFullyAbsorbContent(_books.length)),
-                        actions: [
-                          TextButton(onPressed: () => Navigator.pop(dlg, false), child: Text(l.cancel)),
-                          FilledButton(onPressed: () => Navigator.pop(dlg, true), child: Text(Wording.of(context).fullyAbsorbAction)),
-                        ],
-                      ),
-                    );
-                    if (confirmed == true) _markAllFinished();
-                  }
-                }),
-              if (hasSeriesId)
-                _moreItem(cs,
-                  _autoDownloadEnabled ? Icons.downloading_rounded : Icons.download_outlined,
-                  _autoDownloadEnabled ? l.turnAutoDownloadOff : l.turnAutoDownloadOn,
+              ActionPillGrid(items: [
+                if (!allDownloaded)
+                  ActionPillData(
+                    icon: Icons.download_rounded,
+                    label: downloaded > 0 ? l.downloadRemainingCount((_totalBooks > 0 ? _totalBooks : _books.length) - downloaded) : l.downloadAll,
+                    onTap: () { Navigator.pop(ctx); _downloadAll(); }),
+                ActionPillData(
+                  icon: allDone ? Icons.remove_done_rounded : Icons.done_all_rounded,
+                  label: allDone ? l.markAllNotFinished : l.markAllFinished,
                   onTap: () async {
                     Navigator.pop(ctx);
-                    final lib = context.read<LibraryProvider>();
-                    await lib.toggleRollingDownload(widget.seriesId!);
-                    setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(widget.seriesId!));
+                    if (allDone) {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (dlg) => AlertDialog(
+                          title: Text(l.markAllNotFinishedQuestion),
+                          content: Text(l.seriesBooksMarkAllNotFinishedContent(_books.length)),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(dlg, false), child: Text(l.cancel)),
+                            FilledButton(onPressed: () => Navigator.pop(dlg, true), child: Text(l.seriesBooksUnmarkAll)),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true) _markAllNotFinished();
+                    } else {
+                      final confirmed = await showDialog<bool>(
+                        context: context,
+                        builder: (dlg) => AlertDialog(
+                          title: Text(Wording.of(context).fullyAbsorbSeries),
+                          content: Text(l.seriesBooksFullyAbsorbContent(_books.length)),
+                          actions: [
+                            TextButton(onPressed: () => Navigator.pop(dlg, false), child: Text(l.cancel)),
+                            FilledButton(onPressed: () => Navigator.pop(dlg, true), child: Text(Wording.of(context).fullyAbsorbAction)),
+                          ],
+                        ),
+                      );
+                      if (confirmed == true) _markAllFinished();
+                    }
                   }),
-              _moreItem(cs, Icons.search_rounded, l.seriesBooksFindMissingTitle,
-                onTap: () { Navigator.pop(ctx); _findOnAudible(); }),
+                if (hasSeriesId)
+                  ActionPillData(
+                    icon: _autoDownloadEnabled ? Icons.downloading_rounded : Icons.download_outlined,
+                    label: _autoDownloadEnabled ? l.turnAutoDownloadOff : l.turnAutoDownloadOn,
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      final lib = context.read<LibraryProvider>();
+                      await lib.toggleRollingDownload(widget.seriesId!);
+                      setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(widget.seriesId!));
+                    }),
+                ActionPillData(icon: Icons.search_rounded, label: l.seriesBooksFindMissingTitle,
+                  onTap: () { Navigator.pop(ctx); _findOnAudible(); }),
+              ]),
             ]),
           ),
         );
       },
-    );
-  }
-
-  Widget _moreItem(ColorScheme cs, IconData icon, String label, {required VoidCallback onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: GestureDetector(onTap: onTap, child: Container(height: 44,
-        decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 8),
-          Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500))]))),
     );
   }
 

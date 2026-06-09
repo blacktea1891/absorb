@@ -80,7 +80,13 @@ class BookCard extends StatelessWidget {
     final itemId = item['id'] as String?;
     if (itemId == null) return;
     if (context.read<LibraryProvider>().isPodcastLibrary) {
-      _navigateToDetail(context);
+      // Episode card -> episode quick sheet; show cover -> keep current behaviour.
+      final episode = item['recentEpisode'] as Map<String, dynamic>?;
+      if (episode != null) {
+        EpisodeDetailSheet.showQuick(context, item, episode);
+      } else {
+        _navigateToDetail(context);
+      }
       return;
     }
     showQuickActionsSheet(context, itemId, initialItem: item);

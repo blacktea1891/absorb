@@ -858,10 +858,13 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
       }
     }
 
-    // Long-press opens the quick-actions sheet for books; podcasts keep the
-    // existing open-details behaviour (quick actions are book-only for now).
+    // Long-press opens the quick-actions sheet: book quick sheet for books,
+    // episode quick sheet for a podcast episode. A bare podcast show falls back
+    // to opening details.
     void openQuickActions() {
-      if (lib.isPodcastLibrary) {
+      if (recentEpisode != null) {
+        EpisodeDetailSheet.showQuick(context, item, recentEpisode);
+      } else if (lib.isPodcastLibrary) {
         openDetails();
       } else {
         showQuickActionsSheet(context, itemId, initialItem: item);

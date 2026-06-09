@@ -16,6 +16,7 @@ import 'card_buttons.dart';
 import 'html_description.dart';
 import 'stackable_sheet.dart';
 import 'episode_row.dart';
+import 'action_pill.dart';
 export 'episode_detail_sheet.dart';
 
 /// Bottom sheet that shows a podcast's episode list.
@@ -409,70 +410,61 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 16),
                 decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
-              if (!allDownloaded)
-                _podMoreItem(cs, Icons.download_rounded,
-                  downloaded > 0 ? l.downloadRemainingCount(_episodes.length - downloaded) : l.downloadAll,
-                  onTap: () { Navigator.pop(ctx); _downloadAll(); }),
-              if (_itemId.isNotEmpty)
-                _podMoreItem(cs,
-                  _autoDownloadEnabled ? Icons.downloading_rounded : Icons.download_outlined,
-                  _autoDownloadEnabled ? l.turnAutoDownloadOff : l.turnAutoDownloadOn,
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    final lib = context.read<LibraryProvider>();
-                    await lib.toggleRollingDownload(_itemId);
-                    setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(_itemId));
-                  }),
-              if (_itemId.isNotEmpty)
-                _podMoreItem(cs,
-                  _subscribed ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
-                  _subscribed ? l.episodeListUnsubscribeFromNewEpisodes : l.episodeListSubscribeToNewEpisodes,
-                  onTap: () async {
-                    Navigator.pop(ctx);
-                    if (_subscribed) {
+              ActionPillGrid(items: [
+                if (!allDownloaded)
+                  ActionPillData(
+                    icon: Icons.download_rounded,
+                    label: downloaded > 0 ? l.downloadRemainingCount(_episodes.length - downloaded) : l.downloadAll,
+                    onTap: () { Navigator.pop(ctx); _downloadAll(); }),
+                if (_itemId.isNotEmpty)
+                  ActionPillData(
+                    icon: _autoDownloadEnabled ? Icons.downloading_rounded : Icons.download_outlined,
+                    label: _autoDownloadEnabled ? l.turnAutoDownloadOff : l.turnAutoDownloadOn,
+                    onTap: () async {
+                      Navigator.pop(ctx);
                       final lib = context.read<LibraryProvider>();
-                      await lib.unsubscribePodcast(_itemId);
-                      if (mounted) setState(() => _subscribed = false);
-                    } else {
-                      final confirm = await showDialog<bool>(
-                        context: context,
-                        builder: (dCtx) => AlertDialog(
-                          icon: const Icon(Icons.notifications_active_rounded),
-                          title: Text(l.episodeListSubscribeTitle),
-                          content: Text(l.episodeListSubscribeContent),
-                          actions: [
-                            TextButton(onPressed: () => Navigator.pop(dCtx, false), child: Text(l.cancel)),
-                            FilledButton(onPressed: () => Navigator.pop(dCtx, true), child: Text(l.episodeListSubscribe)),
-                          ],
-                        ),
-                      );
-                      if (confirm == true && mounted) {
+                      await lib.toggleRollingDownload(_itemId);
+                      setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(_itemId));
+                    }),
+                if (_itemId.isNotEmpty)
+                  ActionPillData(
+                    icon: _subscribed ? Icons.notifications_active_rounded : Icons.notifications_none_rounded,
+                    label: _subscribed ? l.episodeListUnsubscribeFromNewEpisodes : l.episodeListSubscribeToNewEpisodes,
+                    onTap: () async {
+                      Navigator.pop(ctx);
+                      if (_subscribed) {
                         final lib = context.read<LibraryProvider>();
-                        await lib.subscribePodcast(_itemId);
-                        setState(() => _subscribed = true);
+                        await lib.unsubscribePodcast(_itemId);
+                        if (mounted) setState(() => _subscribed = false);
+                      } else {
+                        final confirm = await showDialog<bool>(
+                          context: context,
+                          builder: (dCtx) => AlertDialog(
+                            icon: const Icon(Icons.notifications_active_rounded),
+                            title: Text(l.episodeListSubscribeTitle),
+                            content: Text(l.episodeListSubscribeContent),
+                            actions: [
+                              TextButton(onPressed: () => Navigator.pop(dCtx, false), child: Text(l.cancel)),
+                              FilledButton(onPressed: () => Navigator.pop(dCtx, true), child: Text(l.episodeListSubscribe)),
+                            ],
+                          ),
+                        );
+                        if (confirm == true && mounted) {
+                          final lib = context.read<LibraryProvider>();
+                          await lib.subscribePodcast(_itemId);
+                          setState(() => _subscribed = true);
+                        }
                       }
-                    }
-                  }),
-              _podMoreItem(cs,
-                _hideFinished ? Icons.visibility_rounded : Icons.visibility_off_rounded,
-                _hideFinished ? l.episodeListShowFinishedEpisodes : l.episodeListHideFinishedEpisodes,
-                onTap: () { Navigator.pop(ctx); _toggleHideFinished(); }),
+                    }),
+                ActionPillData(
+                  icon: _hideFinished ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+                  label: _hideFinished ? l.episodeListShowFinishedEpisodes : l.episodeListHideFinishedEpisodes,
+                  onTap: () { Navigator.pop(ctx); _toggleHideFinished(); }),
+              ]),
             ]),
           ),
         );
       },
-    );
-  }
-
-  Widget _podMoreItem(ColorScheme cs, IconData icon, String label, {required VoidCallback onTap}) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: GestureDetector(onTap: onTap, child: Container(height: 44,
-        decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: cs.onSurface.withValues(alpha: 0.1))),
-        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, size: 16, color: cs.onSurfaceVariant), const SizedBox(width: 8),
-          Text(label, style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13, fontWeight: FontWeight.w500))]))),
     );
   }
 
