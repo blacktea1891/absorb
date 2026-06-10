@@ -89,10 +89,21 @@ android {
     }
 }
 
+    // F-Droid builds one APK per ABI. Put the ABI in the lowest digit of the
+    // version code so a newer version always outranks an older one on every
+    // ABI (Flutter's own split scheme puts the ABI in the highest digit, which
+    // breaks F-Droid's update ordering). Universal builds have no ABI filter
+    // and keep the plain version code.
+    val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86_64" to 3)
     applicationVariants.all {
+        val variant = this
         outputs.all {
-            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
-                .outputFileName = "absorb-${versionName}-${versionCode}.apk"
+            val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
+            val abiCode = abiCodes[output.filters.find { it.filterType == "ABI" }?.identifier]
+            if (abiCode != null) {
+                output.versionCodeOverride = variant.versionCode * 10 + abiCode
+            }
+            output.outputFileName = "absorb-${variant.versionName}-${output.versionCode}.apk"
         }
     }
 }
