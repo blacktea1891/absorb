@@ -936,23 +936,6 @@ class ApiService {
     );
   }
 
-  /// DELETE /api/me/progress/:id — fully remove progress entry
-  Future<bool> deleteProgress(String itemId) async {
-    try {
-      final progressPath = itemId.length > 36
-          ? '${itemId.substring(0, 36)}/${itemId.substring(37)}'
-          : itemId;
-      final resp = await _authDelete(
-        Uri.parse('$_cleanBaseUrl/api/me/progress/$progressPath'),
-        timeout: const Duration(seconds: 10));
-      debugPrint('[API] deleteProgress response: ${resp.statusCode} ${resp.body}');
-      return resp.statusCode >= 200 && resp.statusCode < 300;
-    } catch (e) {
-      debugPrint('[API] deleteProgress error: $e');
-      return false;
-    }
-  }
-
   /// Reset progress to zero.
   Future<bool> resetProgress(String itemId, double duration) async {
     try {

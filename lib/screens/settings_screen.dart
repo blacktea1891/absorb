@@ -34,7 +34,6 @@ import '../widgets/tips_sheet.dart';
 import '../widgets/feature_hint.dart';
 import '../widgets/welcome_sheet.dart';
 import '../widgets/rmab_config_sheet.dart';
-import '../widgets/queue_playlist_picker_sheet.dart';
 import '../l10n/app_localizations.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -233,48 +232,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (wasPlaylist) _bookQueueMode = mode;
     });
     PlayerSettings.notifySettingsChanged();
-  }
-
-  Widget _buildActivePlaylistRow(
-    ColorScheme cs,
-    TextTheme tt,
-    LibraryProvider lib,
-    AppLocalizations l,
-  ) {
-    String name = l.queuePlaylistNone;
-    if (_queuePlaylistId != null) {
-      final match = lib.playlists.cast<Map<String, dynamic>>().where(
-        (p) => p['id'] == _queuePlaylistId,
-      ).firstOrNull;
-      final n = match?['name'] as String?;
-      if (n != null && n.isNotEmpty) name = n;
-    }
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 4, 4, 4),
-      decoration: BoxDecoration(
-        color: cs.primaryContainer.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: cs.primary.withValues(alpha: 0.25), width: 0.5),
-      ),
-      child: Row(children: [
-        Icon(Icons.playlist_play_rounded, size: 16, color: cs.primary),
-        const SizedBox(width: 8),
-        Expanded(child: Text(
-          name,
-          style: tt.bodySmall?.copyWith(color: cs.onPrimaryContainer, fontWeight: FontWeight.w600),
-          maxLines: 1, overflow: TextOverflow.ellipsis,
-        )),
-        IconButton(
-          icon: const Icon(Icons.close_rounded, size: 16),
-          color: cs.onPrimaryContainer.withValues(alpha: 0.7),
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-          visualDensity: VisualDensity.compact,
-          tooltip: l.exit,
-          onPressed: () => PlayerSettings.clearQueueModePlaylist(),
-        ),
-      ]),
-    );
   }
 
   Future<void> _setMergedQueueMode(String mode) async {
