@@ -6,6 +6,7 @@ import '../providers/library_provider.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/absorb_wave_icon.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/duration_format.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   final List<dynamic> users;
@@ -639,7 +640,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
             ]),
             const SizedBox(height: 3),
             Row(children: [
-              Text('${_fmtDur(currentTime.toDouble())} / ${_fmtDur(duration.toDouble())}',
+              Text('${formatHm(currentTime.toDouble())} / ${formatHm(duration.toDouble())}',
                 style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.2), fontSize: 9)),
               if (lastUpdateStr.isNotEmpty) ...[
                 const Spacer(),
@@ -704,7 +705,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
           ])),
           const SizedBox(width: 8),
           Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-            Text(_fmtDur(duration), style: tt.labelSmall?.copyWith(
+            Text(formatHm(duration), style: tt.labelSmall?.copyWith(
               color: cs.onSurface.withValues(alpha: 0.4), fontWeight: FontWeight.w600, fontSize: 11)),
             if (updatedAt != null)
               Text(_relativeDate(updatedAt), style: TextStyle(color: cs.onSurface.withValues(alpha: 0.18), fontSize: 9)),
@@ -773,12 +774,6 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
     return l.adminUsersMonthsAgo((d.inDays / 30).floor());
   }
 
-  String _fmtDur(double s) {
-    final h = (s / 3600).floor();
-    final m = ((s % 3600) / 60).floor();
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m';
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1053,10 +1048,7 @@ class _AdminSessionDetailsSheet extends StatelessWidget {
   }
 
   String _fmtDuration(double seconds) {
-    final h = (seconds / 3600).floor();
-    final m = ((seconds % 3600) / 60).floor();
-    if (h > 0) return '${h}h ${m}m';
-    if (m > 0) return '${m}m';
+    if (seconds >= 60) return formatHm(seconds);
     if (seconds > 0) return '<1m';
     return '0m';
   }

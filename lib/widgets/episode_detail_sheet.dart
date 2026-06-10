@@ -18,6 +18,7 @@ import 'action_pill.dart';
 import '../main.dart' show rootNavigatorKey;
 import 'stackable_sheet.dart';
 import 'episode_list_sheet.dart';
+import '../utils/duration_format.dart';
 
 class EpisodeDetailSheet extends StatefulWidget {
   final Map<String, dynamic> podcastItem;
@@ -407,7 +408,7 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
                     child: Row(children: [
                       SizedBox(width: 28, child: Text('${e.key + 1}', style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3)))),
                       Expanded(child: Text(ch['title'] as String? ?? l.chapterNumber(e.key + 1), maxLines: 1, overflow: TextOverflow.ellipsis, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.6)))),
-                      Text(_fmtDur(((ch['end'] as num?)?.toDouble() ?? 0) - ((ch['start'] as num?)?.toDouble() ?? 0)), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
+                      Text(formatHm(((ch['end'] as num?)?.toDouble() ?? 0) - ((ch['start'] as num?)?.toDouble() ?? 0)), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
                     ]));
                 })]],
 
@@ -695,12 +696,6 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
         );
       },
     );
-  }
-
-  String _fmtDur(double s) {
-    final h = (s / 3600).floor(); final m = ((s % 3600) / 60).floor();
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m';
   }
 
   Future<void> _resetProgress(BuildContext context) async {

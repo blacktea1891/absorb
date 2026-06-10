@@ -6,6 +6,7 @@ import '../providers/auth_provider.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/html_description.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/duration_format.dart';
 
 class AdminPodcastsScreen extends StatefulWidget {
   final Map<String, dynamic> library;
@@ -1287,7 +1288,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
             final epTitle = ep['title']?.toString() ?? l.adminPodcastsEpisodeFallback;
             final pubAt = ep['publishedAt'] as num?;
             final duration = ep['duration'];
-            final durStr = duration is num ? _fmtDur(duration.toDouble())
+            final durStr = duration is num ? formatHm(duration.toDouble())
                 : (duration is String ? _fmtDurFromStr(duration) : '');
             final selected = _selectedDownloadedIds.contains(epId);
 
@@ -1944,14 +1945,11 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     return '${m[dt.month - 1]} ${dt.day}, ${dt.year}';
   }
 
-  String _fmtDur(double s) { final h = (s / 3600).floor(); final m = ((s % 3600) / 60).floor();
-    return h > 0 ? '${h}h ${m}m' : '${m}m'; }
-
   String _fmtDurFromStr(String s) {
     if (s.contains(':')) return s;
     final secs = double.tryParse(s) ?? 0;
     if (secs <= 0) return '';
-    return _fmtDur(secs);
+    return formatHm(secs);
   }
 
   String _fmtDateTime(DateTime dt) {
@@ -2110,9 +2108,7 @@ class _EpisodeDetailSheet extends StatelessWidget {
   String _fmtDurStr(String s) {
     final secs = double.tryParse(s) ?? 0;
     if (secs <= 0) return s;
-    final h = (secs / 3600).floor();
-    final m = ((secs % 3600) / 60).floor();
-    return h > 0 ? '${h}h ${m}m' : '${m}m';
+    return formatHm(secs);
   }
 }
 
@@ -2138,7 +2134,7 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
     final pubAt = episode['publishedAt'];
     final pubDate = pubAt is num ? pubAt : (num.tryParse(pubAt?.toString() ?? ''));
     final durRaw = episode['duration'];
-    final durStr = durRaw is num ? _fmtDur(durRaw.toDouble())
+    final durStr = durRaw is num ? formatHm(durRaw.toDouble())
         : (durRaw is String && durRaw.isNotEmpty ? (durRaw.contains(':') ? durRaw : _fmtDurStr(durRaw)) : '');
     final season = episode['season']?.toString() ?? '';
     final episodeNum = episode['episode']?.toString() ?? '';
@@ -2242,14 +2238,11 @@ class _DownloadedEpisodeDetailSheet extends StatelessWidget {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
 
-  String _fmtDur(double s) { final h = (s / 3600).floor(); final m = ((s % 3600) / 60).floor();
-    return h > 0 ? '${h}h ${m}m' : '${m}m'; }
-
   String _fmtDurStr(String s) {
     if (s.contains(':')) return s;
     final secs = double.tryParse(s) ?? 0;
     if (secs <= 0) return s;
-    return _fmtDur(secs);
+    return formatHm(secs);
   }
 }
 

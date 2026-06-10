@@ -27,6 +27,7 @@ import '../widgets/scroll_reveal.dart';
 import '../widgets/section_labels.dart';
 import 'app_shell.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/duration_format.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -678,11 +679,8 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
 
   static String _fmtRemaining(double s) {
     if (s <= 0) return '';
-    final h = (s / 3600).floor();
-    final m = ((s % 3600) / 60).floor();
-    if (h > 0) return '${h}h ${m}m left';
-    if (m > 0) return '${m}m left';
-    return '<1m left';
+    if (s < 60) return '<1m left';
+    return '${formatHm(s)} left';
   }
 
   Widget _buildCoverImage(String? coverUrl, ColorScheme cs, Map<String, String> headers) {

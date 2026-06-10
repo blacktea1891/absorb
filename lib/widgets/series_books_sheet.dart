@@ -16,7 +16,9 @@ import 'episode_list_sheet.dart';
 import 'stackable_sheet.dart';
 import 'audible_series_sheet.dart';
 import 'action_pill.dart';
+import 'books_sheet_shared.dart';
 import '../services/api_service.dart';
+import '../utils/duration_format.dart';
 
 /// Show a bottom sheet with all books in a series, sorted by sequence.
 /// Can be called from any screen.
@@ -176,23 +178,10 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
       if (b.containsKey('libraryItem') && b['libraryItem'] is Map<String, dynamic>) {
         final item = Map<String, dynamic>.from(b['libraryItem'] as Map<String, dynamic>);
         if (b['sequence'] != null) item['sequence'] = b['sequence'];
-        // Register updatedAt for cover cache busting
-        final id = item['id'] as String?;
-        final ts = item['updatedAt'] as num?;
-        if (id != null && ts != null && lib != null) lib.registerUpdatedAt(id, ts.toInt());
-        if (id != null && lib != null) {
-          final coverPath = (item['media'] as Map<String, dynamic>?)?['coverPath'] as String?;
-          lib.registerHasCover(id, coverPath != null && coverPath.isNotEmpty);
-        }
+        if (lib != null) registerBookCover(lib, item);
         result.add(item);
       } else {
-        final id = b['id'] as String?;
-        final ts = b['updatedAt'] as num?;
-        if (id != null && ts != null && lib != null) lib.registerUpdatedAt(id, ts.toInt());
-        if (id != null && lib != null) {
-          final coverPath = (b['media'] as Map<String, dynamic>?)?['coverPath'] as String?;
-          lib.registerHasCover(id, coverPath != null && coverPath.isNotEmpty);
-        }
+        if (lib != null) registerBookCover(lib, b);
         result.add(Map<String, dynamic>.from(b));
       }
     }
@@ -402,15 +391,11 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
 
   Widget _buildGroupedGrid(ColorScheme cs, TextTheme tt, LibraryProvider lib) {
     final parsed = _buildSubSeriesGroups();
-    final crossAxisCount = (MediaQuery.of(context).size.width / 130).floor().clamp(3, 10);
 
     return GridView.builder(
       controller: widget.scrollController,
       padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.of(context).viewPadding.bottom),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: crossAxisCount,
-        mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.65,
-      ),
+      gridDelegate: sheetBookGridDelegate(context, childAspectRatio: 0.65),
       itemCount: parsed.subSeries.length + parsed.standalone.length,
       itemBuilder: (context, index) {
         if (index < parsed.subSeries.length) {
@@ -922,7 +907,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
                   final bookCount = _totalBooks > 0 ? _totalBooks : _books.length;
                   final base = l.booksInSeriesCount(bookCount);
                   return displayDuration > 0
-                      ? '$base · ${_formatDuration(displayDuration)}'
+                      ? '$base · ${formatHm(displayDuration)}'
                       : base;
                 }(),
               ),
@@ -966,40 +951,26 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
             ),
           ),
         if (_books.isNotEmpty)
-          Padding(
+          sheetViewModeBar(
+            context,
+            gridView: _gridView,
+            onChanged: (grid) => setState(() => _gridView = grid),
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: [
-                IconButton(
-                    icon: Icon(Icons.collections_bookmark_rounded, size: 20,
-                      color: _collapseSeries ? cs.primary : cs.onSurfaceVariant),
-                    visualDensity: VisualDensity.compact,
-                    tooltip: _collapseSeries ? l.seriesBooksShowAllBooks : l.seriesBooksGroupBySubSeries,
-                    onPressed: () {
-                      setState(() {
-                        _collapseSeries = !_collapseSeries;
-                        if (_collapseSeries) {
-                          _expandedSubSeries.clear();
-                          if (!_subSeriesLoaded) _loadSubSeriesData();
-                        }
-                      });
-                      PlayerSettings.setCollapseBookSeries(_collapseSeries);
-                    },
-                  ),
-                const Spacer(),
-                IconButton(
-                  icon: Icon(Icons.view_list_rounded, size: 20,
-                    color: !_gridView ? cs.primary : cs.onSurfaceVariant),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () { setState(() => _gridView = false); PlayerSettings.setSheetGridView(false); },
-                ),
-                IconButton(
-                  icon: Icon(Icons.apps_rounded, size: 20,
-                    color: _gridView ? cs.primary : cs.onSurfaceVariant),
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () { setState(() => _gridView = true); PlayerSettings.setSheetGridView(true); },
-                ),
-              ],
+            leading: IconButton(
+              icon: Icon(Icons.collections_bookmark_rounded, size: 20,
+                color: _collapseSeries ? cs.primary : cs.onSurfaceVariant),
+              visualDensity: VisualDensity.compact,
+              tooltip: _collapseSeries ? l.seriesBooksShowAllBooks : l.seriesBooksGroupBySubSeries,
+              onPressed: () {
+                setState(() {
+                  _collapseSeries = !_collapseSeries;
+                  if (_collapseSeries) {
+                    _expandedSubSeries.clear();
+                    if (!_subSeriesLoaded) _loadSubSeriesData();
+                  }
+                });
+                PlayerSettings.setCollapseBookSeries(_collapseSeries);
+              },
             ),
           ),
         if (_isLoading && _books.isEmpty)
@@ -1042,10 +1013,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
               builder: (context, _) => GridView.builder(
               controller: widget.scrollController,
               padding: EdgeInsets.fromLTRB(16, 0, 16, 24 + MediaQuery.of(context).viewPadding.bottom),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: (MediaQuery.of(context).size.width / 130).floor().clamp(3, 10),
-                mainAxisSpacing: 8, crossAxisSpacing: 8, childAspectRatio: 0.65,
-              ),
+              gridDelegate: sheetBookGridDelegate(context, childAspectRatio: 0.65),
               itemCount: _books.length,
               itemBuilder: (context, index) => GridBookTile(item: _books[index], sequenceBadge: _getSequenceString(_books[index])),
             ),
@@ -1216,7 +1184,7 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
                       if (duration > 0) ...[
                         const SizedBox(height: 2),
                         Row(children: [
-                          Text(_formatDuration(duration), style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
+                          Text(formatHm(duration), style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
                           if (progress > 0 && !isFinished) ...[
                             const SizedBox(width: 8),
                             Text('${(progress * 100).round()}%',
@@ -1249,10 +1217,4 @@ class _SeriesBooksSheetState extends State<SeriesBooksSheet> {
     );
   }
 
-  String _formatDuration(double seconds) {
-    final h = (seconds / 3600).floor();
-    final m = ((seconds % 3600) / 60).floor();
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m';
-  }
 }

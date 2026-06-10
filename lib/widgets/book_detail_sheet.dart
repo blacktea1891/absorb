@@ -41,6 +41,7 @@ import 'playlist_picker_sheet.dart';
 import 'collection_picker_sheet.dart';
 import 'absorb_wave_icon.dart';
 import 'stackable_sheet.dart';
+import '../utils/duration_format.dart';
 
 // ─── BOOK DETAIL BOTTOM SHEET ───────────────────────────────
 
@@ -603,7 +604,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
       const SizedBox(height: 16),
       Wrap(spacing: 8, runSpacing: 8, children: [
         if (year.isNotEmpty) _chip(Icons.calendar_today_rounded, year),
-        _chip(Icons.schedule_rounded, _fmtDur(duration)),
+        _chip(Icons.schedule_rounded, formatHm(duration)),
         if (chapters.isNotEmpty) _chip(Icons.list_rounded, l.chaptersChip(chapters.length)),
         ..._audioInfoChips(media),
         if (publisher.isNotEmpty) _chip(Icons.business_rounded, publisher),
@@ -674,7 +675,7 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
               child: Row(children: [
                 SizedBox(width: 28, child: Text('${e.key + 1}', style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3)))),
                 Expanded(child: Text(ch['title'] as String? ?? l.chapterNumber(e.key + 1), maxLines: 1, overflow: TextOverflow.ellipsis, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.6)))),
-                Text(_fmtDur(((ch['end'] as num?)?.toDouble() ?? 0) - ((ch['start'] as num?)?.toDouble() ?? 0)), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
+                Text(formatHm(((ch['end'] as num?)?.toDouble() ?? 0) - ((ch['start'] as num?)?.toDouble() ?? 0)), style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.3))),
               ]));
           })]],
       if (_bookmarks.isNotEmpty) ...[const SizedBox(height: 16),
@@ -1187,11 +1188,6 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
     return '${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
-  String _fmtDur(double s) {
-    final h = (s / 3600).floor(); final m = ((s % 3600) / 60).floor();
-    if (h > 0) return '${h}h ${m}m';
-    return '${m}m';
-  }
 
   List<Widget> _buildStars(double rating, Color accent) {
     final cs = Theme.of(context).colorScheme;
