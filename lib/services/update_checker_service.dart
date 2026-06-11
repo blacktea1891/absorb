@@ -27,16 +27,25 @@ class UpdateInfo {
   bool get hasUpdate => _compareVersions(latestVersion, currentVersion) > 0;
 }
 
-/// Compare semver strings. Returns positive if a > b, negative if a < b, 0 if equal.
+/// Compare versions like v1.9.1, v1.9.1-176, or 1.9.1+176: semver first, then
+/// the trailing build number. Returns positive if a > b, negative if a < b,
+/// 0 if equal. Builds only compare when both sides have one, so a clean final
+/// tag never out-ranks the beta build it was promoted from.
 int _compareVersions(String a, String b) {
-  final aParts = a.replaceAll(RegExp(r'^v'), '').split('.').map((s) => int.tryParse(s) ?? 0).toList();
-  final bParts = b.replaceAll(RegExp(r'^v'), '').split('.').map((s) => int.tryParse(s) ?? 0).toList();
+  final (aSem, aBuild) = _parseVersion(a);
+  final (bSem, bBuild) = _parseVersion(b);
   for (int i = 0; i < 3; i++) {
-    final av = i < aParts.length ? aParts[i] : 0;
-    final bv = i < bParts.length ? bParts[i] : 0;
-    if (av != bv) return av - bv;
+    if (aSem[i] != bSem[i]) return aSem[i] - bSem[i];
   }
+  if (aBuild != null && bBuild != null) return aBuild - bBuild;
   return 0;
+}
+
+(List<int>, int?) _parseVersion(String v) {
+  final sem = RegExp(r'(\d+)\.(\d+)\.(\d+)').firstMatch(v);
+  final parts = [for (var i = 1; i <= 3; i++) int.parse(sem?.group(i) ?? '0')];
+  final build = RegExp(r'[-+](\d+)$').firstMatch(v);
+  return (parts, build == null ? null : int.parse(build.group(1)!));
 }
 
 class UpdateCheckerService {
@@ -98,7 +107,7 @@ class UpdateCheckerService {
       }
 
       final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
+      final currentVersion = '${packageInfo.version}+${packageInfo.buildNumber}';
 
       final info = UpdateInfo(
         latestVersion: tagName,

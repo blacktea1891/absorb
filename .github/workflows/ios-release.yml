@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       prerelease:
-        description: "Pre-release? Uploads to v<version>-pre, marks it prerelease, adds -pre to the filename"
+        description: "Pre-release? Uploads to a per-build v<version>-<build> tag, marks it prerelease, adds -pre to the filename"
         required: false
         type: boolean
         default: false
@@ -64,11 +64,15 @@ jobs:
         run: |
           RAW=$(grep '^version:' pubspec.yaml | sed 's/version: *//')
           VERSION_NAME="${RAW%%+*}"
+          BUILD="${RAW##*+}"
           # Unified artifact basename: dash (URL-safe, unlike +) between version
           # and build number, plus a -pre suffix for prereleases.
           BASE="absorb-${RAW//+/-}"
           if [ "$PRE" = "true" ]; then
-            echo "tag=v${VERSION_NAME}-pre" >> "$GITHUB_OUTPUT"
+            # Per-build tag: Obtainium and the in-app updater key on the tag,
+            # so each beta build needs its own. Finals keep the clean tag,
+            # which is also the only shape F-Droid's checkupdates matches.
+            echo "tag=v${VERSION_NAME}-${BUILD}" >> "$GITHUB_OUTPUT"
             echo "fname=${BASE}-pre" >> "$GITHUB_OUTPUT"
           else
             echo "tag=v${VERSION_NAME}" >> "$GITHUB_OUTPUT"
