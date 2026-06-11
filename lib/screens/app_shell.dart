@@ -26,6 +26,7 @@ import 'library_screen.dart';
 import 'stats_screen.dart';
 import 'settings_screen.dart';
 import '../widgets/welcome_sheet.dart';
+import '../services/review_service.dart';
 import '../services/update_checker_service.dart';
 import '../widgets/update_dialog.dart';
 
@@ -497,6 +498,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver, Ticker
       SleepTimerService().onAppForegrounded();
       AudioPlayerService.onAppForegrounded();
       HomeWidgetService().onAppForegrounded();
+      ReviewService.onAppForegrounded();
       _refreshDataForTab(_currentIndex);
       // Check auto sleep in case we resumed into the window
       SleepTimerService().checkAutoSleep();

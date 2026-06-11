@@ -23,7 +23,8 @@ Builds:
       - git -C $$flutter$$ checkout -f $flutterVersion
       - mv lib/services/chromecast_service_stub.dart lib/services/chromecast_service.dart
       - mv lib/widgets/chromecast_button_stub.dart lib/widgets/chromecast_button.dart
-      - sed -i '/flutter_chrome_cast:/d' pubspec.yaml
+      - mv lib/services/review_service_stub.dart lib/services/review_service.dart
+      - sed -i '/flutter_chrome_cast:/d; /in_app_review:/d' pubspec.yaml
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter config --no-analytics
       - $$flutter$$/bin/flutter pub get
@@ -46,7 +47,8 @@ Builds:
       - git -C $$flutter$$ checkout -f $flutterVersion
       - mv lib/services/chromecast_service_stub.dart lib/services/chromecast_service.dart
       - mv lib/widgets/chromecast_button_stub.dart lib/widgets/chromecast_button.dart
-      - sed -i '/flutter_chrome_cast:/d' pubspec.yaml
+      - mv lib/services/review_service_stub.dart lib/services/review_service.dart
+      - sed -i '/flutter_chrome_cast:/d; /in_app_review:/d' pubspec.yaml
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter config --no-analytics
       - $$flutter$$/bin/flutter pub get
@@ -69,7 +71,8 @@ Builds:
       - git -C $$flutter$$ checkout -f $flutterVersion
       - mv lib/services/chromecast_service_stub.dart lib/services/chromecast_service.dart
       - mv lib/widgets/chromecast_button_stub.dart lib/widgets/chromecast_button.dart
-      - sed -i '/flutter_chrome_cast:/d' pubspec.yaml
+      - mv lib/services/review_service_stub.dart lib/services/review_service.dart
+      - sed -i '/flutter_chrome_cast:/d; /in_app_review:/d' pubspec.yaml
       - export PUB_CACHE=$(pwd)/.pub-cache
       - $$flutter$$/bin/flutter config --no-analytics
       - $$flutter$$/bin/flutter pub get

@@ -83,6 +83,9 @@ dependencies:
   # App icon long-press shortcuts (Continue Listening / Downloads)
   quick_actions: ^1.0.8
 
+  # One-time store review prompt (stripped for the F-Droid build)
+  in_app_review: ^2.0.9
+
   # Splash screen (preserve during init)
   flutter_native_splash: ^2.4.4
   vibration: ^3.1.8

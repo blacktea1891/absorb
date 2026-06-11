@@ -22,6 +22,7 @@ import 'player_settings.dart';
 import 'session_cache.dart';
 import 'home_widget_service.dart';
 import 'bookmark_service.dart';
+import 'review_service.dart';
 export 'player_settings.dart';
 
 // ─── AudioHandler (runs in background, controls notification) ───
@@ -1533,6 +1534,9 @@ class AudioPlayerService extends ChangeNotifier {
     if (oldKey != null) {
       final cb = _onAutoQueueAdvancedCallback;
       if (cb != null) cb(oldKey);
+    }
+    if (oldItemId != null && oldEpisodeId == null) {
+      unawaited(ReviewService.onBookFinished(isForeground: !_isBackgrounded));
     }
 
     notifyListeners();
@@ -3973,6 +3977,9 @@ class AudioPlayerService extends ChangeNotifier {
 
     debugPrint('[Player] Book complete: $_currentTitle');
     _logEvent(PlaybackEventType.bookFinished);
+    if (_currentEpisodeId == null) {
+      unawaited(ReviewService.onBookFinished(isForeground: !_isBackgrounded));
+    }
 
     // Cancel subscriptions first so we don't process stale events.
     _syncSub?.cancel();
