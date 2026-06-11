@@ -1597,16 +1597,21 @@ class _BookDetailSheetContentState extends State<_BookDetailSheetContent> {
                   style: Theme.of(ctx).textTheme.titleSmall?.copyWith(
                     color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
               ),
-              ...devices.map((d) {
-                final name = d['name'] as String? ?? '';
-                final email = d['email'] as String? ?? '';
-                return ListTile(
-                  leading: Icon(Icons.send_to_mobile_rounded, color: cs.onSurfaceVariant),
-                  title: Text(name),
-                  subtitle: Text(email, style: TextStyle(color: cs.onSurface.withValues(alpha: 0.5))),
-                  onTap: () => Navigator.pop(ctx, name),
-                );
-              }),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: devices.map((d) {
+                    final name = d['name'] as String? ?? '';
+                    final email = d['email'] as String? ?? '';
+                    return ListTile(
+                      leading: Icon(Icons.send_to_mobile_rounded, color: cs.onSurfaceVariant),
+                      title: Text(name),
+                      subtitle: Text(email, style: TextStyle(color: cs.onSurface.withValues(alpha: 0.5))),
+                      onTap: () => Navigator.pop(ctx, name),
+                    );
+                  }).toList(),
+                ),
+              ),
             ]),
           ),
         );
