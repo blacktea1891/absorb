@@ -99,11 +99,8 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     await prefs.setBool('manual_offline_mode', value);
     if (!value) {
       _stopServerPingTimer();
-      final serverUrl = _auth?.activeServerUrl ?? _auth?.serverUrl ?? '';
-      final reachable = serverUrl.isNotEmpty
-          ? await ApiService.pingServer(serverUrl, customHeaders: _auth?.customHeaders ?? {})
-              .timeout(const Duration(seconds: 5), onTimeout: () => false)
-          : false;
+      final reachable =
+          await _pingActiveServerWithFallback(const Duration(seconds: 5)) != null;
       if (!reachable) {
         debugPrint('[Library] Manual offline off but server unreachable — staying offline');
         _networkOffline = true;
@@ -700,11 +697,8 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       // Got connectivity back - re-probe and potentially come online.
       // We pick the active server based on actual reachability, not on
       // whether the connectivity list happens to contain wifi this tick.
-      final activeUrl = _auth?.activeServerUrl ?? _auth?.serverUrl ?? '';
-      final reachable = activeUrl.isNotEmpty
-          ? await ApiService.pingServer(activeUrl, customHeaders: _auth?.customHeaders ?? {})
-              .timeout(const Duration(seconds: 5), onTimeout: () => false)
-          : false;
+      final reachable =
+          await _pingActiveServerWithFallback(const Duration(seconds: 5)) != null;
       if (reachable) {
         setNetworkOffline(false);
         if (_rollingDownloadSeries.isNotEmpty) _catchUpRollingDownloads();
@@ -720,6 +714,29 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       }
       _startLocalProbeTimer();
     });
+  }
+
+  /// Ping the active server and return the URL that answered, or null if
+  /// nothing did. When the local override is active but its ip:port has gone
+  /// stale, fall back to the remote URL before giving up - otherwise a dead
+  /// local address flags the app offline while the domain still answers
+  /// (same local-then-remote order tryReconnect uses).
+  Future<String?> _pingActiveServerWithFallback(Duration timeout) async {
+    final auth = _auth;
+    if (auth == null) return null;
+    final activeUrl = auth.activeServerUrl ?? auth.serverUrl ?? '';
+    if (activeUrl.isEmpty) return null;
+    final reachable = await ApiService.pingServer(activeUrl, customHeaders: auth.customHeaders)
+        .timeout(timeout, onTimeout: () => false);
+    if (reachable) return activeUrl;
+    final remoteUrl = auth.serverUrl ?? '';
+    if (remoteUrl.isEmpty || remoteUrl == activeUrl) return null;
+    final remoteReachable = await ApiService.pingServer(remoteUrl, customHeaders: auth.customHeaders)
+        .timeout(timeout, onTimeout: () => false);
+    if (!remoteReachable) return null;
+    debugPrint('[Library] Local server unreachable but remote responds - switching to remote');
+    auth.clearLocalOverride();
+    return remoteUrl;
   }
 
   void _startServerPingTimer() {
@@ -867,17 +884,14 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
     debugPrint('[Library] Health check timer started (60s ping while online)');
     _healthCheckTimer = Timer.periodic(const Duration(seconds: 60), (_) async {
       if (_networkOffline || _manualOffline || !_deviceHasConnectivity) return;
-      final serverUrl = _auth?.activeServerUrl ?? _auth?.serverUrl ?? '';
-      if (serverUrl.isEmpty) return;
-      final reachable = await ApiService.pingServer(
-        serverUrl,
-        customHeaders: _auth?.customHeaders ?? {},
-      ).timeout(const Duration(seconds: 10), onTimeout: () => false);
-      if (!reachable) {
+      if ((_auth?.activeServerUrl ?? _auth?.serverUrl ?? '').isEmpty) return;
+      final reachableUrl =
+          await _pingActiveServerWithFallback(const Duration(seconds: 10));
+      if (reachableUrl == null) {
         debugPrint('[Library] Health check failed — server unreachable, going offline');
         setNetworkOffline(true);
       } else {
-        notifyServerReachable(serverUrl);
+        notifyServerReachable(reachableUrl);
       }
     });
   }
