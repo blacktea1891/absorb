@@ -153,6 +153,16 @@ class _LoginScreenState extends State<LoginScreen>
     _debounce = Timer(const Duration(milliseconds: 800), () => _checkServer());
   }
 
+  Map<String, String> _collectHeaders() {
+    final headers = <String, String>{};
+    for (final (keyCtrl, valCtrl) in _headerControllers) {
+      final k = keyCtrl.text.trim();
+      final v = valCtrl.text.trim();
+      if (k.isNotEmpty && v.isNotEmpty) headers[k] = v;
+    }
+    return headers;
+  }
+
   Future<void> _checkServer() async {
     final text = _serverController.text.trim();
     if (text.isEmpty) return;
@@ -161,14 +171,7 @@ class _LoginScreenState extends State<LoginScreen>
     final fullUrl = '$_protocol$cleanUrl';
 
     try {
-      // Build custom headers for ping
-      final headers = <String, String>{};
-      for (final (keyCtrl, valCtrl) in _headerControllers) {
-        final k = keyCtrl.text.trim();
-        final v = valCtrl.text.trim();
-        if (k.isNotEmpty && v.isNotEmpty) headers[k] = v;
-      }
-
+      final headers = _collectHeaders();
       final ok = await ApiService.pingServer(fullUrl, customHeaders: headers);
       if (!mounted) return;
       if (_serverController.text.trim() != text) return;
@@ -187,7 +190,7 @@ class _LoginScreenState extends State<LoginScreen>
 
       if (ok) {
         // Also check if OIDC is available
-        OidcService.checkOidcEnabled(fullUrl).then((config) {
+        OidcService.checkOidcEnabled(fullUrl, customHeaders: headers).then((config) {
           if (mounted && _serverController.text.trim() == text) {
             setState(() => _oidcConfig = config);
           }
@@ -232,13 +235,7 @@ class _LoginScreenState extends State<LoginScreen>
     final cleanUrl = serverText.replaceAll(RegExp(r'^https?://'), '');
     final fullUrl = '$_protocol$cleanUrl';
 
-    // Build custom headers map
-    final headers = <String, String>{};
-    for (final (keyCtrl, valCtrl) in _headerControllers) {
-      final k = keyCtrl.text.trim();
-      final v = valCtrl.text.trim();
-      if (k.isNotEmpty && v.isNotEmpty) headers[k] = v;
-    }
+    final headers = _collectHeaders();
 
     final success = apiKey.isNotEmpty
         ? await auth.loginWithApiKey(
@@ -285,8 +282,9 @@ class _LoginScreenState extends State<LoginScreen>
     final cleanUrl = serverText.replaceAll(RegExp(r'^https?://'), '');
     final fullUrl = '$_protocol$cleanUrl';
 
+    final headers = _collectHeaders();
     final oidc = OidcService();
-    final callbackUri = await oidc.startLogin(fullUrl);
+    final callbackUri = await oidc.startLogin(fullUrl, customHeaders: headers);
     if (callbackUri == null) {
       if (!mounted) return;
       // Quiet path: user just dismissed the popup. Don't surface an error.
@@ -310,6 +308,7 @@ class _LoginScreenState extends State<LoginScreen>
       final success = await auth.loginWithOidc(
         serverUrl: fullUrl,
         result: result,
+        customHeaders: headers,
         l: AppLocalizations.of(context),
       );
       if (mounted) {

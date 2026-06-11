@@ -579,6 +579,7 @@ class AuthProvider extends ChangeNotifier {
   Future<bool> loginWithOidc({
     required String serverUrl,
     required Map<String, dynamic> result,
+    Map<String, String> customHeaders = const {},
     AppLocalizations? l,
   }) async {
     _errorMessage = null;
@@ -609,6 +610,7 @@ class AuthProvider extends ChangeNotifier {
     _userJson = user;
     _serverSettings = result['serverSettings'] as Map<String, dynamic>?;
     _serverReachable = true;
+    _customHeaders = customHeaders;
     final devicesRaw = result['ereaderDevices'] as List<dynamic>?;
     _ereaderDevices = devicesRaw?.cast<Map<String, dynamic>>() ?? const [];
     await _persistEreaderDevices();
@@ -632,6 +634,11 @@ class AuthProvider extends ChangeNotifier {
       if (_userId != null) await prefs.setString('user_id', _userId!);
       if (_defaultLibraryId != null) {
         await prefs.setString('default_library_id', _defaultLibraryId!);
+      }
+      if (customHeaders.isNotEmpty) {
+        await prefs.setString('custom_headers', jsonEncode(customHeaders));
+      } else {
+        await prefs.remove('custom_headers');
       }
     } catch (_) {}
 
