@@ -78,13 +78,20 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   bool _isOnline(Map<String, dynamic> user) {
     final userId = user['id'] as String? ?? '';
     final username = user['username'] as String? ?? '';
-    return _onlineUsers.any((o) {
+    final socketOnline = _onlineUsers.any((o) {
       if (o is! Map) return false;
       final oId = o['id'] as String? ?? '';
       if (oId.isNotEmpty && oId == userId) return true;
       final oName = o['username'] as String? ?? '';
       return oName.isNotEmpty && oName == username;
     });
+    if (socketOnline) return true;
+    // The server only counts open socket connections, which mobile clients
+    // drop in the background even while listening. Mirror the detail page's
+    // 5-minute activity window so those users still show as online.
+    final lastSeen = user['lastSeen'] as num?;
+    return lastSeen != null &&
+        DateTime.now().millisecondsSinceEpoch - lastSeen < 300000;
   }
 
   /// Online users first, then alphabetical so the green pills cluster at the top.
