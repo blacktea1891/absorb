@@ -13,7 +13,8 @@ import '../services/user_account_service.dart';
 import '../services/home_widget_service.dart';
 import '../services/wear_auth_service.dart';
 import '../l10n/app_localizations.dart';
-import '../main.dart' show scaffoldMessengerKey, rootNavigatorKey;
+import '../main.dart' show rootNavigatorKey;
+import '../widgets/overlay_toast.dart';
 
 class AuthProvider extends ChangeNotifier {
   String? _accessToken;
@@ -220,9 +221,7 @@ class AuthProvider extends ChangeNotifier {
     final ctx = rootNavigatorKey.currentContext;
     final l = ctx != null ? AppLocalizations.of(ctx) : null;
     final msg = l?.authSessionExpired ?? 'Session expired. Please log in again.';
-    scaffoldMessengerKey.currentState?.showSnackBar(
-      SnackBar(content: Text(msg)),
-    );
+    if (ctx != null) showOverlayToast(ctx, msg, icon: Icons.error_outline_rounded);
     logout();
   }
 
@@ -741,16 +740,9 @@ class AuthProvider extends ChangeNotifier {
 
   void _showServerToast(String message) {
     try {
-      scaffoldMessengerKey.currentState?.showSnackBar(SnackBar(
-        content: Row(children: [
-          const Icon(Icons.dns_rounded, color: Colors.white, size: 18),
-          const SizedBox(width: 8),
-          Text(message),
-        ]),
-        duration: const Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ));
+      final ctx = rootNavigatorKey.currentContext;
+      if (ctx == null) return;
+      showOverlayToast(ctx, message, icon: Icons.dns_rounded);
     } catch (_) {}
   }
 
