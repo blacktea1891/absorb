@@ -3758,6 +3758,8 @@ class AudioPlayerService extends ChangeNotifier {
                   : _currentItemId!;
               final offlineSeconds = sinceLastSync.clamp(0, 300);
               _progressSync.addOfflineListeningTime(progressKey, offlineSeconds);
+              unawaited(_progressSync.addTimeSaved(
+                  offlineSeconds, _player?.speed ?? 1.0));
               // Widget ticks forward even when the server is unreachable.
               unawaited(HomeWidgetService()
                   .addLocalListeningSeconds(offlineSeconds));
@@ -4104,6 +4106,9 @@ class AudioPlayerService extends ChangeNotifier {
     final elapsed = timeListenedOverride ??
         now.difference(_lastServerSync).inSeconds.clamp(0, 300);
     _lastServerSync = now;
+    if (elapsed > 0) {
+      unawaited(_progressSync.addTimeSaved(elapsed.toInt(), _player?.speed ?? 1.0));
+    }
     // Alpha: volume/sessionId piggybacked for GH #179 (volume falls off).
     // We sample these on each sync tick so drift over time is visible.
     final vol = _player?.volume;

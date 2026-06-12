@@ -1636,6 +1636,24 @@ abstract class AppLocalizations {
   /// **'More'**
   String get statsHeatmapMore;
 
+  /// No description provided for @statsDayOfWeek.
+  ///
+  /// In en, this message translates to:
+  /// **'Average by day of week'**
+  String get statsDayOfWeek;
+
+  /// No description provided for @statsTimeSavedLabel.
+  ///
+  /// In en, this message translates to:
+  /// **'Saved by speed'**
+  String get statsTimeSavedLabel;
+
+  /// No description provided for @statsOnPaceFor.
+  ///
+  /// In en, this message translates to:
+  /// **'On pace for {count} books'**
+  String statsOnPaceFor(int count);
+
   /// No description provided for @statsDaysActive.
   ///
   /// In en, this message translates to:

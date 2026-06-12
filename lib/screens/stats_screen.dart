@@ -40,10 +40,13 @@ class _StatsScreenState extends State<StatsScreen>
   Set<String> _statsHidden = {};
   String? _selectedDayKey;
   double _selectedDaySeconds = 0;
+  double _timeSavedSeconds = 0;
   late AnimationController _animController;
 
+  // Recent sessions stays out of the reorderable sections: it loads more as
+  // you scroll, so anything placed under it would never be reachable.
   static const _defaultSectionOrder = [
-    'hero', 'goals', 'periods', 'activity', 'chart', 'top', 'sessions',
+    'hero', 'goals', 'periods', 'activity', 'chart', 'dayofweek', 'top',
   ];
   late Animation<double> _animValue;
 
@@ -113,6 +116,7 @@ class _StatsScreenState extends State<StatsScreen>
     final chartRange = await PlayerSettings.getStatsChartRange();
     final order = await PlayerSettings.getStatsSectionOrder();
     final hidden = await PlayerSettings.getStatsHiddenSections();
+    final timeSaved = await PlayerSettings.getStatsTimeSaved();
     if (!mounted) return;
     setState(() {
       if (chartStyle != _chartStyle || chartRange != _chartRange) {
@@ -125,6 +129,7 @@ class _StatsScreenState extends State<StatsScreen>
       _chartRange = chartRange;
       _statsOrder = order;
       _statsHidden = hidden.toSet();
+      _timeSavedSeconds = timeSaved;
     });
   }
 
@@ -170,6 +175,13 @@ class _StatsScreenState extends State<StatsScreen>
     final api = context.read<AuthProvider>().apiService;
     final lib = context.read<LibraryProvider>();
     final prefs = await SharedPreferences.getInstance();
+
+    // The saved-by-speed counter banks while listening, so re-read it on
+    // every load (incl. pull-to-refresh), not just at screen creation.
+    final timeSaved = await PlayerSettings.getStatsTimeSaved();
+    if (mounted && timeSaved != _timeSavedSeconds) {
+      setState(() => _timeSavedSeconds = timeSaved);
+    }
 
     // Load cached data first so the page renders immediately even offline.
     if (_isLoading) {
@@ -407,6 +419,15 @@ class _StatsScreenState extends State<StatsScreen>
               child: _accentStatCard(tt, cs, Icons.speed_rounded, cs.tertiary,
                   _formatDuration(avgDaily), l.statsDailyAverage)),
         ]),
+        if (_timeSavedSeconds >= 60) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(
+                child: _accentStatCard(tt, cs, Icons.fast_forward_rounded,
+                    Colors.cyan, _formatDuration(_timeSavedSeconds),
+                    l.statsTimeSavedLabel)),
+          ]),
+        ],
         const SizedBox(height: 28),
       ],
       'chart': [
@@ -421,32 +442,18 @@ class _StatsScreenState extends State<StatsScreen>
         _selectedDayRow(cs, tt),
         const SizedBox(height: 28),
       ],
+      'dayofweek': [
+        _sectionTitle(tt, cs, l.statsDayOfWeek),
+        const SizedBox(height: 10),
+        _dayOfWeekChart(cs, tt, l, dailyMap),
+        const SizedBox(height: 28),
+      ],
       'top': [
         if (topItems.isNotEmpty) ...[
           _sectionTitle(tt, cs, l.statsMostListened),
           const SizedBox(height: 10),
           ...topItems.map((item) => _topItemCard(tt, cs, l, item)),
           const SizedBox(height: 28),
-        ],
-      ],
-      'sessions': [
-        if (_sessions.isNotEmpty) ...[
-          _sectionTitle(tt, cs, l.statsRecentSessions),
-          const SizedBox(height: 10),
-          ..._buildSessions(tt, cs, l),
-          if (_isLoadingMoreSessions)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 16),
-              child: Center(
-                child: SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: cs.onSurface.withValues(alpha: 0.24)),
-                ),
-              ),
-            ),
         ],
       ],
     };
@@ -467,6 +474,24 @@ class _StatsScreenState extends State<StatsScreen>
         const SizedBox(height: 24),
         for (final id in order)
           if (!_statsHidden.contains(id)) ...sections[id]!,
+        if (_sessions.isNotEmpty) ...[
+          _sectionTitle(tt, cs, l.statsRecentSessions),
+          const SizedBox(height: 10),
+          ..._buildSessions(tt, cs, l),
+          if (_isLoadingMoreSessions)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: cs.onSurface.withValues(alpha: 0.24)),
+                ),
+              ),
+            ),
+        ],
       ],
     );
   }
@@ -500,6 +525,107 @@ class _StatsScreenState extends State<StatsScreen>
         ),
       );
     }
+    return _heatmapCard(cs, l, deco, dailyMap);
+  }
+
+  /// Average listening per weekday (across days that had any listening),
+  /// today's weekday highlighted. Averages instead of totals so a year of
+  /// Saturdays doesn't read like one monster day.
+  Widget _dayOfWeekChart(ColorScheme cs, TextTheme tt, AppLocalizations l,
+      Map<String, dynamic> dailyMap) {
+    final labels = [
+      l.statsScreenDayMon,
+      l.statsScreenDayTue,
+      l.statsScreenDayWed,
+      l.statsScreenDayThu,
+      l.statsScreenDayFri,
+      l.statsScreenDaySat,
+      l.statsScreenDaySun,
+    ];
+    final sums = List.filled(7, 0.0);
+    final counts = List.filled(7, 0);
+    for (final e in dailyMap.entries) {
+      final d = DateTime.tryParse(e.key);
+      if (d == null) continue;
+      final v = _safeNum(e.value);
+      if (v <= 0) continue;
+      sums[d.weekday - 1] += v;
+      counts[d.weekday - 1]++;
+    }
+    final values = [
+      for (var i = 0; i < 7; i++) counts[i] > 0 ? sums[i] / counts[i] : 0.0,
+    ];
+    final maxVal = values.fold(0.0, (a, b) => a > b ? a : b);
+    final barMax = maxVal > 0 ? maxVal : 1.0;
+    final todayIdx = DateTime.now().weekday - 1;
+    final anim = _animValue.value;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+      decoration: BoxDecoration(
+        color: cs.onSurface.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cs.onSurface.withValues(alpha: 0.05)),
+      ),
+      child: Column(children: [
+        SizedBox(
+          height: 110,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (var i = 0; i < 7; i++)
+                Expanded(
+                    child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 3),
+                  child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if (values[i] > 0)
+                          Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(_formatDuration(values[i]),
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      color: cs.onSurface.withValues(alpha: 0.35),
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.w600))),
+                        Container(
+                          height: max(
+                              (values[i] / barMax * anim).clamp(0.0, 1.0) * 72,
+                              values[i] > 0 ? 4 : 2),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(5),
+                            color: i == todayIdx
+                                ? cs.primary.withValues(alpha: 0.7)
+                                : cs.onSurface.withValues(alpha: 0.12),
+                          ),
+                        ),
+                      ]),
+                )),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(children: [
+          for (var i = 0; i < 7; i++)
+            Expanded(
+                child: Text(labels[i],
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: i == todayIdx
+                          ? cs.primary.withValues(alpha: 0.8)
+                          : cs.onSurface.withValues(alpha: 0.25),
+                      fontSize: 10,
+                      fontWeight:
+                          i == todayIdx ? FontWeight.w600 : FontWeight.w400,
+                    ))),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _heatmapCard(ColorScheme cs, AppLocalizations l, BoxDecoration deco,
+      Map<String, dynamic> dailyMap) {
     final daily = <String, double>{
       for (final e in dailyMap.entries) e.key: _safeNum(e.value),
     };
@@ -567,6 +693,12 @@ class _StatsScreenState extends State<StatsScreen>
     final double bookProgress =
         hasBookGoal ? (_booksFinishedThisYear / _bookGoal).clamp(0.0, 1.0).toDouble() : 0.0;
     final bookReached = hasBookGoal && _booksFinishedThisYear >= _bookGoal;
+    final now = DateTime.now();
+    final dayOfYear = now.difference(DateTime(now.year, 1, 1)).inDays + 1;
+    final daysInYear =
+        DateTime(now.year, 12, 31).difference(DateTime(now.year, 1, 1)).inDays + 1;
+    final projectedBooks = (_booksFinishedThisYear * daysInYear / dayOfYear).round();
+    final onTrack = projectedBooks >= _bookGoal;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -642,6 +774,21 @@ class _StatsScreenState extends State<StatsScreen>
                 valueColor: AlwaysStoppedAnimation(bookReached ? doneColor : cs.primary),
               ),
             ),
+            if (!bookReached) ...[
+              const SizedBox(height: 6),
+              Row(children: [
+                Icon(
+                    onTrack
+                        ? Icons.trending_up_rounded
+                        : Icons.trending_down_rounded,
+                    size: 13,
+                    color: onTrack ? doneColor : Colors.orange),
+                const SizedBox(width: 4),
+                Text(l.statsOnPaceFor(projectedBooks),
+                    style: tt.labelSmall?.copyWith(
+                        color: onTrack ? doneColor : Colors.orange)),
+              ]),
+            ],
           ]),
       ]),
     );

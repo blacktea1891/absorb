@@ -442,6 +442,12 @@
   "statsSectionTimePeriods": "Time periods",
   "statsHeatmapLess": "Less",
   "statsHeatmapMore": "More",
+  "statsDayOfWeek": "Average by day of week",
+  "statsTimeSavedLabel": "Saved by speed",
+  "statsOnPaceFor": "On pace for {count} books",
+  "@statsOnPaceFor": {
+    "placeholders": { "count": { "type": "int" } }
+  },
   "statsDaysActive": "Days Active",
   "statsDailyAverage": "Daily Average",
   "statsLast7Days": "Last 7 Days",

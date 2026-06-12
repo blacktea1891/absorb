@@ -166,6 +166,10 @@ class PlayerSettings {
   static Future<int> getStatsBookGoal() => _get('stats_book_goal', 0);
   static Future<void> setStatsBookGoal(int value) => _set('stats_book_goal', value, notify: true);
 
+  /// Wall-clock seconds saved by listening above 1x. Banked live by the
+  /// player as listening time accrues; read-only here.
+  static Future<double> getStatsTimeSaved() => _get('stats_time_saved', 0.0);
+
   /// Listening chart style on the stats page: 'bar' | 'line' | 'heatmap'.
   static Future<String> getStatsChartStyle() => _get('stats_chart_style', 'bar');
   static Future<void> setStatsChartStyle(String value) => _set('stats_chart_style', value, notify: true);

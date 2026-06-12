@@ -848,6 +848,17 @@ class AppLocalizationsFr extends AppLocalizations {
   String get statsHeatmapMore => 'More';
 
   @override
+  String get statsDayOfWeek => 'Average by day of week';
+
+  @override
+  String get statsTimeSavedLabel => 'Saved by speed';
+
+  @override
+  String statsOnPaceFor(int count) {
+    return 'On pace for $count books';
+  }
+
+  @override
   String get statsDaysActive => 'Days Active';
 
   @override

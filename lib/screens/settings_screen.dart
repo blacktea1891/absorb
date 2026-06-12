@@ -123,8 +123,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
   List<String> _statsSectionOrder = [];
   Set<String> _statsHiddenSections = {};
 
+  // Recent sessions is intentionally absent: it infinite-scrolls, so it is
+  // pinned to the bottom of the stats page and can't be reordered or hidden.
   static const _statsSectionIds = [
-    'hero', 'goals', 'periods', 'activity', 'chart', 'top', 'sessions',
+    'hero', 'goals', 'periods', 'activity', 'chart', 'dayofweek', 'top',
   ];
   int _streamingCacheSizeMb = 0;
   bool _localServerEnabled = false;
@@ -367,8 +369,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 'periods': return l.statsSectionTimePeriods;
       case 'activity': return l.statsActivity;
       case 'chart': return l.statsChartTitle;
+      case 'dayofweek': return l.statsDayOfWeek;
       case 'top': return l.statsMostListened;
-      case 'sessions': return l.statsRecentSessions;
     }
     return id;
   }
@@ -380,8 +382,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 'periods': return Icons.date_range_rounded;
       case 'activity': return Icons.local_fire_department_rounded;
       case 'chart': return Icons.bar_chart_rounded;
+      case 'dayofweek': return Icons.view_week_rounded;
       case 'top': return Icons.star_outline_rounded;
-      case 'sessions': return Icons.history_rounded;
     }
     return Icons.widgets_outlined;
   }
