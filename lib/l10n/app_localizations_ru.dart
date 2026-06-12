@@ -663,6 +663,42 @@ class AppLocalizationsRu extends AppLocalizations {
   String get statsEpisodesThisYear => 'Episodes this year';
 
   @override
+  String get statsRemoveFromYearTitle => 'Remove from this year';
+
+  @override
+  String statsRemoveFromYearWithDate(String date, String title) {
+    return 'The finished date will still be $date on the server. This only removes \"$title\" from your Absorb books-this-year list.';
+  }
+
+  @override
+  String statsRemoveFromYearNoDate(String title) {
+    return 'The finished date stays on the server. This only removes \"$title\" from your Absorb books-this-year list.';
+  }
+
+  @override
+  String get statsRemovedFromYear => 'Removed from this year';
+
+  @override
+  String get statsAddBackToYearTitle => 'Add back to this year';
+
+  @override
+  String statsAddBackToYearBody(String title) {
+    return 'Add \"$title\" back to your Absorb books-this-year list?';
+  }
+
+  @override
+  String get statsAddBack => 'Add back';
+
+  @override
+  String get statsAddedBackToYear => 'Added back to this year';
+
+  @override
+  String get statsHiddenFromYear => 'Hidden from this year';
+
+  @override
+  String get statsNothingHidden => 'Nothing hidden';
+
+  @override
   String get statsDaysActive => 'Days Active';
 
   @override

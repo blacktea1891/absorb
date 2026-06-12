@@ -113,13 +113,13 @@ class _FinishedBooksThisYearSheetState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove from this year'),
+        title: Text(l.statsRemoveFromYearTitle),
         content: Text(dateStr != null
-            ? 'The finished date will still be $dateStr on the server. This only removes "$title" from your Absorb books-this-year list.'
-            : 'The finished date stays on the server. This only removes "$title" from your Absorb books-this-year list.'),
+            ? l.statsRemoveFromYearWithDate(dateStr, title)
+            : l.statsRemoveFromYearNoDate(title)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Remove')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.remove)),
         ],
       ),
     );
@@ -127,7 +127,7 @@ class _FinishedBooksThisYearSheetState
     await context.read<LibraryProvider>().hideFromThisYear(itemId);
     if (!mounted) return;
     setState(() => _items.removeWhere((it) => (it['id'] as String?) == itemId));
-    showOverlayToast(context, 'Removed from this year', icon: Icons.remove_circle_outline_rounded);
+    showOverlayToast(context, l.statsRemovedFromYear, icon: Icons.remove_circle_outline_rounded);
   }
 
   /// Long-press action while viewing hidden books: add one back so it counts
@@ -137,11 +137,11 @@ class _FinishedBooksThisYearSheetState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Add back to this year'),
-        content: Text('Add "$title" back to your Absorb books-this-year list?'),
+        title: Text(l.statsAddBackToYearTitle),
+        content: Text(l.statsAddBackToYearBody(title)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Add back')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.statsAddBack)),
         ],
       ),
     );
@@ -149,7 +149,7 @@ class _FinishedBooksThisYearSheetState
     await context.read<LibraryProvider>().unhideFromThisYear(itemId);
     if (!mounted) return;
     setState(() => _items.removeWhere((it) => (it['id'] as String?) == itemId));
-    showOverlayToast(context, 'Added back to this year', icon: Icons.check_circle_outline_rounded);
+    showOverlayToast(context, l.statsAddedBackToYear, icon: Icons.check_circle_outline_rounded);
   }
 
   @override
@@ -166,7 +166,7 @@ class _FinishedBooksThisYearSheetState
           Icon(Icons.auto_stories_rounded, size: 20, color: cs.primary),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(_showHidden ? 'Hidden from this year' : l.statsBooksThisYear,
+            child: Text(_showHidden ? l.statsHiddenFromYear : l.statsBooksThisYear,
                 style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis),
@@ -201,7 +201,7 @@ class _FinishedBooksThisYearSheetState
             ? const Center(child: CircularProgressIndicator())
             : _items.isEmpty
                 ? Center(
-                    child: Text(_showHidden ? 'Nothing hidden' : l.noBooksFound,
+                    child: Text(_showHidden ? l.statsNothingHidden : l.noBooksFound,
                         style: tt.bodyLarge
                             ?.copyWith(color: cs.onSurfaceVariant)))
                 : _gridView

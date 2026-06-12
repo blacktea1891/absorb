@@ -349,6 +349,32 @@
   "statsEpisodesFinished": "Episodes",
   "statsBooksThisYear": "Books this year",
   "statsEpisodesThisYear": "Episodes this year",
+  "statsRemoveFromYearTitle": "Remove from this year",
+  "statsRemoveFromYearWithDate": "The finished date will still be {date} on the server. This only removes \"{title}\" from your Absorb books-this-year list.",
+  "@statsRemoveFromYearWithDate": {
+    "placeholders": {
+      "date": { "type": "String" },
+      "title": { "type": "String" }
+    }
+  },
+  "statsRemoveFromYearNoDate": "The finished date stays on the server. This only removes \"{title}\" from your Absorb books-this-year list.",
+  "@statsRemoveFromYearNoDate": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "statsRemovedFromYear": "Removed from this year",
+  "statsAddBackToYearTitle": "Add back to this year",
+  "statsAddBackToYearBody": "Add \"{title}\" back to your Absorb books-this-year list?",
+  "@statsAddBackToYearBody": {
+    "placeholders": {
+      "title": { "type": "String" }
+    }
+  },
+  "statsAddBack": "Add back",
+  "statsAddedBackToYear": "Added back to this year",
+  "statsHiddenFromYear": "Hidden from this year",
+  "statsNothingHidden": "Nothing hidden",
   "statsDaysActive": "Days Active",
   "statsDailyAverage": "Daily Average",
   "statsLast7Days": "Last 7 Days",

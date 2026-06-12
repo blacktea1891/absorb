@@ -1318,6 +1318,66 @@ abstract class AppLocalizations {
   /// **'Episodes this year'**
   String get statsEpisodesThisYear;
 
+  /// No description provided for @statsRemoveFromYearTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Remove from this year'**
+  String get statsRemoveFromYearTitle;
+
+  /// No description provided for @statsRemoveFromYearWithDate.
+  ///
+  /// In en, this message translates to:
+  /// **'The finished date will still be {date} on the server. This only removes \"{title}\" from your Absorb books-this-year list.'**
+  String statsRemoveFromYearWithDate(String date, String title);
+
+  /// No description provided for @statsRemoveFromYearNoDate.
+  ///
+  /// In en, this message translates to:
+  /// **'The finished date stays on the server. This only removes \"{title}\" from your Absorb books-this-year list.'**
+  String statsRemoveFromYearNoDate(String title);
+
+  /// No description provided for @statsRemovedFromYear.
+  ///
+  /// In en, this message translates to:
+  /// **'Removed from this year'**
+  String get statsRemovedFromYear;
+
+  /// No description provided for @statsAddBackToYearTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Add back to this year'**
+  String get statsAddBackToYearTitle;
+
+  /// No description provided for @statsAddBackToYearBody.
+  ///
+  /// In en, this message translates to:
+  /// **'Add \"{title}\" back to your Absorb books-this-year list?'**
+  String statsAddBackToYearBody(String title);
+
+  /// No description provided for @statsAddBack.
+  ///
+  /// In en, this message translates to:
+  /// **'Add back'**
+  String get statsAddBack;
+
+  /// No description provided for @statsAddedBackToYear.
+  ///
+  /// In en, this message translates to:
+  /// **'Added back to this year'**
+  String get statsAddedBackToYear;
+
+  /// No description provided for @statsHiddenFromYear.
+  ///
+  /// In en, this message translates to:
+  /// **'Hidden from this year'**
+  String get statsHiddenFromYear;
+
+  /// No description provided for @statsNothingHidden.
+  ///
+  /// In en, this message translates to:
+  /// **'Nothing hidden'**
+  String get statsNothingHidden;
+
   /// No description provided for @statsDaysActive.
   ///
   /// In en, this message translates to:
