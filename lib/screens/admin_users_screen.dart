@@ -803,7 +803,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
         return AlertDialog(
           title: const Text('Create setup file'),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("Creates a sign-in file for $username. They import it from the login screen and they're in.",
+            Text("Creates a sign-in file for $username that only works in the Absorb app. They import it from the login screen and they're in.",
                 style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
             const SizedBox(height: 14),
             TextField(
