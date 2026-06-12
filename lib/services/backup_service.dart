@@ -299,6 +299,37 @@ class BackupService {
     };
   }
 
+  /// Build a minimal setup file for provisioning a new user: a single account
+  /// whose token is an API key minted for them, plus any custom headers needed
+  /// to reach the server. Importing it from the login screen signs them in.
+  /// The token has no refresh counterpart, so it is flagged legacy and used as
+  /// a standing bearer key.
+  static Future<Map<String, dynamic>> buildSetupFile({
+    required String serverUrl,
+    required String username,
+    required String token,
+    String? userId,
+    Map<String, String>? customHeaders,
+  }) async {
+    final pkgInfo = await PackageInfo.fromPlatform();
+    return {
+      'version': 3,
+      'setup': true,
+      'createdAt': DateTime.now().toIso8601String(),
+      'appVersion': pkgInfo.version,
+      'accounts': [
+        {
+          'serverUrl': serverUrl,
+          'username': username,
+          'token': token,
+          'userId': userId,
+          'isLegacyToken': true,
+        },
+      ],
+      if (customHeaders != null && customHeaders.isNotEmpty) 'customHeaders': customHeaders,
+    };
+  }
+
   static Future<void> importSettings(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
 

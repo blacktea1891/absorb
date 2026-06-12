@@ -86,7 +86,6 @@ class _AdminApiKeysScreenState extends State<AdminApiKeysScreen> {
     final owner = (key['user'] as Map?)?['username'] as String? ?? '';
     final isActive = key['isActive'] as bool? ?? false;
     final expiresAt = DateTime.tryParse(key['expiresAt'] as String? ?? '');
-    final lastUsedAt = DateTime.tryParse(key['lastUsedAt'] as String? ?? '');
     final isExpired = expiresAt != null && expiresAt.isBefore(DateTime.now());
 
     final (statusColor, statusLabel) = isExpired
@@ -95,7 +94,6 @@ class _AdminApiKeysScreenState extends State<AdminApiKeysScreen> {
             ? (cs.onSurfaceVariant, l.adminApiKeysInactive)
             : (const Color(0xFF4CAF50), l.adminApiKeysActive);
 
-    final lastUsedStr = lastUsedAt != null ? l.adminApiKeysLastUsed(_timeAgo(lastUsedAt)) : l.adminApiKeysNeverUsed;
     final expiryStr = expiresAt != null ? l.adminApiKeysExpiresOn(_fmtDate(expiresAt)) : l.adminApiKeysNeverExpires;
 
     return Padding(
@@ -121,11 +119,12 @@ class _AdminApiKeysScreenState extends State<AdminApiKeysScreen> {
               ),
             ]),
             const SizedBox(height: 3),
-            Text(
-              [if (owner.isNotEmpty) owner, lastUsedStr].join('  ·  '),
-              style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.4), fontSize: 11),
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-            ),
+            if (owner.isNotEmpty)
+              Text(
+                owner,
+                style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.4), fontSize: 11),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+              ),
             const SizedBox(height: 1),
             Text(expiryStr, style: tt.labelSmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.28), fontSize: 10)),
           ])),
@@ -186,16 +185,6 @@ class _AdminApiKeysScreenState extends State<AdminApiKeysScreen> {
   void _showEditor() {
     showModalBottomSheet(context: context, isScrollControlled: true, useSafeArea: true, backgroundColor: Colors.transparent,
       builder: (_) => _ApiKeyEditorSheet(users: widget.users, onCreated: _load));
-  }
-
-  String _timeAgo(DateTime dt) {
-    final l = AppLocalizations.of(context)!;
-    final d = DateTime.now().difference(dt);
-    if (d.inSeconds < 60) return l.justNow;
-    if (d.inMinutes < 60) return l.minutesAgo(d.inMinutes);
-    if (d.inHours < 24) return l.hoursAgo(d.inHours);
-    if (d.inDays < 30) return l.daysAgo(d.inDays);
-    return l.adminUsersMonthsAgo((d.inDays / 30).floor());
   }
 
   static const _months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];

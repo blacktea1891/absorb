@@ -213,7 +213,7 @@ class AppLocalizationsRu extends AppLocalizations {
       'SSO authentication failed. Please try again.';
 
   @override
-  String get loginRestoreFromBackup => 'Restore from backup';
+  String get loginRestoreFromBackup => 'Import';
 
   @override
   String get loginInvalidBackupFile => 'Invalid backup file';

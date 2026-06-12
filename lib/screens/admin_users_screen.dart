@@ -1,8 +1,13 @@
+import 'dart:convert';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
+import '../services/backup_service.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/absorb_wave_icon.dart';
 import '../l10n/app_localizations.dart';
@@ -376,6 +381,12 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
             padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
             child: Row(children: [
               Expanded(child: AbsorbPageHeader(title: _username, padding: EdgeInsets.zero)),
+              if (!_isRoot)
+                IconButton(
+                  icon: Icon(Icons.ios_share_rounded, color: cs.primary.withValues(alpha: 0.7), size: 20),
+                  tooltip: 'Create setup file',
+                  onPressed: _exportSetupFile,
+                ),
               if (!_isRoot)
                 IconButton(
                   icon: Icon(Icons.edit_rounded, color: cs.primary.withValues(alpha: 0.7), size: 20),
@@ -769,6 +780,105 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
         widget.onChanged();
         _load();
       }));
+  }
+
+  /// Mint an API key for this user and write a one-account .absorb setup file.
+  /// The new user imports it from the login screen and is signed straight in.
+  /// The file carries a working credential, so it must be handed over privately.
+  Future<void> _exportSetupFile() async {
+    final auth = context.read<AuthProvider>();
+    final api = auth.apiService;
+    if (api == null) return;
+    final userId = widget.user['id'] as String? ?? '';
+    final username = widget.user['username'] as String? ?? '';
+    if (userId.isEmpty) return;
+
+    final urlCtrl = TextEditingController(text: auth.serverUrl ?? '');
+    final hasHeaders = auth.customHeaders.isNotEmpty;
+
+    final proceed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) {
+        final cs = Theme.of(ctx).colorScheme;
+        return AlertDialog(
+          title: const Text('Create setup file'),
+          content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text("Creates a sign-in file for $username. They import it from the login screen and they're in.",
+                style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+            const SizedBox(height: 14),
+            TextField(
+              controller: urlCtrl,
+              autocorrect: false,
+              keyboardType: TextInputType.url,
+              decoration: const InputDecoration(labelText: 'Server URL the new user will use', isDense: true),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              hasHeaders
+                  ? 'An API key will be created for this user and your custom headers are included so they can reach the server. Treat the file like a password.'
+                  : 'An API key will be created for this user. Treat the file like a password.',
+              style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
+            ),
+          ]),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+          ],
+        );
+      },
+    );
+
+    if (proceed != true) return;
+    final serverUrl = urlCtrl.text.trim();
+    if (serverUrl.isEmpty) return;
+
+    final key = await api.createApiKey(name: 'Absorb setup: $username', userId: userId);
+    final token = key?['apiKey'] as String?;
+    if (token == null || token.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not create an API key for this user')),
+        );
+      }
+      return;
+    }
+
+    try {
+      final payload = await BackupService.buildSetupFile(
+        serverUrl: serverUrl,
+        username: username,
+        token: token,
+        userId: userId,
+        customHeaders: auth.customHeaders,
+      );
+      final jsonStr = const JsonEncoder.withIndent('  ').convert(payload);
+      final safeName = username.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+      final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: 'Save setup file',
+        fileName: 'absorb_setup_$safeName.absorb',
+        type: FileType.any,
+        bytes: bytes,
+      );
+
+      if (result != null) {
+        if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+          await File(result).writeAsString(jsonStr);
+        }
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Setup file for $username saved')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to create setup file: $e')),
+        );
+      }
+    }
   }
 
   String _timeAgo(DateTime dt) {

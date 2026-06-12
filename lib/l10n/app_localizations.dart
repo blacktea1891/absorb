@@ -517,7 +517,7 @@ abstract class AppLocalizations {
   /// No description provided for @loginRestoreFromBackup.
   ///
   /// In en, this message translates to:
-  /// **'Restore from backup'**
+  /// **'Import'**
   String get loginRestoreFromBackup;
 
   /// No description provided for @loginInvalidBackupFile.
