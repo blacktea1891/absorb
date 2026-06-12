@@ -57,6 +57,9 @@ mixin _StateMixin on ChangeNotifier {
 
   Set<String> _rollingDownloadSeries = {};
   Set<String> _subscribedPodcasts = {};
+  // Book ids the user hid from the local "finished this year" stats list.
+  // Purely local; the server's finished date is left untouched.
+  Set<String> _yearHiddenIds = {};
 
   bool _manualOffline = false;
   bool _networkOffline = false;
@@ -158,6 +161,8 @@ mixin _StateMixin on ChangeNotifier {
       if (p['isFinished'] != true) continue;
       final ep = p['episodeId'];
       if (ep is String && ep.isNotEmpty) continue;
+      final id = p['libraryItemId'];
+      if (id is String && _yearHiddenIds.contains(id)) continue;
       final raw = p['finishedAt'];
       if (raw is! num) continue;
       final dt = DateTime.fromMillisecondsSinceEpoch(raw.toInt());
@@ -183,11 +188,15 @@ mixin _StateMixin on ChangeNotifier {
       if (dt.year != year) continue;
       final id = p['libraryItemId'] as String?;
       if (id == null) continue;
+      if (_yearHiddenIds.contains(id)) continue;
       entries.add(MapEntry(id, ts));
     }
     entries.sort((a, b) => b.value.compareTo(a.value));
     return entries.map((e) => e.key).toList();
   }
+
+  /// Book ids the user hid from the local "finished this year" list.
+  Set<String> get yearHiddenIds => _yearHiddenIds;
 
   int get finishedEpisodesThisYearCount {
     final year = DateTime.now().year;

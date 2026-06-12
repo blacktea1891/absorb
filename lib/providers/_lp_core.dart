@@ -90,6 +90,30 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
         'subscribed_podcasts', _subscribedPodcasts.toList());
   }
 
+  // ── "Finished this year" local hide list ──
+
+  Future<void> _loadYearHidden() async {
+    _yearHiddenIds =
+        (await ScopedPrefs.getStringList('year_hidden_ids')).toSet();
+  }
+
+  /// Hide a finished book from Absorb's local "finished this year" count and
+  /// list. The server's finished date is untouched; this only affects Absorb.
+  Future<void> hideFromThisYear(String itemId) async {
+    if (itemId.isEmpty || !_yearHiddenIds.add(itemId)) return;
+    await ScopedPrefs.setStringList('year_hidden_ids', _yearHiddenIds.toList());
+    notifyListeners();
+    HomeWidgetService().refreshStats(force: true);
+  }
+
+  /// Undo a local hide so the book counts toward this year again.
+  Future<void> unhideFromThisYear(String itemId) async {
+    if (!_yearHiddenIds.remove(itemId)) return;
+    await ScopedPrefs.setStringList('year_hidden_ids', _yearHiddenIds.toList());
+    notifyListeners();
+    HomeWidgetService().refreshStats(force: true);
+  }
+
   // ── Offline mode ──
 
   Future<void> setManualOffline(bool value) async {

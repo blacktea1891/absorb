@@ -148,6 +148,7 @@ class LibraryProvider extends ChangeNotifier
         await _loadManualAbsorbing();
         await _loadRollingDownloadSeries();
         await _loadSubscribedPodcasts();
+        await _loadYearHidden();
         await _loadKnownEpisodeIds();
         Future.microtask(() => checkSubscribedPodcasts());
 

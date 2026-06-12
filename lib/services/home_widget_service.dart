@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'audio_player_service.dart';
 import 'api_service.dart';
 import 'download_service.dart';
+import 'scoped_prefs.dart';
 import 'wear_player_service.dart';
 
 const String _androidWidgetName = 'NowPlayingWidget';
@@ -700,7 +701,8 @@ class HomeWidgetService {
       final today = _todaySeconds(dailyMap).round();
       final week = _weekSeconds(dailyMap).round();
       final streak = _currentStreak(dailyMap);
-      final booksYear = _countBooksFinishedThisYear(me);
+      final hidden = (await ScopedPrefs.getStringList('year_hidden_ids')).toSet();
+      final booksYear = _countBooksFinishedThisYear(me, hidden);
 
       debugPrint('[StatsWidget] Computed: today=${today}s week=${week}s streak=${streak}d booksThisYear=$booksYear (dailyMapKeys=${dailyMap.length})');
 
@@ -829,7 +831,7 @@ class HomeWidgetService {
     return streak;
   }
 
-  int _countBooksFinishedThisYear(Map<String, dynamic>? me) {
+  int _countBooksFinishedThisYear(Map<String, dynamic>? me, Set<String> hidden) {
     if (me == null) return 0;
     final progress = me['mediaProgress'];
     if (progress is! List) return 0;
@@ -842,6 +844,8 @@ class HomeWidgetService {
       // count doesn't inflate with every finished podcast episode.
       final episodeId = entry['episodeId'];
       if (episodeId is String && episodeId.isNotEmpty) continue;
+      final id = entry['libraryItemId'];
+      if (id is String && hidden.contains(id)) continue;
       final raw = entry['finishedAt'];
       if (raw is! num) continue;
       final dt = DateTime.fromMillisecondsSinceEpoch(raw.toInt());

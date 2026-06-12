@@ -306,7 +306,14 @@ class _StatsScreenState extends State<StatsScreen>
               child: _accentStatCard(tt, cs, Icons.auto_stories_rounded,
                   Colors.teal, '$_booksFinishedThisYear', l.statsBooksThisYear,
                   onTap: _booksFinishedThisYear > 0
-                      ? () => showFinishedBooksThisYearSheet(context)
+                      ? () async {
+                          await showFinishedBooksThisYearSheet(context);
+                          if (mounted) {
+                            setState(() => _booksFinishedThisYear = context
+                                .read<LibraryProvider>()
+                                .finishedBooksThisYearCount);
+                          }
+                        }
                       : null)),
           if (_episodesFinishedThisYear > 0) ...[
             const SizedBox(width: 8),
