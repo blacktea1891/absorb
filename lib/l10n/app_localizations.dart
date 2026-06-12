@@ -496,6 +496,84 @@ abstract class AppLocalizations {
   /// **'Sign In'**
   String get loginSignIn;
 
+  /// No description provided for @loginSignInAs.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in as {username}?'**
+  String loginSignInAs(String username);
+
+  /// No description provided for @loginSignInToServer.
+  ///
+  /// In en, this message translates to:
+  /// **'Sign in to this server?'**
+  String get loginSignInToServer;
+
+  /// No description provided for @loginSignedInAs.
+  ///
+  /// In en, this message translates to:
+  /// **'Signed in as {username}'**
+  String loginSignedInAs(String username);
+
+  /// No description provided for @adminCreateSetupFile.
+  ///
+  /// In en, this message translates to:
+  /// **'Create setup file'**
+  String get adminCreateSetupFile;
+
+  /// No description provided for @adminSetupFileDescription.
+  ///
+  /// In en, this message translates to:
+  /// **'Creates a sign-in file for {username} that only works in the Absorb app. They import it from the login screen to sign in.'**
+  String adminSetupFileDescription(String username);
+
+  /// No description provided for @adminSetupFileServerUrl.
+  ///
+  /// In en, this message translates to:
+  /// **'Server URL the new user will use'**
+  String get adminSetupFileServerUrl;
+
+  /// No description provided for @adminSetupFileNoteWithHeaders.
+  ///
+  /// In en, this message translates to:
+  /// **'An API key will be created for this user and your custom headers are included so they can reach the server. Treat the file like a password.'**
+  String get adminSetupFileNoteWithHeaders;
+
+  /// No description provided for @adminSetupFileNote.
+  ///
+  /// In en, this message translates to:
+  /// **'An API key will be created for this user. Treat the file like a password.'**
+  String get adminSetupFileNote;
+
+  /// No description provided for @adminSetupFileCreate.
+  ///
+  /// In en, this message translates to:
+  /// **'Create'**
+  String get adminSetupFileCreate;
+
+  /// No description provided for @adminSetupFileSaveTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Save setup file'**
+  String get adminSetupFileSaveTitle;
+
+  /// No description provided for @adminSetupFileKeyError.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not create an API key for this user'**
+  String get adminSetupFileKeyError;
+
+  /// No description provided for @adminSetupFileSaved.
+  ///
+  /// In en, this message translates to:
+  /// **'Setup file for {username} saved'**
+  String adminSetupFileSaved(String username);
+
+  /// No description provided for @adminSetupFileFailed.
+  ///
+  /// In en, this message translates to:
+  /// **'Failed to create setup file: {error}'**
+  String adminSetupFileFailed(String error);
+
   /// No description provided for @loginFailed.
   ///
   /// In en, this message translates to:

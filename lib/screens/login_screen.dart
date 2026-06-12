@@ -868,9 +868,9 @@ class _LoginScreenState extends State<LoginScreen>
       final confirm = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: Text(isSetup ? 'Sign in' : l.loginRestoreBackupTitle),
+          title: Text(isSetup ? l.loginSignIn : l.loginRestoreBackupTitle),
           content: Text(isSetup
-              ? (firstUsername.isNotEmpty ? 'Sign in as $firstUsername?' : 'Sign in to this server?')
+              ? (firstUsername.isNotEmpty ? l.loginSignInAs(firstUsername) : l.loginSignInToServer)
               : (hasAccounts
                   ? l.loginRestoreBackupWithAccounts(accountCount)
                   : l.loginRestoreBackupNoAccounts)),
@@ -881,7 +881,7 @@ class _LoginScreenState extends State<LoginScreen>
             ),
             FilledButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: Text(isSetup ? 'Sign in' : l.loginRestore),
+              child: Text(isSetup ? l.loginSignIn : l.loginRestore),
             ),
           ],
         ),
@@ -904,7 +904,7 @@ class _LoginScreenState extends State<LoginScreen>
               showOverlayToast(
                 context,
                 isSetup
-                    ? 'Signed in as ${restoredAccounts.first.username}'
+                    ? l2.loginSignedInAs(restoredAccounts.first.username)
                     : l2.loginRestoredAndSignedIn(restoredAccounts.first.username),
                 icon: Icons.check_circle_outline_rounded,
               );

@@ -384,7 +384,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
               if (!_isRoot)
                 IconButton(
                   icon: Icon(Icons.ios_share_rounded, color: cs.primary.withValues(alpha: 0.7), size: 20),
-                  tooltip: 'Create setup file',
+                  tooltip: l.adminCreateSetupFile,
                   onPressed: _exportSetupFile,
                 ),
               if (!_isRoot)
@@ -793,6 +793,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
     final username = widget.user['username'] as String? ?? '';
     if (userId.isEmpty) return;
 
+    final l = AppLocalizations.of(context)!;
     final urlCtrl = TextEditingController(text: auth.serverUrl ?? '');
     final hasHeaders = auth.customHeaders.isNotEmpty;
 
@@ -801,28 +802,26 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
       builder: (ctx) {
         final cs = Theme.of(ctx).colorScheme;
         return AlertDialog(
-          title: const Text('Create setup file'),
+          title: Text(l.adminCreateSetupFile),
           content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text("Creates a sign-in file for $username that only works in the Absorb app. They import it from the login screen and they're in.",
+            Text(l.adminSetupFileDescription(username),
                 style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
             const SizedBox(height: 14),
             TextField(
               controller: urlCtrl,
               autocorrect: false,
               keyboardType: TextInputType.url,
-              decoration: const InputDecoration(labelText: 'Server URL the new user will use', isDense: true),
+              decoration: InputDecoration(labelText: l.adminSetupFileServerUrl, isDense: true),
             ),
             const SizedBox(height: 10),
             Text(
-              hasHeaders
-                  ? 'An API key will be created for this user and your custom headers are included so they can reach the server. Treat the file like a password.'
-                  : 'An API key will be created for this user. Treat the file like a password.',
+              hasHeaders ? l.adminSetupFileNoteWithHeaders : l.adminSetupFileNote,
               style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant.withValues(alpha: 0.8)),
             ),
           ]),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Create')),
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.adminSetupFileCreate)),
           ],
         );
       },
@@ -837,7 +836,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
     if (token == null || token.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not create an API key for this user')),
+          SnackBar(content: Text(l.adminSetupFileKeyError)),
         );
       }
       return;
@@ -856,7 +855,7 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
       final bytes = Uint8List.fromList(utf8.encode(jsonStr));
 
       final result = await FilePicker.platform.saveFile(
-        dialogTitle: 'Save setup file',
+        dialogTitle: l.adminSetupFileSaveTitle,
         fileName: 'absorb_setup_$safeName.absorb',
         type: FileType.any,
         bytes: bytes,
@@ -868,14 +867,14 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
         }
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Setup file for $username saved')),
+            SnackBar(content: Text(l.adminSetupFileSaved(username))),
           );
         }
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to create setup file: $e')),
+          SnackBar(content: Text(l.adminSetupFileFailed(e.toString()))),
         );
       }
     }

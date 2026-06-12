@@ -202,6 +202,58 @@ class AppLocalizationsRo extends AppLocalizations {
   String get loginSignIn => 'Sign In';
 
   @override
+  String loginSignInAs(String username) {
+    return 'Sign in as $username?';
+  }
+
+  @override
+  String get loginSignInToServer => 'Sign in to this server?';
+
+  @override
+  String loginSignedInAs(String username) {
+    return 'Signed in as $username';
+  }
+
+  @override
+  String get adminCreateSetupFile => 'Create setup file';
+
+  @override
+  String adminSetupFileDescription(String username) {
+    return 'Creates a sign-in file for $username that only works in the Absorb app. They import it from the login screen to sign in.';
+  }
+
+  @override
+  String get adminSetupFileServerUrl => 'Server URL the new user will use';
+
+  @override
+  String get adminSetupFileNoteWithHeaders =>
+      'An API key will be created for this user and your custom headers are included so they can reach the server. Treat the file like a password.';
+
+  @override
+  String get adminSetupFileNote =>
+      'An API key will be created for this user. Treat the file like a password.';
+
+  @override
+  String get adminSetupFileCreate => 'Create';
+
+  @override
+  String get adminSetupFileSaveTitle => 'Save setup file';
+
+  @override
+  String get adminSetupFileKeyError =>
+      'Could not create an API key for this user';
+
+  @override
+  String adminSetupFileSaved(String username) {
+    return 'Setup file for $username saved';
+  }
+
+  @override
+  String adminSetupFileFailed(String error) {
+    return 'Failed to create setup file: $error';
+  }
+
+  @override
   String get loginFailed => 'Login failed';
 
   @override

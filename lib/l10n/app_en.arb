@@ -63,6 +63,34 @@
   "loginUsernameRequired": "Please enter your username",
   "loginPassword": "Password",
   "loginSignIn": "Sign In",
+  "loginSignInAs": "Sign in as {username}?",
+  "@loginSignInAs": {
+    "placeholders": { "username": { "type": "String" } }
+  },
+  "loginSignInToServer": "Sign in to this server?",
+  "loginSignedInAs": "Signed in as {username}",
+  "@loginSignedInAs": {
+    "placeholders": { "username": { "type": "String" } }
+  },
+  "adminCreateSetupFile": "Create setup file",
+  "adminSetupFileDescription": "Creates a sign-in file for {username} that only works in the Absorb app. They import it from the login screen to sign in.",
+  "@adminSetupFileDescription": {
+    "placeholders": { "username": { "type": "String" } }
+  },
+  "adminSetupFileServerUrl": "Server URL the new user will use",
+  "adminSetupFileNoteWithHeaders": "An API key will be created for this user and your custom headers are included so they can reach the server. Treat the file like a password.",
+  "adminSetupFileNote": "An API key will be created for this user. Treat the file like a password.",
+  "adminSetupFileCreate": "Create",
+  "adminSetupFileSaveTitle": "Save setup file",
+  "adminSetupFileKeyError": "Could not create an API key for this user",
+  "adminSetupFileSaved": "Setup file for {username} saved",
+  "@adminSetupFileSaved": {
+    "placeholders": { "username": { "type": "String" } }
+  },
+  "adminSetupFileFailed": "Failed to create setup file: {error}",
+  "@adminSetupFileFailed": {
+    "placeholders": { "error": { "type": "String" } }
+  },
   "loginFailed": "Login failed",
   "loginSsoFailed": "SSO login failed or was cancelled",
   "loginSsoAuthFailed": "SSO authentication failed. Please try again.",
