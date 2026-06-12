@@ -8,6 +8,7 @@ import '../providers/library_provider.dart';
 import '../screens/app_shell.dart';
 import '../services/audio_player_service.dart';
 import '../services/bookmark_service.dart';
+import '../services/chromecast_service.dart';
 import '../services/scoped_prefs.dart';
 import '../widgets/bookmark_detail_dialog.dart';
 import '../widgets/card_buttons.dart';
@@ -282,6 +283,17 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     final position = result.position;
     final lib = context.read<LibraryProvider>();
     final player = AudioPlayerService();
+
+    // This book is casting: seek the Chromecast. The local player may hold
+    // nothing while a cast is active, so this has to come first.
+    final cast = ChromecastService();
+    if (cast.isCasting && cast.castingItemId == itemId) {
+      await cast.seekTo(Duration(seconds: position.round()));
+      if (!cast.isPlaying) cast.play();
+      if (mounted) Navigator.pop(context);
+      AppShell.goToAbsorbingGlobal();
+      return;
+    }
 
     // Same book already loaded: just seek.
     if (player.currentItemId == itemId) {

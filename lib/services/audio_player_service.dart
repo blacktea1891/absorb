@@ -4495,6 +4495,16 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> seekTo(Duration pos,
       {PlaybackEventType logAs = PlaybackEventType.seek, String? logDetail}) async {
+    // While this item is casting, the Chromecast is the real player - route
+    // the seek there too or bookmark/chapter jumps only move the stopped
+    // local player (GH #273).
+    final cast = ChromecastService();
+    if (cast.isCasting &&
+        _currentItemId != null &&
+        cast.castingItemId == _currentItemId &&
+        cast.castingEpisodeId == _currentEpisodeId) {
+      await cast.seekTo(pos);
+    }
     _resetStuckDetection();
     if (_player != null && !_player!.playing) _seekedWhilePaused = true;
     final from = position;
