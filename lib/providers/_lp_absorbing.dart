@@ -400,6 +400,9 @@ mixin _AbsorbingMixin on ChangeNotifier, _StateMixin, _CoreMixin {
       {bool skipRefresh = false, bool skipAutoAdvance = false}) {
     _resetItems.remove(itemId);
     final existing = _progressMap[itemId] ?? {};
+    if (itemId.length > 36 && existing['isFinished'] != true) {
+      nudgeUnfinishedEpisodeCount(itemId.substring(0, 36), -1);
+    }
     _progressMap[itemId] = {...existing, 'isFinished': true};
     _localProgressOverrides[itemId] = 1.0;
     _lastFinishedItemId = itemId;

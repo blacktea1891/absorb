@@ -533,14 +533,16 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   int getUnfinishedEpisodeCount(Map<String, dynamic>? show) {
     if (show == null) return 0;
     final media = show['media'] as Map<String, dynamic>? ?? const {};
+    final itemId = show['id'] as String? ?? '';
     // Try the server-provided count first.
     final serverCount = show['numEpisodesIncomplete'] as int? ??
         media['numEpisodesIncomplete'] as int?;
-    if (serverCount != null) return serverCount;
+    if (serverCount != null) {
+      return _adjustedUnfinishedCount(itemId, serverCount);
+    }
 
     // Fallback: count from the loaded episodes array. Match server semantics
     // — count any episode the user hasn't marked finished.
-    final itemId = show['id'] as String? ?? '';
     if (itemId.isEmpty) return 0;
     final episodes = media['episodes'] as List<dynamic>? ?? const [];
     if (episodes.isEmpty) return 0;
@@ -554,6 +556,33 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
       if (!isFinished) count++;
     }
     return count;
+  }
+
+  /// Apply (and fold pending) local badge nudges onto the server's count.
+  /// The cached items showing badges aren't all owned by the provider, so the
+  /// correction lives here instead of in the item maps. Self-discards when
+  /// the server count moves off the base it was recorded against.
+  int _adjustedUnfinishedCount(String showId, int serverCount) {
+    if (showId.isEmpty) return serverCount;
+    final pending = _pendingUnfinishedDeltas.remove(showId);
+    if (pending != null) {
+      final prior = _unfinishedCountAdjustments[showId];
+      final from = (prior != null && prior.$1 == serverCount) ? prior.$2 : serverCount;
+      _unfinishedCountAdjustments[showId] =
+          (serverCount, (from + pending).clamp(0, 1 << 30));
+    }
+    final adj = _unfinishedCountAdjustments[showId];
+    if (adj == null) return serverCount;
+    if (adj.$1 == serverCount) return adj.$2;
+    _unfinishedCountAdjustments.remove(showId);
+    return serverCount;
+  }
+
+  /// Record a local +/- nudge for a show's unfinished-episode badge.
+  void nudgeUnfinishedEpisodeCount(String showId, int delta) {
+    if (showId.isEmpty) return;
+    _pendingUnfinishedDeltas[showId] =
+        (_pendingUnfinishedDeltas[showId] ?? 0) + delta;
   }
 
   Future<void> refreshLocalProgress() async {
@@ -589,6 +618,9 @@ mixin _CoreMixin on ChangeNotifier, _StateMixin {
   }
 
   void resetProgressFor(String itemId) {
+    if (itemId.length > 36 && _progressMap[itemId]?['isFinished'] == true) {
+      nudgeUnfinishedEpisodeCount(itemId.substring(0, 36), 1);
+    }
     _progressMap.remove(itemId);
     _localProgressOverrides.remove(itemId);
     _locallyFinishedItems.remove(itemId);

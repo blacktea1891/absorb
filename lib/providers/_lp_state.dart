@@ -15,6 +15,15 @@ mixin _StateMixin on ChangeNotifier {
   final Map<String, int> _itemUpdatedAt = {};
   final Set<String> _itemsWithoutCover = {};
 
+  /// Local nudges to podcast unfinished-episode badges after an episode is
+  /// finished/reset in-app, keyed by show id. Pending deltas get folded into
+  /// _unfinishedCountAdjustments against the server count on the next badge
+  /// read; an adjustment is dropped once the server reports a different base
+  /// count (fresh data caught up). Needed because show tiles can render from
+  /// caches the provider doesn't own (library screen pages).
+  final Map<String, int> _pendingUnfinishedDeltas = {};
+  final Map<String, (int, int)> _unfinishedCountAdjustments = {};
+
   Future<void>? _personalizedInFlight;
   Future<void>? _progressShelvesInFlight;
   DateTime? _lastPersonalizedFetchAt;
