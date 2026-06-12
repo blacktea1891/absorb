@@ -115,6 +115,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String _themeMode = 'dark';
   String _language = '';
   int _startScreen = 2;
+  String _statsGoalType = 'off';
+  int _statsGoalMinutes = 30;
+  int _statsBookGoal = 0;
+  String _statsChartStyle = 'bar';
+  int _statsChartRange = 7;
+  List<String> _statsSectionOrder = [];
+  Set<String> _statsHiddenSections = {};
+
+  static const _statsSectionIds = [
+    'hero', 'goals', 'periods', 'activity', 'chart', 'top', 'sessions',
+  ];
   int _streamingCacheSizeMb = 0;
   bool _localServerEnabled = false;
   String _localServerUrl = '';
@@ -246,6 +257,213 @@ class _SettingsScreenState extends State<SettingsScreen> {
     PlayerSettings.notifySettingsChanged();
   }
 
+  Widget _statsStepperRow(ColorScheme cs, TextTheme tt, String label, String value,
+      {VoidCallback? onMinus, VoidCallback? onPlus, VoidCallback? onTapValue}) {
+    return Row(children: [
+      Expanded(child: Text(label, style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant))),
+      IconButton(
+        onPressed: _loaded ? onMinus : null,
+        icon: const Icon(Icons.remove_circle_outline_rounded),
+        color: cs.primary,
+        visualDensity: VisualDensity.compact,
+      ),
+      InkWell(
+        onTap: _loaded ? onTapValue : null,
+        borderRadius: BorderRadius.circular(8),
+        child: SizedBox(
+          width: 72,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Text(value,
+                textAlign: TextAlign.center,
+                style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          ),
+        ),
+      ),
+      IconButton(
+        onPressed: _loaded ? onPlus : null,
+        icon: const Icon(Icons.add_circle_outline_rounded),
+        color: cs.primary,
+        visualDensity: VisualDensity.compact,
+      ),
+    ]);
+  }
+
+  String _statsMinutesLabel(AppLocalizations l, int minutes) {
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    return h > 0 ? l.statsScreenDurationHm(h, m) : l.statsScreenDurationM(m);
+  }
+
+  /// Accepts plain minutes ("90") or h:mm ("1:30").
+  int? _parseGoalMinutes(String input) {
+    final t = input.trim();
+    if (t.isEmpty) return null;
+    int? minutes;
+    if (t.contains(':')) {
+      final parts = t.split(':');
+      if (parts.length != 2) return null;
+      final h = int.tryParse(parts[0].trim());
+      final m = int.tryParse(parts[1].trim());
+      if (h == null || m == null || h < 0 || m < 0 || m >= 60) return null;
+      minutes = h * 60 + m;
+    } else {
+      minutes = int.tryParse(t);
+    }
+    if (minutes == null || minutes < 1) return null;
+    return minutes.clamp(1, 1440);
+  }
+
+  Future<String?> _promptStatsValue(String hint, TextInputType keyboard) async {
+    final l = AppLocalizations.of(context)!;
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.statsGoalEnterTitle),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: keyboard,
+          decoration: InputDecoration(hintText: hint),
+          onSubmitted: (v) => Navigator.pop(ctx, v),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
+          FilledButton(onPressed: () => Navigator.pop(ctx, ctrl.text), child: Text(l.save)),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _editStatsTimeTarget() async {
+    final l = AppLocalizations.of(context)!;
+    final input = await _promptStatsValue(l.statsGoalEnterTimeHint, TextInputType.datetime);
+    if (input == null) return;
+    final minutes = _parseGoalMinutes(input);
+    if (minutes == null) return;
+    setState(() => _statsGoalMinutes = minutes);
+    PlayerSettings.setStatsGoalMinutes(minutes);
+  }
+
+  Future<void> _editStatsBookTarget() async {
+    final input = await _promptStatsValue('', TextInputType.number);
+    if (input == null) return;
+    final books = int.tryParse(input.trim());
+    if (books == null || books < 0) return;
+    setState(() => _statsBookGoal = books.clamp(0, 500));
+    PlayerSettings.setStatsBookGoal(_statsBookGoal);
+  }
+
+  List<String> get _mergedStatsOrder => [
+        ..._statsSectionOrder.where(_statsSectionIds.contains),
+        ..._statsSectionIds.where((id) => !_statsSectionOrder.contains(id)),
+      ];
+
+  String _statsSectionLabel(AppLocalizations l, String id) {
+    switch (id) {
+      case 'hero': return l.statsTotalListeningTime;
+      case 'goals': return l.statsGoalTitle;
+      case 'periods': return l.statsSectionTimePeriods;
+      case 'activity': return l.statsActivity;
+      case 'chart': return l.statsChartTitle;
+      case 'top': return l.statsMostListened;
+      case 'sessions': return l.statsRecentSessions;
+    }
+    return id;
+  }
+
+  IconData _statsSectionIcon(String id) {
+    switch (id) {
+      case 'hero': return Icons.headphones_rounded;
+      case 'goals': return Icons.flag_rounded;
+      case 'periods': return Icons.date_range_rounded;
+      case 'activity': return Icons.local_fire_department_rounded;
+      case 'chart': return Icons.bar_chart_rounded;
+      case 'top': return Icons.star_outline_rounded;
+      case 'sessions': return Icons.history_rounded;
+    }
+    return Icons.widgets_outlined;
+  }
+
+  Widget _statsSectionsList(ColorScheme cs, TextTheme tt, AppLocalizations l) {
+    final order = _mergedStatsOrder;
+    return ReorderableListView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      buildDefaultDragHandles: false,
+      itemCount: order.length,
+      onReorderStart: (_) => HapticFeedback.mediumImpact(),
+      onReorder: (oldIndex, newIndex) {
+        final list = List<String>.from(order);
+        if (newIndex > oldIndex) newIndex--;
+        final item = list.removeAt(oldIndex);
+        list.insert(newIndex, item);
+        setState(() => _statsSectionOrder = list);
+        PlayerSettings.setStatsSectionOrder(list);
+      },
+      itemBuilder: (context, index) {
+        final id = order[index];
+        final isHidden = _statsHiddenSections.contains(id);
+        return Container(
+          key: ValueKey(id),
+          margin: const EdgeInsets.symmetric(vertical: 3),
+          decoration: BoxDecoration(
+            color: cs.onSurface.withValues(alpha: isHidden ? 0.02 : 0.05),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+          ),
+          child: ListTile(
+            dense: true,
+            leading: Icon(_statsSectionIcon(id), size: 18,
+                color: isHidden
+                    ? cs.onSurfaceVariant.withValues(alpha: 0.3)
+                    : cs.onSurfaceVariant),
+            title: Text(_statsSectionLabel(l, id),
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: isHidden
+                      ? cs.onSurface.withValues(alpha: 0.35)
+                      : cs.onSurface,
+                )),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              GestureDetector(
+                onTap: () {
+                  final updated = Set<String>.from(_statsHiddenSections);
+                  if (!updated.add(id)) updated.remove(id);
+                  setState(() => _statsHiddenSections = updated);
+                  PlayerSettings.setStatsHiddenSections(updated.toList());
+                },
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(
+                    isHidden
+                        ? Icons.visibility_off_rounded
+                        : Icons.visibility_rounded,
+                    size: 18,
+                    color: isHidden
+                        ? cs.onSurfaceVariant.withValues(alpha: 0.3)
+                        : cs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              ReorderableDragStartListener(
+                index: index,
+                child: Padding(
+                  padding: const EdgeInsets.all(8),
+                  child: Icon(Icons.drag_handle_rounded,
+                      size: 18,
+                      color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
+                ),
+              ),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
   Future<void> _loadSettings() async {
     final results = await Future.wait([
       AutoRewindSettings.load(),                              // 0
@@ -304,6 +522,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     ]);
     final s = results[0] as AutoRewindSettings;
     final progressScale = results.last as double;
+    final statsGoalType = await PlayerSettings.getStatsGoalType();
+    final statsGoalMinutes = await PlayerSettings.getStatsGoalMinutes();
+    final statsBookGoal = await PlayerSettings.getStatsBookGoal();
+    final statsChartStyle = await PlayerSettings.getStatsChartStyle();
+    final statsChartRange = await PlayerSettings.getStatsChartRange();
+    final statsSectionOrder = await PlayerSettings.getStatsSectionOrder();
+    final statsHiddenSections = await PlayerSettings.getStatsHiddenSections();
     final speed = results[1] as double;
     final wifiOnly = results[2] as bool;
     final rollingCount = results[3] as int;
@@ -420,6 +645,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _shakeSensitivity = shakeSens;
       _language = language;
       _canPickDownloadLocation = !_isPlayStoreBuild;
+      _statsGoalType = statsGoalType;
+      _statsGoalMinutes = statsGoalMinutes;
+      _statsBookGoal = statsBookGoal;
+      _statsChartStyle = statsChartStyle;
+      _statsChartRange = statsChartRange;
+      _statsSectionOrder = statsSectionOrder;
+      _statsHiddenSections = statsHiddenSections.toSet();
 
       _loaded = true;
     });
@@ -908,6 +1140,152 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         PlayerSettings.setClassicWording(v);
                         classicWordingNotifier.value = v;
                       } : null,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // ── Customize Stats ──
+                CollapsibleSection(
+                  key: _keyFor('Customize Stats'),
+                  icon: Icons.bar_chart_rounded,
+                  title: l.settingsCustomizeStats,
+                  cs: cs,
+                  isExpanded: _expandedSection == 'Customize Stats',
+                  onExpansionChanged: (v) => _onSectionExpanded('Customize Stats', v),
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l.statsGoalTitle, style: tt.titleSmall),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: SegmentedButton<String>(
+                              showSelectedIcon: false,
+                              segments: [
+                                ButtonSegment(value: 'off', label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsGoalOff, maxLines: 1))),
+                                ButtonSegment(value: 'daily', label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsGoalDaily, maxLines: 1))),
+                                ButtonSegment(value: 'weekly', label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsGoalWeekly, maxLines: 1))),
+                                ButtonSegment(value: 'monthly', label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsGoalMonthly, maxLines: 1))),
+                              ],
+                              selected: {_statsGoalType},
+                              onSelectionChanged: _loaded ? (selected) {
+                                setState(() => _statsGoalType = selected.first);
+                                PlayerSettings.setStatsGoalType(_statsGoalType);
+                              } : null,
+                              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                            ),
+                          ),
+                          if (_statsGoalType != 'off')
+                            _statsStepperRow(cs, tt, l.statsGoalTarget,
+                                _statsMinutesLabel(l, _statsGoalMinutes),
+                                onTapValue: _editStatsTimeTarget,
+                                onMinus: _statsGoalMinutes > 5
+                                    ? () {
+                                        setState(() => _statsGoalMinutes -= 5);
+                                        PlayerSettings.setStatsGoalMinutes(_statsGoalMinutes);
+                                      }
+                                    : null,
+                                onPlus: _statsGoalMinutes < 600
+                                    ? () {
+                                        setState(() => _statsGoalMinutes += 5);
+                                        PlayerSettings.setStatsGoalMinutes(_statsGoalMinutes);
+                                      }
+                                    : null),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l.statsBookChallengeTitle, style: tt.titleSmall),
+                          _statsStepperRow(cs, tt, l.statsBookChallengeDesc,
+                              _statsBookGoal == 0 ? l.statsGoalOff : l.statsBooksShort(_statsBookGoal),
+                              onTapValue: _editStatsBookTarget,
+                              onMinus: _statsBookGoal > 0
+                                  ? () {
+                                      setState(() => _statsBookGoal--);
+                                      PlayerSettings.setStatsBookGoal(_statsBookGoal);
+                                    }
+                                  : null,
+                              onPlus: _statsBookGoal < 500
+                                  ? () {
+                                      setState(() => _statsBookGoal++);
+                                      PlayerSettings.setStatsBookGoal(_statsBookGoal);
+                                    }
+                                  : null),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l.statsChartTitle, style: tt.titleSmall),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: SegmentedButton<String>(
+                              showSelectedIcon: false,
+                              segments: [
+                                ButtonSegment(value: 'bar', label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsChartBar, maxLines: 1))),
+                                ButtonSegment(value: 'line', label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsChartLine, maxLines: 1))),
+                                ButtonSegment(value: 'heatmap', label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsChartHeatmap, maxLines: 1))),
+                              ],
+                              selected: {_statsChartStyle},
+                              onSelectionChanged: _loaded ? (selected) {
+                                setState(() => _statsChartStyle = selected.first);
+                                PlayerSettings.setStatsChartStyle(_statsChartStyle);
+                              } : null,
+                              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                            ),
+                          ),
+                          if (_statsChartStyle != 'heatmap') ...[
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              width: double.infinity,
+                              child: SegmentedButton<int>(
+                                showSelectedIcon: false,
+                                segments: [
+                                  ButtonSegment(value: 7, label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsChartDays7, maxLines: 1))),
+                                  ButtonSegment(value: 30, label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.statsChartDays30, maxLines: 1))),
+                                ],
+                                selected: {_statsChartRange},
+                                onSelectionChanged: _loaded ? (selected) {
+                                  setState(() => _statsChartRange = selected.first);
+                                  PlayerSettings.setStatsChartRange(_statsChartRange);
+                                } : null,
+                                style: const ButtonStyle(visualDensity: VisualDensity.compact),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1, indent: 16, endIndent: 16),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(l.statsSectionsTitle, style: tt.titleSmall),
+                          const SizedBox(height: 4),
+                          Text(
+                            l.dragToReorderTapEye,
+                            style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                          ),
+                          const SizedBox(height: 8),
+                          _statsSectionsList(cs, tt, l),
+                        ],
+                      ),
                     ),
                   ],
                 ),

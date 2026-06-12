@@ -750,6 +750,102 @@ class AppLocalizationsEn extends AppLocalizations {
   String get statsNothingHidden => 'Nothing hidden';
 
   @override
+  String get settingsCustomizeStats => 'Customize stats';
+
+  @override
+  String get statsGoalTitle => 'Listening goal';
+
+  @override
+  String get statsGoalOff => 'Off';
+
+  @override
+  String get statsGoalDaily => 'Daily';
+
+  @override
+  String get statsGoalWeekly => 'Weekly';
+
+  @override
+  String get statsGoalMonthly => 'Monthly';
+
+  @override
+  String get statsGoalTarget => 'Target';
+
+  @override
+  String get statsGoalEnterTitle => 'Set target';
+
+  @override
+  String get statsGoalEnterTimeHint => 'Minutes or h:mm';
+
+  @override
+  String statsBooksShort(int count) {
+    return '$count books';
+  }
+
+  @override
+  String get statsBookChallengeTitle => 'Reading challenge';
+
+  @override
+  String get statsBookChallengeDesc => 'Books to finish this year';
+
+  @override
+  String get statsDailyGoal => 'Daily goal';
+
+  @override
+  String get statsWeeklyGoal => 'Weekly goal';
+
+  @override
+  String get statsMonthlyGoal => 'Monthly goal';
+
+  @override
+  String statsGoalProgress(String done, String target) {
+    return '$done / $target';
+  }
+
+  @override
+  String statsBookChallengeProgress(int done, int target) {
+    return '$done of $target books';
+  }
+
+  @override
+  String get statsGoalReached => 'Goal reached';
+
+  @override
+  String get statsChartTitle => 'Listening chart';
+
+  @override
+  String get statsChartBar => 'Bar';
+
+  @override
+  String get statsChartLine => 'Line';
+
+  @override
+  String get statsChartHeatmap => 'Heatmap';
+
+  @override
+  String get statsChartDays7 => '7 days';
+
+  @override
+  String get statsChartDays30 => '30 days';
+
+  @override
+  String get statsLast30Days => 'Last 30 days';
+
+  @override
+  String get statsThisYearTitle => 'This year';
+
+  @override
+  String get statsSectionsTitle => 'Sections';
+
+  @override
+  String get statsSectionTimePeriods => 'Time periods';
+
+  @override
+  String get statsHeatmapLess => 'Less';
+
+  @override
+  String get statsHeatmapMore => 'More';
+
+  @override
   String get statsDaysActive => 'Days Active';
 
   @override

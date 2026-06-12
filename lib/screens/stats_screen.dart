@@ -9,6 +9,7 @@ import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/finished_books_this_year_sheet.dart';
+import '../widgets/stats_charts.dart';
 import '../widgets/absorb_wave_icon.dart';
 import '../widgets/card_buttons.dart';
 import '../main.dart' show oledNotifier;
@@ -30,7 +31,20 @@ class _StatsScreenState extends State<StatsScreen>
   int _episodesFinished = 0;
   int _booksFinishedThisYear = 0;
   int _episodesFinishedThisYear = 0;
+  String _goalType = 'off';
+  int _goalMinutes = 30;
+  int _bookGoal = 0;
+  String _chartStyle = 'bar';
+  int _chartRange = 7;
+  List<String> _statsOrder = [];
+  Set<String> _statsHidden = {};
+  String? _selectedDayKey;
+  double _selectedDaySeconds = 0;
   late AnimationController _animController;
+
+  static const _defaultSectionOrder = [
+    'hero', 'goals', 'periods', 'activity', 'chart', 'top', 'sessions',
+  ];
   late Animation<double> _animValue;
 
   static const int _sessionsPerPage = 10;
@@ -47,12 +61,15 @@ class _StatsScreenState extends State<StatsScreen>
     _animValue =
         CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic);
     _scrollController.addListener(_onScroll);
+    PlayerSettings.settingsChanged.addListener(_onSettingsChanged);
     _loadStats();
+    _loadGoalSettings();
   }
 
   @override
   void dispose() {
     _scrollController.removeListener(_onScroll);
+    PlayerSettings.settingsChanged.removeListener(_onSettingsChanged);
     _scrollController.dispose();
     _animController.dispose();
     super.dispose();
@@ -84,6 +101,66 @@ class _StatsScreenState extends State<StatsScreen>
       if (fetched.length < _sessionsPerPage) _hasMoreSessions = false;
       _isLoadingMoreSessions = false;
     });
+  }
+
+  void _onSettingsChanged() => _loadGoalSettings();
+
+  Future<void> _loadGoalSettings() async {
+    final type = await PlayerSettings.getStatsGoalType();
+    final minutes = await PlayerSettings.getStatsGoalMinutes();
+    final books = await PlayerSettings.getStatsBookGoal();
+    final chartStyle = await PlayerSettings.getStatsChartStyle();
+    final chartRange = await PlayerSettings.getStatsChartRange();
+    final order = await PlayerSettings.getStatsSectionOrder();
+    final hidden = await PlayerSettings.getStatsHiddenSections();
+    if (!mounted) return;
+    setState(() {
+      if (chartStyle != _chartStyle || chartRange != _chartRange) {
+        _selectedDayKey = null;
+      }
+      _goalType = type;
+      _goalMinutes = minutes;
+      _bookGoal = books;
+      _chartStyle = chartStyle;
+      _chartRange = chartRange;
+      _statsOrder = order;
+      _statsHidden = hidden.toSet();
+    });
+  }
+
+  void _selectDay(String key, double seconds) {
+    setState(() {
+      if (_selectedDayKey == key) {
+        _selectedDayKey = null;
+      } else {
+        _selectedDayKey = key;
+        _selectedDaySeconds = seconds;
+      }
+    });
+  }
+
+  /// "Mon, Jun 5 · 1h 23m" line under the chart for the tapped day.
+  Widget _selectedDayRow(ColorScheme cs, TextTheme tt) {
+    final key = _selectedDayKey;
+    if (key == null) return const SizedBox.shrink();
+    final parts = key.split('-');
+    final date = DateTime(
+        int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final l = AppLocalizations.of(context)!;
+    final label = '${_dayLabel(date, l)}, ${months[date.month - 1]} ${date.day}';
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Icon(Icons.calendar_today_rounded,
+            size: 13, color: cs.primary.withValues(alpha: 0.7)),
+        const SizedBox(width: 6),
+        Text('$label  ·  ${_formatDuration(_selectedDaySeconds)}',
+            style: tt.bodySmall?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.7),
+                fontWeight: FontWeight.w600)),
+      ]),
+    );
   }
 
   static const _kStats = 'cached_stats';
@@ -242,26 +319,23 @@ class _StatsScreenState extends State<StatsScreen>
     final thisMonth = _monthSeconds(dailyMap);
     final streak = _currentStreak(dailyMap);
     final longestStreak = _longestStreak(dailyMap);
-    final weekData = _last7Days(dailyMap);
+    final chartData = _lastNDays(dailyMap, _chartRange);
     final activeDays = _activeDayCount(dailyMap);
     final avgDaily = _averageDailySeconds(dailyMap);
     final topItems = _topItems();
 
-    return ListView(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-      children: [
-        AbsorbPageHeader(
-          title: l.statsTitle,
-          padding: const EdgeInsets.only(top: 12),
-        ),
-        const SizedBox(height: 24),
-
-        // -- Hero stat --
+    final sections = <String, List<Widget>>{
+      'hero': [
         _heroStat(tt, cs, l, totalSeconds),
         const SizedBox(height: 16),
-
-        // -- Time periods --
+      ],
+      'goals': [
+        if (_goalType != 'off' || _bookGoal > 0) ...[
+          _goalCard(cs, tt, l, today, thisWeek, thisMonth),
+          const SizedBox(height: 16),
+        ],
+      ],
+      'periods': [
         Row(children: [
           Expanded(child: _periodCard(tt, cs, l.statsToday, today)),
           const SizedBox(width: 8),
@@ -270,8 +344,8 @@ class _StatsScreenState extends State<StatsScreen>
           Expanded(child: _periodCard(tt, cs, l.statsThisMonth, thisMonth)),
         ]),
         const SizedBox(height: 24),
-
-        // -- Activity stats --
+      ],
+      'activity': [
         _sectionTitle(tt, cs, l.statsActivity),
         const SizedBox(height: 10),
         Row(children: [
@@ -334,22 +408,28 @@ class _StatsScreenState extends State<StatsScreen>
                   _formatDuration(avgDaily), l.statsDailyAverage)),
         ]),
         const SizedBox(height: 28),
-
-        // -- Last 7 days chart --
-        _sectionTitle(tt, cs, l.statsLast7Days),
+      ],
+      'chart': [
+        _sectionTitle(
+            tt,
+            cs,
+            _chartStyle == 'heatmap'
+                ? l.statsThisYearTitle
+                : (_chartRange == 30 ? l.statsLast30Days : l.statsLast7Days)),
         const SizedBox(height: 10),
-        _barChart(weekData, cs, tt),
+        _chartCard(cs, tt, l, dailyMap, chartData),
+        _selectedDayRow(cs, tt),
         const SizedBox(height: 28),
-
-        // -- Top items --
+      ],
+      'top': [
         if (topItems.isNotEmpty) ...[
           _sectionTitle(tt, cs, l.statsMostListened),
           const SizedBox(height: 10),
           ...topItems.map((item) => _topItemCard(tt, cs, l, item)),
           const SizedBox(height: 28),
         ],
-
-        // -- Recent Sessions --
+      ],
+      'sessions': [
         if (_sessions.isNotEmpty) ...[
           _sectionTitle(tt, cs, l.statsRecentSessions),
           const SizedBox(height: 10),
@@ -369,6 +449,82 @@ class _StatsScreenState extends State<StatsScreen>
             ),
         ],
       ],
+    };
+
+    final order = [
+      ..._statsOrder.where(sections.containsKey),
+      ..._defaultSectionOrder.where((id) => !_statsOrder.contains(id)),
+    ];
+
+    return ListView(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+      children: [
+        AbsorbPageHeader(
+          title: l.statsTitle,
+          padding: const EdgeInsets.only(top: 12),
+        ),
+        const SizedBox(height: 24),
+        for (final id in order)
+          if (!_statsHidden.contains(id)) ...sections[id]!,
+      ],
+    );
+  }
+
+  Widget _chartCard(ColorScheme cs, TextTheme tt, AppLocalizations l,
+      Map<String, dynamic> dailyMap, List<_DayData> chartData) {
+    if (_chartStyle == 'bar') {
+      return _barChart(chartData, cs, tt, dense: _chartRange > 10);
+    }
+    final deco = BoxDecoration(
+      color: cs.onSurface.withValues(alpha: 0.03),
+      borderRadius: BorderRadius.circular(16),
+      border: Border.all(color: cs.onSurface.withValues(alpha: 0.05)),
+    );
+    if (_chartStyle == 'line') {
+      return Container(
+        padding: const EdgeInsets.fromLTRB(12, 16, 12, 8),
+        decoration: deco,
+        child: StatsLineChart(
+          data: chartData
+              .map((d) => ChartDay(label: d.label, dateKey: d.fullLabel, seconds: d.seconds))
+              .toList(),
+          todayKey: _dateKey(DateTime.now()),
+          animValue: _animValue.value,
+          lineColor: cs.primary,
+          labelColor: cs.onSurface,
+          todayColor: cs.primary,
+          formatValue: _shortDuration,
+          selectedIndex: chartData.indexWhere((d) => d.fullLabel == _selectedDayKey),
+          onDaySelected: (i) => _selectDay(chartData[i].fullLabel, chartData[i].seconds),
+        ),
+      );
+    }
+    final daily = <String, double>{
+      for (final e in dailyMap.entries) e.key: _safeNum(e.value),
+    };
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+      decoration: deco,
+      child: StatsHeatmap(
+        dailySeconds: daily,
+        fillColor: cs.primary,
+        emptyColor: cs.onSurface.withValues(alpha: 0.06),
+        labelColor: cs.onSurface,
+        lessLabel: l.statsHeatmapLess,
+        moreLabel: l.statsHeatmapMore,
+        dayLabels: [
+          l.statsScreenDayMon,
+          l.statsScreenDayTue,
+          l.statsScreenDayWed,
+          l.statsScreenDayThu,
+          l.statsScreenDayFri,
+          l.statsScreenDaySat,
+          l.statsScreenDaySun,
+        ],
+        selectedKey: _selectedDayKey,
+        onDaySelected: _selectDay,
+      ),
     );
   }
 
@@ -381,6 +537,114 @@ class _StatsScreenState extends State<StatsScreen>
           fontWeight: FontWeight.w600,
           letterSpacing: 0.5,
         ));
+  }
+
+  // --- GOAL CARD ---
+
+  Widget _goalCard(ColorScheme cs, TextTheme tt, AppLocalizations l,
+      double today, double thisWeek, double thisMonth) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
+
+    final hasTimeGoal = _goalType != 'off';
+    final hasBookGoal = _bookGoal > 0;
+
+    final periodSeconds = _goalType == 'weekly'
+        ? thisWeek
+        : _goalType == 'monthly'
+            ? thisMonth
+            : today;
+    final targetSeconds = _goalMinutes * 60.0;
+    final double timeProgress =
+        targetSeconds > 0 ? (periodSeconds / targetSeconds).clamp(0.0, 1.0).toDouble() : 0.0;
+    final timeReached = hasTimeGoal && periodSeconds >= targetSeconds;
+    final goalLabel = _goalType == 'weekly'
+        ? l.statsWeeklyGoal
+        : _goalType == 'monthly'
+            ? l.statsMonthlyGoal
+            : l.statsDailyGoal;
+
+    final double bookProgress =
+        hasBookGoal ? (_booksFinishedThisYear / _bookGoal).clamp(0.0, 1.0).toDouble() : 0.0;
+    final bookReached = hasBookGoal && _booksFinishedThisYear >= _bookGoal;
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: cs.onSurface.withValues(alpha: 0.03),
+        border: Border.all(color: cs.onSurface.withValues(alpha: 0.06)),
+      ),
+      child: Column(children: [
+        if (hasTimeGoal)
+          Row(children: [
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: Stack(alignment: Alignment.center, children: [
+                SizedBox(
+                  width: 56,
+                  height: 56,
+                  child: CircularProgressIndicator(
+                    value: timeProgress,
+                    strokeWidth: 5,
+                    backgroundColor: cs.onSurface.withValues(alpha: 0.08),
+                    valueColor: AlwaysStoppedAnimation(timeReached ? doneColor : cs.primary),
+                  ),
+                ),
+                if (timeReached)
+                  Icon(Icons.check_rounded, color: doneColor, size: 24)
+                else
+                  Text('${(timeProgress * 100).round()}%',
+                      style: tt.labelMedium
+                          ?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface)),
+              ]),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(goalLabel,
+                  style: tt.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface)),
+              const SizedBox(height: 2),
+              Text(
+                l.statsGoalProgress(
+                    _formatDuration(periodSeconds), _formatDuration(targetSeconds)),
+                style: tt.bodySmall
+                    ?.copyWith(color: timeReached ? doneColor : cs.onSurfaceVariant),
+              ),
+            ])),
+          ]),
+        if (hasTimeGoal && hasBookGoal) const SizedBox(height: 16),
+        if (hasBookGoal)
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(Icons.auto_stories_rounded,
+                  size: 16, color: bookReached ? doneColor : cs.primary),
+              const SizedBox(width: 8),
+              Expanded(
+                  child: Text(l.statsBookChallengeTitle,
+                      style: tt.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface))),
+              Text(
+                l.statsBookChallengeProgress(_booksFinishedThisYear, _bookGoal),
+                style: tt.bodySmall
+                    ?.copyWith(color: bookReached ? doneColor : cs.onSurfaceVariant),
+              ),
+            ]),
+            const SizedBox(height: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                value: bookProgress,
+                minHeight: 8,
+                backgroundColor: cs.onSurface.withValues(alpha: 0.08),
+                valueColor: AlwaysStoppedAnimation(bookReached ? doneColor : cs.primary),
+              ),
+            ),
+          ]),
+      ]),
+    );
   }
 
   // --- HERO STAT ---
@@ -540,7 +804,8 @@ class _StatsScreenState extends State<StatsScreen>
 
   // --- BAR CHART (7 days) ---
 
-  Widget _barChart(List<_DayData> data, ColorScheme cs, TextTheme tt) {
+  Widget _barChart(List<_DayData> data, ColorScheme cs, TextTheme tt,
+      {bool dense = false}) {
     final maxVal =
         data.map((d) => d.seconds).fold(0.0, (a, b) => a > b ? a : b);
     final barMax = maxVal > 0 ? maxVal : 1.0;
@@ -561,48 +826,60 @@ class _StatsScreenState extends State<StatsScreen>
             children: data.map((d) {
               final ratio = (d.seconds / barMax * anim).clamp(0.0, 1.0);
               final isToday = d.fullLabel == _dateKey(DateTime.now());
+              final isSelected = d.fullLabel == _selectedDayKey;
               return Expanded(
-                  child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 3),
-                child:
-                    Column(mainAxisAlignment: MainAxisAlignment.end, children: [
-                  if (d.seconds > 0)
-                    Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(_shortDuration(d.seconds),
-                            style: TextStyle(
-                                color: cs.onSurface.withValues(alpha: 0.35),
-                                fontSize: 9,
-                                fontWeight: FontWeight.w600))),
-                  Container(
-                    height: max(ratio * 80, d.seconds > 0 ? 4 : 2),
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(5),
-                      color: isToday
-                          ? cs.primary.withValues(alpha: 0.7)
-                          : cs.onSurface.withValues(alpha: 0.12),
-                    ),
-                  ),
-                ]),
+                  child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => _selectDay(d.fullLabel, d.seconds),
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: dense ? 1 : 3),
+                  child: Column(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        if ((!dense || isSelected) && d.seconds > 0)
+                          Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Text(_shortDuration(d.seconds),
+                                  style: TextStyle(
+                                      color: isSelected
+                                          ? cs.primary
+                                          : cs.onSurface.withValues(alpha: 0.35),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w600))),
+                        Container(
+                          height: max(ratio * 80, d.seconds > 0 ? 4 : 2),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(dense ? 2 : 5),
+                            color: isSelected
+                                ? cs.primary
+                                : isToday
+                                    ? cs.primary.withValues(alpha: 0.7)
+                                    : cs.onSurface.withValues(alpha: 0.12),
+                          ),
+                        ),
+                      ]),
+                ),
               ));
             }).toList(),
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-            children: data.map((d) {
-          final isToday = d.fullLabel == _dateKey(DateTime.now());
-          return Expanded(
-              child: Text(d.label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: isToday
-                        ? cs.primary.withValues(alpha: 0.8)
-                        : cs.onSurface.withValues(alpha: 0.25),
-                    fontSize: 10,
-                    fontWeight: isToday ? FontWeight.w600 : FontWeight.w400,
-                  )));
-        }).toList()),
+        Row(children: [
+          for (var i = 0; i < data.length; i++)
+            Expanded(
+                child: Text(
+                    dense ? (i % 5 == 0 ? data[i].label : '') : data[i].label,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: data[i].fullLabel == _dateKey(DateTime.now())
+                          ? cs.primary.withValues(alpha: 0.8)
+                          : cs.onSurface.withValues(alpha: 0.25),
+                      fontSize: 10,
+                      fontWeight: data[i].fullLabel == _dateKey(DateTime.now())
+                          ? FontWeight.w600
+                          : FontWeight.w400,
+                    ))),
+        ]),
       ]),
     );
   }
@@ -921,13 +1198,13 @@ class _StatsScreenState extends State<StatsScreen>
     return daysWithData > 0 ? total / daysWithData : 0;
   }
 
-  List<_DayData> _last7Days(Map<String, dynamic> dailyMap) {
+  List<_DayData> _lastNDays(Map<String, dynamic> dailyMap, int n) {
     final l = AppLocalizations.of(context)!;
     final now = DateTime.now();
-    return List.generate(7, (i) {
-      final date = now.subtract(Duration(days: 6 - i));
+    return List.generate(n, (i) {
+      final date = now.subtract(Duration(days: n - 1 - i));
       return _DayData(
-        label: _dayLabel(date, l),
+        label: n <= 7 ? _dayLabel(date, l) : '${date.day}',
         fullLabel: _dateKey(date),
         seconds: _daySeconds(dailyMap, _dateKey(date)),
       );

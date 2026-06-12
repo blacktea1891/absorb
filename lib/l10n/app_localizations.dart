@@ -1456,6 +1456,186 @@ abstract class AppLocalizations {
   /// **'Nothing hidden'**
   String get statsNothingHidden;
 
+  /// No description provided for @settingsCustomizeStats.
+  ///
+  /// In en, this message translates to:
+  /// **'Customize stats'**
+  String get settingsCustomizeStats;
+
+  /// No description provided for @statsGoalTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening goal'**
+  String get statsGoalTitle;
+
+  /// No description provided for @statsGoalOff.
+  ///
+  /// In en, this message translates to:
+  /// **'Off'**
+  String get statsGoalOff;
+
+  /// No description provided for @statsGoalDaily.
+  ///
+  /// In en, this message translates to:
+  /// **'Daily'**
+  String get statsGoalDaily;
+
+  /// No description provided for @statsGoalWeekly.
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly'**
+  String get statsGoalWeekly;
+
+  /// No description provided for @statsGoalMonthly.
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly'**
+  String get statsGoalMonthly;
+
+  /// No description provided for @statsGoalTarget.
+  ///
+  /// In en, this message translates to:
+  /// **'Target'**
+  String get statsGoalTarget;
+
+  /// No description provided for @statsGoalEnterTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Set target'**
+  String get statsGoalEnterTitle;
+
+  /// No description provided for @statsGoalEnterTimeHint.
+  ///
+  /// In en, this message translates to:
+  /// **'Minutes or h:mm'**
+  String get statsGoalEnterTimeHint;
+
+  /// No description provided for @statsBooksShort.
+  ///
+  /// In en, this message translates to:
+  /// **'{count} books'**
+  String statsBooksShort(int count);
+
+  /// No description provided for @statsBookChallengeTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Reading challenge'**
+  String get statsBookChallengeTitle;
+
+  /// No description provided for @statsBookChallengeDesc.
+  ///
+  /// In en, this message translates to:
+  /// **'Books to finish this year'**
+  String get statsBookChallengeDesc;
+
+  /// No description provided for @statsDailyGoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Daily goal'**
+  String get statsDailyGoal;
+
+  /// No description provided for @statsWeeklyGoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Weekly goal'**
+  String get statsWeeklyGoal;
+
+  /// No description provided for @statsMonthlyGoal.
+  ///
+  /// In en, this message translates to:
+  /// **'Monthly goal'**
+  String get statsMonthlyGoal;
+
+  /// No description provided for @statsGoalProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'{done} / {target}'**
+  String statsGoalProgress(String done, String target);
+
+  /// No description provided for @statsBookChallengeProgress.
+  ///
+  /// In en, this message translates to:
+  /// **'{done} of {target} books'**
+  String statsBookChallengeProgress(int done, int target);
+
+  /// No description provided for @statsGoalReached.
+  ///
+  /// In en, this message translates to:
+  /// **'Goal reached'**
+  String get statsGoalReached;
+
+  /// No description provided for @statsChartTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Listening chart'**
+  String get statsChartTitle;
+
+  /// No description provided for @statsChartBar.
+  ///
+  /// In en, this message translates to:
+  /// **'Bar'**
+  String get statsChartBar;
+
+  /// No description provided for @statsChartLine.
+  ///
+  /// In en, this message translates to:
+  /// **'Line'**
+  String get statsChartLine;
+
+  /// No description provided for @statsChartHeatmap.
+  ///
+  /// In en, this message translates to:
+  /// **'Heatmap'**
+  String get statsChartHeatmap;
+
+  /// No description provided for @statsChartDays7.
+  ///
+  /// In en, this message translates to:
+  /// **'7 days'**
+  String get statsChartDays7;
+
+  /// No description provided for @statsChartDays30.
+  ///
+  /// In en, this message translates to:
+  /// **'30 days'**
+  String get statsChartDays30;
+
+  /// No description provided for @statsLast30Days.
+  ///
+  /// In en, this message translates to:
+  /// **'Last 30 days'**
+  String get statsLast30Days;
+
+  /// No description provided for @statsThisYearTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'This year'**
+  String get statsThisYearTitle;
+
+  /// No description provided for @statsSectionsTitle.
+  ///
+  /// In en, this message translates to:
+  /// **'Sections'**
+  String get statsSectionsTitle;
+
+  /// No description provided for @statsSectionTimePeriods.
+  ///
+  /// In en, this message translates to:
+  /// **'Time periods'**
+  String get statsSectionTimePeriods;
+
+  /// No description provided for @statsHeatmapLess.
+  ///
+  /// In en, this message translates to:
+  /// **'Less'**
+  String get statsHeatmapLess;
+
+  /// No description provided for @statsHeatmapMore.
+  ///
+  /// In en, this message translates to:
+  /// **'More'**
+  String get statsHeatmapMore;
+
   /// No description provided for @statsDaysActive.
   ///
   /// In en, this message translates to:

@@ -153,6 +153,40 @@ class PlayerSettings {
   static Future<int> getMaxConcurrentDownloads() => _get('maxConcurrentDownloads', 1);
   static Future<void> setMaxConcurrentDownloads(int value) => _set('maxConcurrentDownloads', value);
 
+  // ── Stats page ──
+  // Goal period shown on the stats page: 'off' | 'daily' | 'weekly' | 'monthly'.
+  static Future<String> getStatsGoalType() => _get('stats_goal_type', 'off');
+  static Future<void> setStatsGoalType(String value) => _set('stats_goal_type', value, notify: true);
+
+  /// Target listening minutes for the active goal period.
+  static Future<int> getStatsGoalMinutes() => _get('stats_goal_minutes', 30);
+  static Future<void> setStatsGoalMinutes(int value) => _set('stats_goal_minutes', value, notify: true);
+
+  /// Yearly book-challenge target. 0 = off.
+  static Future<int> getStatsBookGoal() => _get('stats_book_goal', 0);
+  static Future<void> setStatsBookGoal(int value) => _set('stats_book_goal', value, notify: true);
+
+  /// Listening chart style on the stats page: 'bar' | 'line' | 'heatmap'.
+  static Future<String> getStatsChartStyle() => _get('stats_chart_style', 'bar');
+  static Future<void> setStatsChartStyle(String value) => _set('stats_chart_style', value, notify: true);
+
+  /// Days covered by the bar/line chart: 7 or 30. The heatmap is always a year.
+  static Future<int> getStatsChartRange() => _get('stats_chart_range', 7);
+  static Future<void> setStatsChartRange(int value) => _set('stats_chart_range', value, notify: true);
+
+  /// Stats page section layout (ids ordered / hidden), per account.
+  static Future<List<String>> getStatsSectionOrder() => ScopedPrefs.getStringList('stats_section_order');
+  static Future<void> setStatsSectionOrder(List<String> order) async {
+    await ScopedPrefs.setStringList('stats_section_order', order);
+    _notify();
+  }
+
+  static Future<List<String>> getStatsHiddenSections() => ScopedPrefs.getStringList('stats_hidden_sections');
+  static Future<void> setStatsHiddenSections(List<String> hidden) async {
+    await ScopedPrefs.setStringList('stats_hidden_sections', hidden);
+    _notify();
+  }
+
   // ── Queue mode (replaces autoPlayNextBook + autoPlayNextPodcast) ──
   // Values: 'off', 'manual', 'auto_next', 'playlist'
   static Future<String> getQueueMode() => _get('queueMode', 'off');
