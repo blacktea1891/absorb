@@ -1,0 +1,53 @@
+name: Build Android APK
+
+# 允许在 GitHub 网页端的 Actions 页面手动点击按钮触发编译
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest # 使用最新的 Ubuntu 云端服务器
+
+    steps:
+      # 1. 拉取仓库最新代码
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. 在云端配置稳定的 Flutter 环境
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable' 
+
+      # 3. 下载项目依赖
+      - name: Install dependencies
+        run: flutter pub get
+
+      # 4. 生成多语言 Dart 代码 (如果项目中没有 l10n，此步会自动跳过或静默执行)
+      - name: Generate localization files
+        run: flutter gen-l10n
+
+      # 5. 伪造一个临时签名文件来满足 Android Gradle 的强迫症检查
+      # 很多开源项目在 build.gradle 中写死了 release 签名路径，缺失会报错
+      - name: Generate Dummy Keystore
+        run: |
+          cd android
+          keytool -genkey -v -keystore app/dummy.keystore -storepass dummy123 -alias dummy -keypass dummy123 -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Dummy"
+          echo "storePassword=dummy123" > key.properties
+          echo "keyPassword=dummy123" >> key.properties
+          echo "keyAlias=dummy" >> key.properties
+          echo "storeFile=dummy.keystore" >> key.properties
+
+      # 6. 编译 Android APK 安装包
+      # 使用 --debug 跳过正式版强制签名
+      # 使用 --flavor github 匹配开源项目的默认编译渠道
+      - name: Build APK
+        run: flutter build apk --debug --flavor github
+
+      # 7. 将编译好的 APK 上传，供你在网页端下载
+      # 使用通配符 **/*.apk 确保即使多渠道修改了输出路径也能被找到
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Preview-APK
+          path: build/app/outputs/flutter-apk/**/*.apk
