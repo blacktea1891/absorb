@@ -99,7 +99,7 @@
   "@loginRestoreFailed": { "placeholders": { "error": { "type": "String" } } },
   "loginSavedAccounts": "保存的账户",
   "libraryTitle": "媒体库",
-  "librarySearchBooksHint": "搜索图书、系列、作者、朗读者...“,
+  "librarySearchBooksHint": "搜索图书、系列、作者、朗读者...",
   "librarySearchShowsHint": "搜索播客节目和剧集...",
   "libraryTabLibrary": "媒体库",
   "libraryTabSeries": "系列",
