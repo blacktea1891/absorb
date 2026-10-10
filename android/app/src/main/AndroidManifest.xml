@@ -41,7 +41,7 @@
                 <action android:name="com.ryanheise.audioservice.NOTIFICATION_CLICK"/>
                 <category android:name="android.intent.category.DEFAULT"/>
             </intent-filter>
-            <intent-filter android:label="Absorb sign-in">
+            <intent-filter android:label="@string/setup_sign_in_label">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
@@ -58,13 +58,13 @@
                  absorb://setup links with MainActivity. BookOrbit keeps its own
                  scheme in a filter of its own, since a host here would apply
                  to it too. -->
-            <intent-filter android:label="flutter_web_auth_2">
+            <intent-filter android:label="@string/absorb_auth_callback_label">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="absorb" android:host="oauth" />
             </intent-filter>
-            <intent-filter android:label="flutter_web_auth_2">
+            <intent-filter android:label="@string/bookorbit_auth_callback_label">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />

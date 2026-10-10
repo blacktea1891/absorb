@@ -18,4 +18,7 @@
     <string name="widget_time_minutes">%1$d分钟</string>
     <string name="widget_time_hours">%1$d小时</string>
     <string name="widget_time_hours_minutes">%1$d小时%2$d分钟</string>
+    <string name="setup_sign_in_label">Absorb 登录</string>
+    <string name="absorb_auth_callback_label">Absorb 身份验证</string>
+    <string name="bookorbit_auth_callback_label">BookOrbit 身份验证</string>
 </resources>
