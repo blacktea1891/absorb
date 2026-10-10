@@ -255,9 +255,9 @@ class _AdminServerLogsScreenState extends State<AdminServerLogsScreen> {
               padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
               child: Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: AbsorbPageHeader(
-                      title: 'Server logs',
+                      title: l.adminServerLogsTitle,
                       padding: EdgeInsets.zero,
                     ),
                   ),
@@ -437,7 +437,7 @@ class _AdminServerLogsScreenState extends State<AdminServerLogsScreen> {
             ),
             const SizedBox(height: 12),
             Text(
-              'Couldn’t load the server logs',
+              l.adminServerLogsLoadFailed,
               style: tt.titleSmall?.copyWith(color: cs.onSurface),
             ),
             const SizedBox(height: 8),

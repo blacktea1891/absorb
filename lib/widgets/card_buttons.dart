@@ -770,9 +770,9 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
         const SizedBox(height: 4),
         Text('${_speed.toStringAsFixed(2)}x', style: tt.headlineMedium?.copyWith(fontWeight: FontWeight.w700, color: widget.accent)),
         const SizedBox(height: 12),
-        const FeatureHint(
+        FeatureHint(
           prefKey: 'hint_speed_presets',
-          message: 'Tap + to save the current speed as a preset. Long-press a chip to remove it.',
+          message: l.cardSpeedPresetHint,
           padding: EdgeInsets.fromLTRB(0, 0, 0, 12),
         ),
         Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.center, children: [
@@ -2608,7 +2608,7 @@ class _PlaybackHistorySheetBodyState extends State<_PlaybackHistoryBody>
         else
           const Spacer(),
         Text(
-          'Show more',
+          l.showMore,
           style: widget.tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
         ),
         const SizedBox(width: 8),
