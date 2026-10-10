@@ -262,8 +262,17 @@ class _AdminStatsScreenState extends State<AdminStatsScreen> {
         child: Column(children: [
           Icon(ic, size: 18, color: cs.primary.withValues(alpha: 0.6)),
           const SizedBox(height: 6),
-          Text(v, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface),
-              maxLines: 1, overflow: TextOverflow.ellipsis),
+          SizedBox(
+            width: double.infinity,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(v,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: tt.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700, color: cs.onSurface)),
+            ),
+          ),
           const SizedBox(height: 2),
           Text(label, textAlign: TextAlign.center,
               style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.6), fontSize: 10)),

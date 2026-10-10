@@ -3,6 +3,15 @@ name: Build Android APK
 # 允许在 GitHub 网页端的 Actions 页面手动点击按钮触发编译
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'lib/l10n/**'
+      - 'lib/services/wording.dart'
+      - 'lib/screens/admin_stats_screen.dart'
+      - 'lib/widgets/book_stats_sheet.dart'
+      - 'test/**'
+      - '.github/workflows/build_apk.yml'
 
 jobs:
   build:
@@ -26,6 +35,9 @@ jobs:
       # 4. 生成多语言 Dart 代码 (如果项目中没有 l10n，此步会自动跳过或静默执行)
       - name: Generate localization files
         run: flutter gen-l10n
+
+      - name: Test localization
+        run: flutter test test/wording_localization_test.dart
 
       # 5. 伪造一个临时签名文件来满足 Android Gradle 的强迫症检查
       # 很多开源项目在 build.gradle 中写死了 release 签名路径，缺失会报错

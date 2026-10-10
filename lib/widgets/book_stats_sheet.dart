@@ -216,11 +216,15 @@ class _BookStatsSheetState extends State<_BookStatsSheet> {
       Padding(
         padding: const EdgeInsets.symmetric(vertical: 5),
         child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: tt.bodyMedium),
-            Text(value,
-                style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+            Expanded(child: Text(label, style: tt.bodyMedium)),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(value,
+                  textAlign: TextAlign.end,
+                  softWrap: true,
+                  style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+            ),
           ],
         ),
       );
