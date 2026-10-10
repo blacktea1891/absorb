@@ -34,4 +34,10 @@ void main() {
     expect(zh.episodeListAddedToAbsorbing('测试书籍'),
         '已将“测试书籍”添加到播放队列');
   });
+  test('Chinese release dates follow year-month-day order', () {
+    final zh = AppLocalizationsZh();
+    expect(zh.upcomingReleasesDateFormat('10月', 11, 2026),
+        '2026年10月11日');
+  });
+
 }

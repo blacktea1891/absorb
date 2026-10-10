@@ -3322,7 +3322,7 @@
       }
     }
   },
-  "upcomingReleasesDateFormat": "{month} {day}, {year}",
+  "upcomingReleasesDateFormat": "{year}年{month}{day}日",
   "@upcomingReleasesDateFormat": {
     "placeholders": {
       "month": {
