@@ -391,24 +391,44 @@ class _AdminEmailScreenState extends State<AdminEmailScreen> {
                               keyboardType: TextInputType.emailAddress,
                               decoration: InputDecoration(labelText: l.smtpTestAddress)),
                             const SizedBox(height: 20),
-                            Row(children: [
-                              Expanded(child: OutlinedButton.icon(
+                            LayoutBuilder(builder: (context, constraints) {
+                              final testButton = OutlinedButton.icon(
                                 onPressed: _testing || _saving ? null : _test,
                                 icon: _testing
                                   ? const SizedBox(width: 14, height: 14,
                                       child: CircularProgressIndicator(strokeWidth: 2))
                                   : const Icon(Icons.send_rounded, size: 16),
-                                label: Text(l.smtpSendTest))),
-                              const SizedBox(width: 12),
-                              Expanded(child: FilledButton.icon(
+                                label: Text(l.smtpSendTest,
+                                  maxLines: 1, softWrap: false),
+                              );
+                              final saveButton = FilledButton.icon(
                                 onPressed: _saving || _testing ? null : _save,
                                 icon: _saving
                                   ? SizedBox(width: 14, height: 14,
                                       child: CircularProgressIndicator(
                                           strokeWidth: 2, color: cs.onPrimary))
                                   : const Icon(Icons.save_rounded, size: 16),
-                                label: Text(l.smtpSaveSettings))),
-                            ]),
+                                label: Text(l.smtpSaveSettings,
+                                  maxLines: 1, softWrap: false),
+                              );
+                              // Narrow phone cards cannot fit two icon buttons
+                              // with their full Chinese labels side-by-side.
+                              if (constraints.maxWidth < 460) {
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    testButton,
+                                    const SizedBox(height: 12),
+                                    saveButton,
+                                  ],
+                                );
+                              }
+                              return Row(children: [
+                                Expanded(child: testButton),
+                                const SizedBox(width: 12),
+                                Expanded(child: saveButton),
+                              ]);
+                            }),
                           ]),
                         ),
                       ),

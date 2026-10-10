@@ -5250,5 +5250,18 @@
   "notificationBookReleasesChannel": "Book releases",
   "notificationBookReleasesDescription": "A tracked upcoming book is out",
   "notificationBookReleasedToday": "{title} is released today!",
-  "@notificationBookReleasedToday": {"placeholders":{"title":{"type":"String"}}}
+  "@notificationBookReleasedToday": {"placeholders":{"title":{"type":"String"}}},
+  "libraryTabLists": "Lists",
+  "libraryListsCollectionsCount": "{count} collections",
+  "@libraryListsCollectionsCount": {"placeholders":{"count":{"type":"int"}}},
+  "libraryListsPlaylistsCount": "{count} playlists",
+  "@libraryListsPlaylistsCount": {"placeholders":{"count":{"type":"int"}}},
+  "libraryListsMixedCount": "{collections} collections, {playlists} playlists",
+  "@libraryListsMixedCount": {"placeholders":{"collections":{"type":"int"},"playlists":{"type":"int"}}},
+  "adminServerLogsDisplay": "Display",
+  "adminServerLogsLevel": "Server log level",
+  "adminServerLogsSavingLevel": "Saving log level…",
+  "adminServerLogsEmpty": "No server logs yet",
+  "adminServerLogsNoMatches": "No logs match",
+  "downloadStorageInternalDefault": "App Internal Storage (Default)"
 }

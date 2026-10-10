@@ -5449,5 +5449,18 @@
   "notificationBookReleasesChannel": "新书发售",
   "notificationBookReleasesDescription": "你关注的新书已经发售",
   "notificationBookReleasedToday": "《{title}》今天发售啦！",
-  "@notificationBookReleasedToday": {"placeholders":{"title":{"type":"String"}}}
+  "@notificationBookReleasedToday": {"placeholders":{"title":{"type":"String"}}},
+  "libraryTabLists": "列表",
+  "libraryListsCollectionsCount": "{count} 个收藏集",
+  "@libraryListsCollectionsCount": {"placeholders":{"count":{"type":"int"}}},
+  "libraryListsPlaylistsCount": "{count} 个播放列表",
+  "@libraryListsPlaylistsCount": {"placeholders":{"count":{"type":"int"}}},
+  "libraryListsMixedCount": "{collections} 个收藏集、{playlists} 个播放列表",
+  "@libraryListsMixedCount": {"placeholders":{"collections":{"type":"int"},"playlists":{"type":"int"}}},
+  "adminServerLogsDisplay": "显示",
+  "adminServerLogsLevel": "服务器日志级别",
+  "adminServerLogsSavingLevel": "正在保存日志级别…",
+  "adminServerLogsEmpty": "暂无服务器日志",
+  "adminServerLogsNoMatches": "没有符合筛选条件的日志",
+  "downloadStorageInternalDefault": "应用内部存储（默认）"
 }

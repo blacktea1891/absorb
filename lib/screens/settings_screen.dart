@@ -209,6 +209,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   String? _serverUpdateCheckedFor;
   bool _serverUpdateCheckRunning = false;
   String _downloadLocationLabel = 'App Internal Storage (Default)';
+
+  // The download service returns an English sentinel only for its built-in
+  // storage. Keep custom SAF folder names exactly as the user selected them.
+  String _localizedDownloadLocationLabel(AppLocalizations l) {
+    return DownloadService().customDownloadUri == null
+        ? l.downloadStorageInternalDefault
+        : _downloadLocationLabel;
+  }
   bool _canPickDownloadLocation = false;
   int _totalDownloadSizeBytes = 0;
   int _deviceTotalBytes = 0;
@@ -3732,7 +3740,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       leading: Icon(Icons.folder_outlined, color: cs.primary),
                       title: Text(l.downloadLocation),
                       subtitle: Text(
-                        _downloadLocationLabel,
+                        _localizedDownloadLocationLabel(l),
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -4666,7 +4674,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         style: tt.labelSmall?.copyWith(
                           color: cs.primary, fontWeight: FontWeight.w600)),
                       const SizedBox(height: 2),
-                      Text(_downloadLocationLabel,
+                      Text(_localizedDownloadLocationLabel(l),
                         style: tt.bodySmall?.copyWith(color: cs.onSurface),
                         maxLines: 2, overflow: TextOverflow.ellipsis),
                     ],

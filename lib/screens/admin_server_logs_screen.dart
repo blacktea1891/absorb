@@ -332,7 +332,7 @@ class _AdminServerLogsScreenState extends State<AdminServerLogsScreen> {
     final displayFilter = _dropdown(
       cs,
       tt,
-      label: 'Display',
+      label: l.adminServerLogsDisplay,
       value: _visibleMinimumLevel,
       options: _filterLevels,
       onChanged: (value) => setState(() => _visibleMinimumLevel = value),
@@ -340,7 +340,9 @@ class _AdminServerLogsScreenState extends State<AdminServerLogsScreen> {
     final serverLevel = _dropdown(
       cs,
       tt,
-      label: _savingLogLevel ? 'Saving log level…' : 'Server log level',
+      label: _savingLogLevel
+          ? l.adminServerLogsSavingLevel
+          : l.adminServerLogsLevel,
       value: _serverLogLevel,
       options: _serverLevels,
       onChanged: _savingLogLevel ? null : _changeServerLogLevel,
@@ -457,7 +459,7 @@ class _AdminServerLogsScreenState extends State<AdminServerLogsScreen> {
       child: visibleLogs.isEmpty
           ? Center(
               child: Text(
-                _logs.isEmpty ? 'No server logs yet' : 'No logs match',
+                _logs.isEmpty ? l.adminServerLogsEmpty : l.adminServerLogsNoMatches,
                 style: tt.bodyMedium?.copyWith(
                   color: cs.onSurfaceVariant.withValues(alpha: 0.7),
                 ),
