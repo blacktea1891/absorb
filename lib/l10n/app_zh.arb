@@ -5424,5 +5424,19 @@
   "adminLibraryRemoveJsonDescription": "移除媒体库项目文件夹中的所有 metadata.json 文件。",
   "adminLibraryRemoveAbsDescription": "移除媒体库项目文件夹中的所有 metadata.abs 文件。",
   "adminLibraryRemoveMetadataFile": "移除 metadata.{extension}",
-  "@adminLibraryRemoveMetadataFile": {"placeholders":{"extension":{"type":"String"}}}
+  "@adminLibraryRemoveMetadataFile": {"placeholders":{"extension":{"type":"String"}}},
+  "adminLibraryCronFivePartsRequired": "保存前请先输入包含五个字段的 Cron 表达式。",
+  "adminLibraryDetailsIntro": "设置媒体库名称、媒体类型、元数据提供方、图标和文件夹。",
+  "adminLibraryMetadataDeleteConfirmTitle": "确定删除所有 {filename} 文件吗？",
+  "@adminLibraryMetadataDeleteConfirmTitle": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteConfirmBody": "这将永久删除此媒体库各条目文件夹中的 {filename} 文件，不会更改媒体文件。",
+  "@adminLibraryMetadataDeleteConfirmBody": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteFailed": "无法删除 {filename} 文件。",
+  "@adminLibraryMetadataDeleteFailed": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteNotFound": "未找到 {filename} 文件。",
+  "@adminLibraryMetadataDeleteNotFound": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteNoneRemoved": "找到 {found} 个 {filename} 文件，但一个也没能删除。",
+  "@adminLibraryMetadataDeleteNoneRemoved": {"placeholders":{"found":{"type":"int"},"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteSuccess": "已删除 {found} 个 {filename} 文件中的 {removed} 个。",
+  "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}}
 }

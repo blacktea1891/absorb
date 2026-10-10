@@ -452,7 +452,7 @@ class _AdminLibraryEditScreenState extends State<AdminLibraryEditScreen> {
     if (!_hasValidCron()) {
       showOverlayToast(
         context,
-        'Enter a five-part cron expression before saving.',
+        l.adminLibraryCronFivePartsRequired,
         icon: Icons.error_outline_rounded,
       );
       _selectSection(_LibraryEditorSection.schedule);
@@ -552,9 +552,9 @@ class _AdminLibraryEditScreenState extends State<AdminLibraryEditScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Remove all $filename files?'),
+        title: Text(l.adminLibraryMetadataDeleteConfirmTitle(filename)),
         content: Text(
-          'This permanently removes $filename from every item folder in this library. The media files are not changed.',
+          l.adminLibraryMetadataDeleteConfirmBody(filename),
         ),
         actions: [
           TextButton(
@@ -583,25 +583,25 @@ class _AdminLibraryEditScreenState extends State<AdminLibraryEditScreen> {
     if (result == null) {
       showOverlayToast(
         context,
-        'Could not remove $filename files.',
+        l.adminLibraryMetadataDeleteFailed(filename),
         icon: Icons.error_outline_rounded,
       );
     } else if (result.found == 0) {
       showOverlayToast(
         context,
-        'No $filename files were found.',
+        l.adminLibraryMetadataDeleteNotFound(filename),
         icon: Icons.info_outline_rounded,
       );
     } else if (result.removed == 0) {
       showOverlayToast(
         context,
-        '${result.found} $filename files were found, but none could be removed.',
+        l.adminLibraryMetadataDeleteNoneRemoved(result.found, filename),
         icon: Icons.error_outline_rounded,
       );
     } else {
       showOverlayToast(
         context,
-        'Removed ${result.removed} of ${result.found} $filename files.',
+        l.adminLibraryMetadataDeleteSuccess(result.removed, result.found, filename),
         icon: Icons.check_circle_outline_rounded,
       );
     }
@@ -842,7 +842,7 @@ class _AdminLibraryEditScreenState extends State<AdminLibraryEditScreen> {
       children: [
         _sectionHeading(
           l.details,
-          'Set the library name, media type, provider, icon, and folders.',
+          l.adminLibraryDetailsIntro,
         ),
         TextField(
           controller: _name,

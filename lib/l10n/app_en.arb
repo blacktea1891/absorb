@@ -5225,5 +5225,19 @@
   "adminLibraryRemoveJsonDescription": "Remove every metadata.json file found in the library item folders.",
   "adminLibraryRemoveAbsDescription": "Remove every metadata.abs file found in the library item folders.",
   "adminLibraryRemoveMetadataFile": "Remove metadata.{extension}",
-  "@adminLibraryRemoveMetadataFile": {"placeholders":{"extension":{"type":"String"}}}
+  "@adminLibraryRemoveMetadataFile": {"placeholders":{"extension":{"type":"String"}}},
+  "adminLibraryCronFivePartsRequired": "Enter a five-part cron expression before saving.",
+  "adminLibraryDetailsIntro": "Set the library name, media type, provider, icon, and folders.",
+  "adminLibraryMetadataDeleteConfirmTitle": "Remove all {filename} files?",
+  "@adminLibraryMetadataDeleteConfirmTitle": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteConfirmBody": "This permanently removes {filename} from every item folder in this library. The media files are not changed.",
+  "@adminLibraryMetadataDeleteConfirmBody": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteFailed": "Could not remove {filename} files.",
+  "@adminLibraryMetadataDeleteFailed": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteNotFound": "No {filename} files were found.",
+  "@adminLibraryMetadataDeleteNotFound": {"placeholders":{"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteNoneRemoved": "{found} {filename} files were found, but none could be removed.",
+  "@adminLibraryMetadataDeleteNoneRemoved": {"placeholders":{"found":{"type":"int"},"filename":{"type":"String"}}},
+  "adminLibraryMetadataDeleteSuccess": "Removed {removed} of {found} {filename} files.",
+  "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}}
 }
