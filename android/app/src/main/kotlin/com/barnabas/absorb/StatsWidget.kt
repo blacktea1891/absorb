@@ -24,14 +24,15 @@ class StatsWidget : AppWidgetProvider() {
 
     companion object {
 
-        private fun formatTime(seconds: Int): String {
-            if (seconds <= 0) return "0m"
+        private fun formatTime(context: Context, seconds: Int): String {
+            if (seconds <= 0) return context.getString(R.string.widget_time_minutes, 0)
             val hours = seconds / 3600
             val minutes = (seconds % 3600) / 60
-            return if (hours > 0) {
-                if (minutes == 0) "${hours}h" else "${hours}h ${minutes}m"
-            } else {
-                "${minutes}m"
+            return when {
+                hours > 0 && minutes > 0 ->
+                    context.getString(R.string.widget_time_hours_minutes, hours, minutes)
+                hours > 0 -> context.getString(R.string.widget_time_hours, hours)
+                else -> context.getString(R.string.widget_time_minutes, minutes)
             }
         }
 
@@ -59,8 +60,8 @@ class StatsWidget : AppWidgetProvider() {
                 "update id=$appWidgetId today=${todaySeconds}s week=${weekSeconds}s streak=${streakDays}d booksYear=$booksYear"
             )
 
-            views.setTextViewText(R.id.widget_stat_today_value, formatTime(todaySeconds))
-            views.setTextViewText(R.id.widget_stat_week_value, formatTime(weekSeconds))
+            views.setTextViewText(R.id.widget_stat_today_value, formatTime(context, todaySeconds))
+            views.setTextViewText(R.id.widget_stat_week_value, formatTime(context, weekSeconds))
             views.setTextViewText(R.id.widget_stat_streak_value, streakDays.toString())
             views.setTextViewText(R.id.widget_stat_books_year_value, booksYear.toString())
 

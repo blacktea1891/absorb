@@ -25,7 +25,7 @@
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:src="@mipmap/ic_launcher"
-        android:contentDescription="Cover art" />
+        android:contentDescription="@string/widget_cover_art" />
 
     <!-- Tiny-size indicator: reflects state; the whole tile is the tap target -->
     <ImageView
@@ -37,7 +37,7 @@
         android:src="@drawable/ic_widget_play_dark"
         android:background="@drawable/widget_play_btn_bg"
         android:scaleType="centerInside"
-        android:contentDescription="Play or pause" />
+        android:contentDescription="@string/widget_play_pause" />
 
     <ProgressBar
         android:id="@+id/widget_play_pending_tile"
@@ -134,7 +134,7 @@
                 android:layout_height="12dp"
                 android:layout_weight="1"
                 android:scaleType="fitXY"
-                android:contentDescription="Progress" />
+                android:contentDescription="@string/widget_progress" />
 
             <TextView
                 android:id="@+id/widget_time_remaining"
@@ -166,7 +166,7 @@
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:contentDescription="Skip backward">
+                android:contentDescription="@string/widget_skip_backward">
                 <ImageView
                     android:layout_width="34dp"
                     android:layout_height="34dp"
@@ -197,7 +197,7 @@
                     android:padding="12dp"
                     android:src="@drawable/ic_widget_play_dark"
                     android:background="@drawable/widget_play_btn_bg"
-                    android:contentDescription="Play or pause"
+                    android:contentDescription="@string/widget_play_pause"
                     android:scaleType="centerInside" />
                 <ProgressBar
                     android:id="@+id/widget_play_pending"
@@ -216,7 +216,7 @@
                 android:layout_width="0dp"
                 android:layout_height="52dp"
                 android:layout_weight="1"
-                android:contentDescription="Skip forward">
+                android:contentDescription="@string/widget_skip_forward">
                 <ImageView
                     android:layout_width="34dp"
                     android:layout_height="34dp"

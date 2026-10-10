@@ -4,4 +4,17 @@
     <string name="widget_compact_description">Compact now-playing bar with playback controls.</string>
     <string name="widget_tiny_description">Cover art - tap to play or pause. Resize it larger for a full player.</string>
     <string name="widget_stats_description">Listening stats: today, this week, streak, and books finished this year.</string>
+    <string name="widget_not_playing">Not playing</string>
+    <string name="widget_cover_art">Cover art</string>
+    <string name="widget_skip_backward">Skip backward</string>
+    <string name="widget_skip_forward">Skip forward</string>
+    <string name="widget_play_pause">Play or pause</string>
+    <string name="widget_progress">Progress</string>
+    <string name="widget_today">Today</string>
+    <string name="widget_this_week">This week</string>
+    <string name="widget_day_streak">Day streak</string>
+    <string name="widget_books_this_year">Books this year</string>
+    <string name="widget_time_minutes">%1$dm</string>
+    <string name="widget_time_hours">%1$dh</string>
+    <string name="widget_time_hours_minutes">%1$dh %2$dm</string>
 </resources>

@@ -32,8 +32,14 @@
 
                 <TextView
                     android:id="@+id/widget_stat_today_value"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="12sp"
+                    android:autoSizeMaxTextSize="20sp"
+                    android:autoSizeStepGranularity="1sp"
                     android:text="0m"
                     android:textColor="#FFFFFF"
                     android:textSize="20sp"
@@ -41,9 +47,11 @@
                     android:fontFamily="sans-serif-medium" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Today"
+                    android:gravity="center"
+                    android:maxLines="2"
+                    android:text="@string/widget_today"
                     android:textColor="#99FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -57,8 +65,14 @@
 
                 <TextView
                     android:id="@+id/widget_stat_week_value"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="12sp"
+                    android:autoSizeMaxTextSize="20sp"
+                    android:autoSizeStepGranularity="1sp"
                     android:text="0m"
                     android:textColor="#FFFFFF"
                     android:textSize="20sp"
@@ -66,9 +80,11 @@
                     android:fontFamily="sans-serif-medium" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="This week"
+                    android:gravity="center"
+                    android:maxLines="2"
+                    android:text="@string/widget_this_week"
                     android:textColor="#99FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -89,8 +105,14 @@
 
                 <TextView
                     android:id="@+id/widget_stat_streak_value"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="12sp"
+                    android:autoSizeMaxTextSize="20sp"
+                    android:autoSizeStepGranularity="1sp"
                     android:text="0"
                     android:textColor="#FFFFFF"
                     android:textSize="20sp"
@@ -98,9 +120,11 @@
                     android:fontFamily="sans-serif-medium" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Day streak"
+                    android:gravity="center"
+                    android:maxLines="2"
+                    android:text="@string/widget_day_streak"
                     android:textColor="#99FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
@@ -114,8 +138,14 @@
 
                 <TextView
                     android:id="@+id/widget_stat_books_year_value"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:maxLines="1"
+                    android:autoSizeTextType="uniform"
+                    android:autoSizeMinTextSize="12sp"
+                    android:autoSizeMaxTextSize="20sp"
+                    android:autoSizeStepGranularity="1sp"
                     android:text="0"
                     android:textColor="#FFFFFF"
                     android:textSize="20sp"
@@ -123,9 +153,11 @@
                     android:fontFamily="sans-serif-medium" />
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Books this year"
+                    android:gravity="center"
+                    android:maxLines="2"
+                    android:text="@string/widget_books_this_year"
                     android:textColor="#99FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_description">显示正在播放的有声书，并提供播放控制。</string>
+    <string name="widget_compact_description">精简版播放栏，提供播放控制。</string>
+    <string name="widget_tiny_description">显示封面，点击可播放或暂停；放大组件可使用完整播放器。</string>
+    <string name="widget_stats_description">收听统计：今日、本周、连续收听天数，以及今年听完的书籍。</string>
+    <string name="widget_not_playing">当前未播放</string>
+    <string name="widget_cover_art">书籍封面</string>
+    <string name="widget_skip_backward">向后跳转</string>
+    <string name="widget_skip_forward">向前跳转</string>
+    <string name="widget_play_pause">播放或暂停</string>
+    <string name="widget_progress">播放进度</string>
+    <string name="widget_today">今日</string>
+    <string name="widget_this_week">本周</string>
+    <string name="widget_day_streak">连续收听天数</string>
+    <string name="widget_books_this_year">今年听完的书籍</string>
+    <string name="widget_time_minutes">%1$d分</string>
+    <string name="widget_time_hours">%1$d时</string>
+    <string name="widget_time_hours_minutes">%1$d时%2$d分</string>
+</resources>

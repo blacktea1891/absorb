@@ -30,7 +30,7 @@
             android:layout_marginBottom="6dp"
             android:scaleType="centerCrop"
             android:src="@mipmap/ic_launcher"
-            android:contentDescription="Cover art" />
+            android:contentDescription="@string/widget_cover_art" />
 
         <!-- Title aligned with top of cover -->
         <TextView
@@ -59,7 +59,7 @@
             android:layout_below="@id/widget_title"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:text="Not playing"
+            android:text="@string/widget_not_playing"
             android:textColor="#99FFFFFF"
             android:textSize="12sp"
             android:maxLines="1"
@@ -101,7 +101,7 @@
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@android:color/transparent"
-                android:contentDescription="Skip backward">
+                android:contentDescription="@string/widget_skip_backward">
                 <ImageView
                     android:layout_width="32dp"
                     android:layout_height="32dp"
@@ -132,7 +132,7 @@
                     android:padding="8dp"
                     android:src="@drawable/ic_widget_play_dark"
                     android:background="@drawable/widget_play_btn_bg"
-                    android:contentDescription="Play or pause"
+                    android:contentDescription="@string/widget_play_pause"
                     android:scaleType="centerInside" />
                 <ProgressBar
                     android:id="@+id/widget_play_pending"
@@ -152,7 +152,7 @@
                 android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@android:color/transparent"
-                android:contentDescription="Skip forward">
+                android:contentDescription="@string/widget_skip_forward">
                 <ImageView
                     android:layout_width="32dp"
                     android:layout_height="32dp"
@@ -212,7 +212,7 @@
                     android:layout_height="12dp"
                     android:layout_weight="1"
                     android:scaleType="fitXY"
-                    android:contentDescription="Progress" />
+                    android:contentDescription="@string/widget_progress" />
 
                 <TextView
                     android:id="@+id/widget_time_remaining"

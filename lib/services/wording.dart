@@ -6,9 +6,8 @@ import '../l10n/app_localizations.dart';
 /// Absorbed"). Lives at app level so any widget rebuilds when it flips.
 final ValueNotifier<bool> classicWordingNotifier = ValueNotifier(false);
 
-/// Returns either the Absorb-branded localization or a plain-English
-/// equivalent depending on [classicWordingNotifier]. Only the English
-/// surface is overridden — translated locales keep their existing strings.
+/// Returns Absorb-themed or classic vocabulary for the active locale.
+/// Both variants use ARB translations rather than hard-coded English strings.
 class Wording {
   final AppLocalizations _l;
   final bool classic;

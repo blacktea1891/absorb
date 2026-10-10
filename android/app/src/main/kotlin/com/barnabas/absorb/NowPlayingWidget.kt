@@ -199,7 +199,7 @@ class NowPlayingWidget : AppWidgetProvider() {
             } else {
                 // Idle state
                 views.setTextViewText(R.id.widget_title, "Absorb")
-                views.setTextViewText(R.id.widget_author, "Not playing")
+                views.setTextViewText(R.id.widget_author, context.getString(R.string.widget_not_playing))
                 views.setViewVisibility(R.id.widget_progress_row, View.INVISIBLE)
                 views.setViewVisibility(R.id.widget_controls, View.GONE)
                 views.setViewVisibility(R.id.widget_chapter, View.GONE)
