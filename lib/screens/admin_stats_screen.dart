@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
-import '../utils/duration_format.dart';
 import '../widgets/absorb_page_header.dart';
 
 /// Read-only server-wide statistics: library totals (GET /api/stats/server)
@@ -58,6 +57,15 @@ class _AdminStatsScreenState extends State<AdminStatsScreen> {
       _loadingYear = false;
       _year = y;
     });
+  }
+
+  String _localizedListeningDuration(double seconds) {
+    final l = AppLocalizations.of(context)!;
+    final h = (seconds / 3600).floor();
+    final m = ((seconds % 3600) / 60).floor();
+    return h > 0
+        ? l.statsAdminDurationHm(h, m)
+        : l.statsAdminDurationM(m);
   }
 
   String _fmtBytes(num? bytes) {
@@ -195,7 +203,7 @@ class _AdminStatsScreenState extends State<AdminStatsScreen> {
           padding: const EdgeInsets.all(16),
           decoration: _cardDeco(cs),
           child: Row(children: [
-            _stat(tt, cs, Icons.timer_rounded, formatHm(listening), l.statsListeningTime),
+            _stat(tt, cs, Icons.timer_rounded, _localizedListeningDuration(listening), l.statsListeningTime),
             _stat(tt, cs, Icons.play_circle_outline_rounded, '$sessions', l.statsSessions),
             _stat(tt, cs, Icons.library_add_rounded, '$booksAdded', l.statsBooksAdded),
             _stat(tt, cs, Icons.person_add_alt_rounded, '$authorsAdded', l.statsAuthorsAdded),
@@ -227,7 +235,7 @@ class _AdminStatsScreenState extends State<AdminStatsScreen> {
                 dense: true,
                 title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
                     style: tt.bodyMedium?.copyWith(color: cs.onSurface)),
-                trailing: Text(formatHm(secs),
+                trailing: Text(_localizedListeningDuration(secs),
                     style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
               );
             }).toList(),

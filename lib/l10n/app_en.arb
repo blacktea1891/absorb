@@ -5263,5 +5263,9 @@
   "adminServerLogsSavingLevel": "Saving log level…",
   "adminServerLogsEmpty": "No server logs yet",
   "adminServerLogsNoMatches": "No logs match",
-  "downloadStorageInternalDefault": "App Internal Storage (Default)"
+  "downloadStorageInternalDefault": "App Internal Storage (Default)",
+  "statsAdminDurationHm": "{h}h {m}m",
+  "@statsAdminDurationHm": {"placeholders":{"h":{"type":"int"},"m":{"type":"int"}}},
+  "statsAdminDurationM": "{m}m",
+  "@statsAdminDurationM": {"placeholders":{"m":{"type":"int"}}}
 }
