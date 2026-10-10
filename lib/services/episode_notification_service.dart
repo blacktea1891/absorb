@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -7,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../main.dart' show rootNavigatorKey;
+import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../screens/upcoming_releases_screen.dart';
@@ -178,13 +180,26 @@ void episodeNotifDispatcher() {
   });
 }
 
+// Background workers have no widget BuildContext. Resolve the user's
+// explicit language preference, falling back to the device locale.
+Future<AppLocalizations> _backgroundLocalizations() async {
+  final chosen = await PlayerSettings.getLanguage();
+  final language = chosen.isNotEmpty
+      ? chosen
+      : PlatformDispatcher.instance.locale.languageCode;
+  final supported = AppLocalizations.supportedLocales
+      .any((locale) => locale.languageCode == language);
+  return lookupAppLocalizations(Locale(supported ? language : 'en'));
+}
+
 Future<void> _checkAndNotify() async {
   // WorkManager uses a separate Flutter engine whose SharedPreferences cache
   // can lag behind writes from earlier workers or the foreground app.
   await EpisodeNotificationService.prepareBackgroundPreferences();
 
+  final l = await _backgroundLocalizations();
   // Purely local, so it runs before the subscribed-podcasts early return.
-  await _checkReleaseDayNotifs();
+  await _checkReleaseDayNotifs(l);
 
   final subscribed = await ScopedPrefs.getStringList('subscribed_podcasts');
   if (subscribed.isEmpty) return;
@@ -193,10 +208,10 @@ Future<void> _checkAndNotify() async {
   if (api == null) return;
 
   final plugin = FlutterLocalNotificationsPlugin();
-  const channel = AndroidNotificationChannel(
+  final channel = AndroidNotificationChannel(
     EpisodeNotificationService.channelId,
-    'New episodes',
-    description: 'New episodes from subscribed podcasts',
+    l.notificationNewEpisodesChannel,
+    description: l.notificationNewEpisodesDescription,
     importance: Importance.defaultImportance,
   );
   await plugin
@@ -233,20 +248,20 @@ Future<void> _checkAndNotify() async {
 
       final showTitle =
           ((media['metadata'] as Map<String, dynamic>?)?['title'] as String?) ??
-              'Podcast';
+              l.notificationPodcastFallback;
       final body = fresh.length == 1
-          ? (fresh.first['title'] as String? ?? 'New episode')
-          : '${fresh.length} new episodes';
+          ? (fresh.first['title'] as String? ?? l.notificationNewEpisodeFallback)
+          : l.notificationNewEpisodesCount(fresh.length);
       await plugin.show(
         // Stable per-show id so repeat checks update rather than stack.
         0x45500000 | (showId.hashCode & 0xFFFFF),
         showTitle,
         body,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
             EpisodeNotificationService.channelId,
-            'New episodes',
-            channelDescription: 'New episodes from subscribed podcasts',
+            l.notificationNewEpisodesChannel,
+            channelDescription: l.notificationNewEpisodesDescription,
             icon: 'drawable/ic_notification',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
@@ -291,7 +306,7 @@ Future<void> _checkAndNotify() async {
 
 /// Notify on release day for books tracked on the upcoming page. Reads the
 /// cached scan results from raw prefs - no network, no account scope needed.
-Future<void> _checkReleaseDayNotifs() async {
+Future<void> _checkReleaseDayNotifs(AppLocalizations l) async {
   try {
     final prefs = await SharedPreferences.getInstance();
     final json = prefs.getString('upcomingReleasesCache');
@@ -326,10 +341,10 @@ Future<void> _checkReleaseDayNotifs() async {
     if (due.isEmpty) return;
 
     final plugin = FlutterLocalNotificationsPlugin();
-    const channel = AndroidNotificationChannel(
+    final channel = AndroidNotificationChannel(
       'release_day',
-      'Book releases',
-      description: 'A tracked upcoming book is out',
+      l.notificationBookReleasesChannel,
+      description: l.notificationBookReleasesDescription,
       importance: Importance.defaultImportance,
     );
     await plugin
@@ -339,13 +354,13 @@ Future<void> _checkReleaseDayNotifs() async {
     for (final book in due) {
       await plugin.show(
         0x52440000 | (book.asin.hashCode & 0xFFFF),
-        '${book.title} is released today!',
+        l.notificationBookReleasedToday(book.title),
         book.seriesName,
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
             'release_day',
-            'Book releases',
-            channelDescription: 'A tracked upcoming book is out',
+            l.notificationBookReleasesChannel,
+            channelDescription: l.notificationBookReleasesDescription,
             icon: 'drawable/ic_notification',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,

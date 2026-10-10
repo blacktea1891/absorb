@@ -5240,5 +5240,15 @@
   "@adminLibraryMetadataDeleteNoneRemoved": {"placeholders":{"found":{"type":"int"},"filename":{"type":"String"}}},
   "adminLibraryMetadataDeleteSuccess": "Removed {removed} of {found} {filename} files.",
   "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}},
-  "androidAutoTabNew": "New"
+  "androidAutoTabNew": "New",
+  "notificationNewEpisodesChannel": "New episodes",
+  "notificationNewEpisodesDescription": "New episodes from subscribed podcasts",
+  "notificationPodcastFallback": "Podcast",
+  "notificationNewEpisodeFallback": "New episode",
+  "notificationNewEpisodesCount": "{count} new episodes",
+  "@notificationNewEpisodesCount": {"placeholders":{"count":{"type":"int"}}},
+  "notificationBookReleasesChannel": "Book releases",
+  "notificationBookReleasesDescription": "A tracked upcoming book is out",
+  "notificationBookReleasedToday": "{title} is released today!",
+  "@notificationBookReleasedToday": {"placeholders":{"title":{"type":"String"}}}
 }

@@ -5439,5 +5439,15 @@
   "@adminLibraryMetadataDeleteNoneRemoved": {"placeholders":{"found":{"type":"int"},"filename":{"type":"String"}}},
   "adminLibraryMetadataDeleteSuccess": "已删除 {found} 个 {filename} 文件中的 {removed} 个。",
   "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}},
-  "androidAutoTabNew": "最近添加"
+  "androidAutoTabNew": "最近添加",
+  "notificationNewEpisodesChannel": "播客新单集",
+  "notificationNewEpisodesDescription": "已订阅的播客发布了新单集",
+  "notificationPodcastFallback": "播客",
+  "notificationNewEpisodeFallback": "新单集",
+  "notificationNewEpisodesCount": "更新了 {count} 集单集",
+  "@notificationNewEpisodesCount": {"placeholders":{"count":{"type":"int"}}},
+  "notificationBookReleasesChannel": "新书发售",
+  "notificationBookReleasesDescription": "你关注的新书已经发售",
+  "notificationBookReleasedToday": "《{title}》今天发售啦！",
+  "@notificationBookReleasedToday": {"placeholders":{"title":{"type":"String"}}}
 }
