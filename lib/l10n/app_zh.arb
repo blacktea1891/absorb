@@ -1646,7 +1646,7 @@
   },
   "encodeTimeNote": "转码可能需要长达 30 分钟。",
   "encodeRescanNote": "如果您禁用了文件监控，请在完成后重新扫描此有声书。",
-  "aboutSection": "关于本项目",
+  "aboutSection": "关于本书",
   "chaptersCount": "章节 ({count})",
   "@chaptersCount": {
     "placeholders": {

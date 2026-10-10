@@ -1302,6 +1302,16 @@ class _StatsScreenState extends State<StatsScreen>
 
   Widget _periodCard(
       TextTheme tt, ColorScheme cs, String label, double seconds) {
+    final duration = _formatDuration(seconds);
+    // Keep the zero-duration Chinese aside (e.g. （没听哦）) on one
+    // complete second line, rather than letting a narrow card split it.
+    // Other duration labels keep their original layout.
+    final noteStart = seconds <= 0 ? duration.indexOf('（') : -1;
+    final periodDuration = noteStart > 0
+        ? '${duration.substring(0, noteStart)}\n${duration.substring(noteStart)}'
+        : duration;
+    final durationStyle = tt.titleMedium?.copyWith(
+        fontWeight: FontWeight.w700, color: cs.onSurface, height: 1);
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
       decoration: BoxDecoration(
@@ -1310,9 +1320,16 @@ class _StatsScreenState extends State<StatsScreen>
         border: Border.all(color: cs.onSurface.withValues(alpha: 0.06)),
       ),
       child: Column(children: [
-        Text(_formatDuration(seconds),
-            style: tt.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700, color: cs.onSurface, height: 1)),
+        if (noteStart > 0)
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(periodDuration,
+                textAlign: TextAlign.center,
+                softWrap: false,
+                style: durationStyle),
+          )
+        else
+          Text(duration, style: durationStyle),
         const SizedBox(height: 4),
         Text(label,
             style: tt.labelSmall?.copyWith(
