@@ -18,8 +18,25 @@ String sectionLabel(String id, String? fallback, AppLocalizations l) {
       return l.discover;
     case 'episodes-recently-added':
       return l.newEpisodes;
+    case 'newest-episodes':
+    case 'episodes-newest':
+      return l.homeNewestEpisodes;
+    case 'newest-authors':
+    case 'authors-recently-added':
+      return l.homeNewestAuthors;
+    case 'continue-reading':
+      return l.homeContinueReading;
     case 'downloaded-books':
       return l.downloads;
+  }
+  // Only translate stock server labels. Custom labels remain unchanged.
+  switch (fallback?.trim()) {
+    case 'Newest Episodes':
+      return l.homeNewestEpisodes;
+    case 'Newest Authors':
+      return l.homeNewestAuthors;
+    case 'Continue Reading':
+      return l.homeContinueReading;
   }
   if (fallback != null && fallback.isNotEmpty) return fallback;
   return id

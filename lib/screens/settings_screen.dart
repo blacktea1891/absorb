@@ -786,7 +786,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       case 'heatmap': return l.statsChartHeatmap;
       case 'dayofweek': return l.statsDayOfWeek;
       case 'top': return l.statsMostListened;
-      case 'yearreview': return 'Year in Review';
+      case 'yearreview': return l.statsYearInReview;
     }
     return id;
   }
@@ -2179,11 +2179,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     SwitchListTile(
-                      title: const Text('Classic wording'),
+                      title: Text(l.settingsClassicWording),
                       subtitle: Text(
                         _classicWording
-                            ? 'Using "Play", "Now Playing", "Finished"'
-                            : 'Using "Absorb", "Absorbing", "Fully Absorbed"',
+                            ? l.settingsClassicWordingOn
+                            : l.settingsClassicWordingOff,
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                       value: _classicWording,
                       onChanged: _loaded ? (v) {
@@ -2197,11 +2197,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (!(Platform.isIOS && MediaQuery.sizeOf(context).shortestSide >= 600)) ...[
                       const Divider(height: 1, indent: 16, endIndent: 16),
                       SwitchListTile(
-                        title: const Text('Lock rotation'),
+                        title: Text(l.settingsLockRotation),
                         subtitle: Text(
                           _lockPortrait
-                              ? 'Screen stays in portrait'
-                              : 'Screen can rotate with the device',
+                              ? l.settingsLockRotationOn
+                              : l.settingsLockRotationOff,
                           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                         value: _lockPortrait,
                         onChanged: _loaded ? (v) {
@@ -3110,11 +3110,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (Platform.isAndroid) ...[
                       const Divider(height: 1, indent: 16, endIndent: 16),
                       SwitchListTile(
-                        title: const Text('Duck brief interruptions'),
+                        title: Text(l.settingsDuckBriefInterruptions),
                         subtitle: Text(
                           _duckBriefInterruptions
-                              ? 'Notifications and prompts lower the volume instead of pausing'
-                              : 'Notifications and prompts pause playback',
+                              ? l.settingsDuckBriefInterruptionsOn
+                              : l.settingsDuckBriefInterruptionsOff,
                           style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                         value: _duckBriefInterruptions,
                         onChanged: _loaded ? (v) {
@@ -3630,11 +3630,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const Divider(height: 1, indent: 16, endIndent: 16),
                     SwitchListTile(
-                      title: const Text('Auto-download series'),
+                      title: Text(l.settingsAutoDownloadSeries),
                       subtitle: Text(
                         _autoSeriesDownloadDefault
-                            ? 'Starting a book in a series keeps the next books downloaded'
-                            : 'Turn on series downloads yourself from the series menu',
+                            ? l.settingsAutoDownloadSeriesOn
+                            : l.settingsAutoDownloadSeriesOff,
                         style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                       value: _autoSeriesDownloadDefault,
                       onChanged: _loaded ? (v) {

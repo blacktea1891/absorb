@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math';
+import 'package:intl/intl.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -62,10 +63,6 @@ class _StatsScreenState extends State<StatsScreen>
     'hero', 'goals', 'periods', 'activity', 'chart', 'heatmap', 'dayofweek', 'top', 'yearreview',
   ];
 
-  static const _monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
-  ];
   late Animation<double> _animValue;
 
   static const int _sessionsPerPage = 10;
@@ -820,10 +817,11 @@ class _StatsScreenState extends State<StatsScreen>
   }
 
   List<Widget> _yearReviewSection(ColorScheme cs, TextTheme tt) {
+    final l = AppLocalizations.of(context)!;
     final thisYear = DateTime.now().year;
     final years = [for (var y = thisYear; y >= thisYear - 6; y--) y];
     final header = Row(children: [
-      Expanded(child: _sectionTitle(tt, cs, 'Year in Review')),
+      Expanded(child: _sectionTitle(tt, cs, l.statsYearInReview)),
       Container(
         decoration: BoxDecoration(
           color: cs.surfaceContainerHigh,
@@ -865,7 +863,7 @@ class _StatsScreenState extends State<StatsScreen>
         width: double.infinity,
         decoration: _cardDeco(cs),
         padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 16),
-        child: Text('Nothing listened in $_yirYear yet',
+        child: Text(l.statsYearNothingListened(_yirYear),
             textAlign: TextAlign.center,
             style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
       ));
@@ -898,18 +896,18 @@ class _StatsScreenState extends State<StatsScreen>
 
       body.add(Row(children: [
         Expanded(child: _accentStatCard(tt, cs, Icons.headphones_rounded,
-            cs.primary, _formatDuration(totalSeconds), 'Listened')),
+            cs.primary, _formatDuration(totalSeconds), l.statsYearListened)),
         const SizedBox(width: 8),
         Expanded(child: _accentStatCard(tt, cs, Icons.menu_book_rounded,
-            Colors.green, '$finished', 'Books finished')),
+            Colors.green, '$finished', l.statsYearBooksFinished)),
       ]));
       body.add(const SizedBox(height: 8));
       body.add(Row(children: [
         Expanded(child: _accentStatCard(tt, cs, Icons.play_circle_outline_rounded,
-            cs.tertiary, '$sessions', 'Sessions')),
+            cs.tertiary, '$sessions', l.statsYearSessions)),
         const SizedBox(width: 8),
         Expanded(child: _accentStatCard(tt, cs, Icons.library_books_rounded,
-            Colors.teal, '$listened', 'Books listened')),
+            Colors.teal, '$listened', l.statsYearBooksListened)),
       ]));
       body.add(const SizedBox(height: 14));
 
@@ -918,18 +916,18 @@ class _StatsScreenState extends State<StatsScreen>
       if (mm is Map) {
         final name = _monthName((mm['month'] as num?)?.toInt());
         if (name.isNotEmpty) {
-          highlights.add(_yirRow(cs, tt, Icons.calendar_month_rounded, 'Top month', name));
+          highlights.add(_yirRow(cs, tt, Icons.calendar_month_rounded, l.statsYearTopMonth, name));
         }
       }
       final mn = d['mostListenedNarrator'];
       if (mn is Map && (mn['name']?.toString().isNotEmpty ?? false)) {
         highlights.add(_yirRow(cs, tt, Icons.record_voice_over_rounded,
-            'Top narrator', mn['name'].toString()));
+            l.statsYearTopNarrator, mn['name'].toString()));
       }
       final lb = d['longestAudiobookFinished'];
       if (lb is Map && (lb['title']?.toString().isNotEmpty ?? false)) {
         highlights.add(_yirRow(cs, tt, Icons.straighten_rounded,
-            'Longest finished', lb['title'].toString()));
+            l.statsYearLongestFinished, lb['title'].toString()));
       }
       if (highlights.isNotEmpty) {
         body.add(Container(
@@ -940,8 +938,8 @@ class _StatsScreenState extends State<StatsScreen>
         body.add(const SizedBox(height: 14));
       }
 
-      body.add(_yirTopList(cs, tt, 'Top authors', d['topAuthors'], 'name'));
-      body.add(_yirTopList(cs, tt, 'Top genres', d['topGenres'], 'genre'));
+      body.add(_yirTopList(cs, tt, l.statsYearTopAuthors, d['topAuthors'], 'name'));
+      body.add(_yirTopList(cs, tt, l.statsYearTopGenres, d['topGenres'], 'genre'));
     }
 
     return [header, const SizedBox(height: 10), ...body, const SizedBox(height: 28)];
@@ -993,7 +991,11 @@ class _StatsScreenState extends State<StatsScreen>
     ]);
   }
 
-  String _monthName(int? m) => (m != null && m >= 0 && m < 12) ? _monthNames[m] : '';
+  String _monthName(int? m) =>
+      (m != null && m >= 0 && m < 12)
+          ? DateFormat.MMMM(Localizations.localeOf(context).toString())
+              .format(DateTime(2000, m + 1))
+          : '';
 
   // --- GOAL CARD ---
 
