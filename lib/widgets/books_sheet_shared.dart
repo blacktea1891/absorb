@@ -21,15 +21,105 @@ void registerBookCovers(LibraryProvider lib, Iterable<Map<String, dynamic>> book
   }
 }
 
-/// Standard grid delegate for book grids inside sheets.
+/// Hands cover grids the width they actually get. Sheets are capped narrower
+/// than the screen (640 in landscape), and sizing their grids from the screen
+/// packed a landscape phone's worth of columns into a sheet - tiny covers
+/// whatever the cover size setting said. Wrap anything holding a cover grid
+/// that isn't full screen width.
+class CoverGridScope extends StatelessWidget {
+  final Widget child;
+  const CoverGridScope({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, constraints) => _CoverGridWidth(
+          width: constraints.maxWidth.isFinite
+              ? constraints.maxWidth
+              : MediaQuery.sizeOf(context).width,
+          child: child,
+        ),
+      );
+}
+
+class _CoverGridWidth extends InheritedWidget {
+  final double width;
+  const _CoverGridWidth({required this.width, required super.child});
+
+  @override
+  bool updateShouldNotify(_CoverGridWidth oldWidget) =>
+      oldWidget.width != width;
+}
+
+double _coverGridWidth(BuildContext context) =>
+    context.dependOnInheritedWidgetOfExactType<_CoverGridWidth>()?.width ??
+    MediaQuery.sizeOf(context).width;
+
+/// How much the cover size setting scales fixed-width covers, like the home
+/// shelves, so they match the grid tiles: on a phone the grid lands near
+/// 90/120/170 wide for small/medium/large.
+double coverSizeScale() {
+  switch (PlayerSettings.coverSize) {
+    case 'small':
+      return 0.75;
+    case 'large':
+      return 1.4;
+    default:
+      return 1.0;
+  }
+}
+
+/// Column count for cover grids. Small/large scale the width-based medium
+/// count by a third, so phones land on exactly 4/3/2 columns no matter their
+/// display scale while tablets move proportionally (e.g. 8/6/4).
+int coverGridCount(BuildContext context) {
+  final width = _coverGridWidth(context);
+  final base = (width / 130).floor().clamp(3, 10);
+  switch (PlayerSettings.coverSize) {
+    case 'small':
+      return ((base * 4) / 3).round().clamp(4, 12);
+    case 'large':
+      return ((base * 2) / 3).round().clamp(2, 10);
+    default:
+      return base;
+  }
+}
+
+/// Width of one tile in a cover grid at the current cover size.
+double coverGridTileWidth(BuildContext context) {
+  final columns = coverGridCount(context);
+  final width = _coverGridWidth(context);
+  return (width - 32 - 10 * (columns - 1)) / columns;
+}
+
+/// Label scale for cover-grid tiles: 1.0 at the stock phone tile width and
+/// growing with the tile, so big tablet or large-cover grids don't pair big
+/// covers with tiny labels. Never shrinks below 1.0 on dense grids.
+double coverGridTextScale(BuildContext context) =>
+    (coverGridTileWidth(context) / 120).clamp(1.0, 1.5);
+
+/// Height a subtitle adds to a tile: one line of label text at the tile's
+/// scale, plus a little so rounding can't clip it.
+double coverGridSubtitleHeight(BuildContext context) =>
+    10 * coverGridTextScale(context) * 1.6;
+
+/// Decode width in physical pixels for a cover in the current grid. Disk
+/// caching only saves the download - every tile scrolled into view still
+/// decodes its bitmap, so decoding at tile size instead of the full server
+/// cover is what keeps a long scroll from ballooning memory.
+int coverGridDecodeWidth(BuildContext context) =>
+    (coverGridTileWidth(context) * MediaQuery.devicePixelRatioOf(context))
+        .round();
+
+/// Standard grid delegate for book grids inside sheets. Same spacing as the
+/// library grid, so a cover size setting lands on the same tiles everywhere.
 SliverGridDelegateWithFixedCrossAxisCount sheetBookGridDelegate(
   BuildContext context, {
   double childAspectRatio = 0.55,
 }) {
   return SliverGridDelegateWithFixedCrossAxisCount(
-    crossAxisCount: (MediaQuery.of(context).size.width / 130).floor().clamp(3, 10),
-    mainAxisSpacing: 8,
-    crossAxisSpacing: 8,
+    crossAxisCount: coverGridCount(context),
+    mainAxisSpacing: 10,
+    crossAxisSpacing: 10,
     childAspectRatio: childAspectRatio,
   );
 }

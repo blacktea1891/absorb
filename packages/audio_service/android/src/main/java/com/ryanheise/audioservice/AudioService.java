@@ -1,5 +1,7 @@
 package com.ryanheise.audioservice;
 
+import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -9,7 +11,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.media.AudioAttributes;
+import android.media.AudioDeviceInfo;
 import android.media.AudioManager;
+import android.media.AudioPlaybackConfiguration;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -17,6 +22,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelFileDescriptor;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.support.v4.media.MediaBrowserCompat;
 import android.support.v4.media.MediaDescriptionCompat;
 import android.support.v4.media.MediaMetadataCompat;
@@ -47,6 +53,7 @@ import java.util.List;
 import java.util.Map;
 
 import io.flutter.embedding.engine.FlutterEngine;
+import io.flutter.embedding.engine.FlutterEngineCache;
 
 public class AudioService extends MediaBrowserServiceCompat {
     public static final String CONTENT_STYLE_SUPPORTED = "android.media.browse.CONTENT_STYLE_SUPPORTED";
@@ -105,6 +112,187 @@ public class AudioService extends MediaBrowserServiceCompat {
     private static ServiceListener listener;
     private static List<MediaSessionCompat.QueueItem> queue = new ArrayList<>();
     private static final Map<String, MediaMetadataCompat> mediaMetadataCache = new HashMap<>();
+    private static volatile int lastMediaKeyCode = -1;
+    private static volatile long lastMediaKeyAt = 0;
+    // Who dispatched the last media key: our own widget, the car, or the
+    // system on behalf of a headset. Lets the Dart side tell a press the
+    // user made on Absorb's widget from one a car head unit sent.
+    private static volatile String lastMediaKeyPkg = null;
+    private static volatile long lastPlayAt = 0;
+    private static volatile long lastPauseAt = 0;
+    // Stamped whenever a car client (Android Auto / Automotive) touches the
+    // browse tree, so the Dart side can tell an AA phantom MEDIA_PAUSE from a
+    // headset toggle that arrived while paused.
+    private static volatile long lastCarClientAt = 0;
+
+    private static boolean isCarPackage(String pkg) {
+        return pkg != null && (pkg.equals("com.google.android.projection.gearhead")
+                || pkg.startsWith("com.android.car"));
+    }
+
+    static void stampCarClient(String pkg) {
+        if (isCarPackage(pkg)) lastCarClientAt = SystemClock.elapsedRealtime();
+    }
+
+    public static Map<String, Object> getDiagnosticSnapshot() {
+        final long now = SystemClock.elapsedRealtime();
+        final Map<String, Object> snapshot = new HashMap<>();
+        snapshot.put("lastKeyCode", lastMediaKeyCode);
+        snapshot.put("lastKeyAgeMs", lastMediaKeyAt == 0 ? -1 : now - lastMediaKeyAt);
+        snapshot.put("lastPlayCaller", "mediaSession");
+        snapshot.put("lastPlayCallerAgeMs", lastPlayAt == 0 ? -1 : now - lastPlayAt);
+        snapshot.put("lastPauseCaller", "mediaSession");
+        snapshot.put("lastPauseCallerAgeMs", lastPauseAt == 0 ? -1 : now - lastPauseAt);
+        snapshot.put("carClientAgeMs", lastCarClientAt == 0 ? -1 : now - lastCarClientAt);
+        snapshot.put("lastKeyPkg", lastMediaKeyPkg);
+        snapshot.put("route", describeActiveRoutes());
+        snapshot.put("outputs", describeExternalOutputs());
+        snapshot.put("musicVolume", describeMusicVolume());
+        snapshot.put("lastExit", lastExitInfo);
+        return snapshot;
+    }
+
+    // Why the previous process of this app ended, from the system's own
+    // record, so a death with nothing in the log still has a reason.
+    private static volatile String lastExitInfo = "unread";
+
+    private void readLastExit() {
+        if (Build.VERSION.SDK_INT < 30) {
+            lastExitInfo = "n/a";
+            return;
+        }
+        try {
+            ActivityManager am = (ActivityManager) getSystemService(Context.ACTIVITY_SERVICE);
+            List<ApplicationExitInfo> exits = am.getHistoricalProcessExitReasons(getPackageName(), 0, 2);
+            if (exits.isEmpty()) {
+                lastExitInfo = "none";
+                return;
+            }
+            StringBuilder sb = new StringBuilder();
+            for (ApplicationExitInfo e : exits) {
+                if (sb.length() > 0) sb.append(" | ");
+                sb.append(exitReasonName(e.getReason()))
+                  .append(" at ").append(new java.util.Date(e.getTimestamp()))
+                  .append(" status=").append(e.getStatus())
+                  .append(" importance=").append(e.getImportance())
+                  .append(" rss=").append(e.getRss() / 1024).append("MB");
+                if (e.getDescription() != null) sb.append(" desc=\"").append(e.getDescription()).append('"');
+            }
+            lastExitInfo = sb.toString();
+        } catch (Exception ex) {
+            lastExitInfo = "err:" + ex.getClass().getSimpleName();
+        }
+    }
+
+    private static String exitReasonName(int reason) {
+        switch (reason) {
+            case ApplicationExitInfo.REASON_EXIT_SELF: return "exit-self";
+            case ApplicationExitInfo.REASON_SIGNALED: return "signaled";
+            case ApplicationExitInfo.REASON_LOW_MEMORY: return "low-memory";
+            case ApplicationExitInfo.REASON_CRASH: return "crash";
+            case ApplicationExitInfo.REASON_CRASH_NATIVE: return "native-crash";
+            case ApplicationExitInfo.REASON_ANR: return "anr";
+            case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE: return "init-failure";
+            case ApplicationExitInfo.REASON_PERMISSION_CHANGE: return "permission-change";
+            case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE: return "excessive-resource";
+            case ApplicationExitInfo.REASON_USER_REQUESTED: return "user-requested";
+            case ApplicationExitInfo.REASON_USER_STOPPED: return "user-stopped";
+            case ApplicationExitInfo.REASON_DEPENDENCY_DIED: return "dependency-died";
+            case ApplicationExitInfo.REASON_OTHER: return "other";
+            case ApplicationExitInfo.REASON_FREEZER: return "freezer";
+            case ApplicationExitInfo.REASON_PACKAGE_STATE_CHANGE: return "package-state-change";
+            case ApplicationExitInfo.REASON_PACKAGE_UPDATED: return "package-updated";
+            default: return "reason" + reason;
+        }
+    }
+
+    private static String deviceLabel(AudioDeviceInfo d) {
+        if (d == null) return "none";
+        CharSequence name = d.getProductName();
+        return deviceTypeName(d.getType()) + ":" + (name == null ? "?" : name);
+    }
+
+    private static String deviceTypeName(int type) {
+        switch (type) {
+            case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: return "speaker";
+            case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE: return "earpiece";
+            case AudioDeviceInfo.TYPE_WIRED_HEADSET: return "wired-headset";
+            case AudioDeviceInfo.TYPE_WIRED_HEADPHONES: return "wired-headphones";
+            case AudioDeviceInfo.TYPE_USB_HEADSET: return "usb-headset";
+            case AudioDeviceInfo.TYPE_USB_DEVICE: return "usb";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP: return "bt-a2dp";
+            case AudioDeviceInfo.TYPE_BLUETOOTH_SCO: return "bt-sco";
+            case AudioDeviceInfo.TYPE_HEARING_AID: return "hearing-aid";
+            case 26: return "ble-headset";
+            case 27: return "ble-speaker";
+            case 30: return "ble-broadcast";
+            case AudioDeviceInfo.TYPE_HDMI: return "hdmi";
+            case AudioDeviceInfo.TYPE_REMOTE_SUBMIX: return "remote-submix";
+            default: return "type" + type;
+        }
+    }
+
+    // Where the sound is going right now: every active media player on the
+    // device and the output it is routed to. The app's own player is the
+    // media one; other apps show up too, which is fine for a diagnostic.
+    private static String describeActiveRoutes() {
+        final AudioService svc = instance;
+        if (svc == null || Build.VERSION.SDK_INT < 31) return "n/a";
+        try {
+            final AudioManager am = (AudioManager) svc.getSystemService(Context.AUDIO_SERVICE);
+            final StringBuilder sb = new StringBuilder();
+            for (AudioPlaybackConfiguration c : am.getActivePlaybackConfigurations()) {
+                final AudioAttributes attrs = c.getAudioAttributes();
+                final int usage = attrs == null ? -1 : attrs.getUsage();
+                if (sb.length() > 0) sb.append(',');
+                sb.append("usage").append(usage).append("->").append(deviceLabel(c.getAudioDeviceInfo()));
+            }
+            return sb.length() == 0 ? "none" : sb.toString();
+        } catch (Exception e) {
+            return "err:" + e.getClass().getSimpleName();
+        }
+    }
+
+    // Media volume as "level/max" plus "muted" when the stream is muted, so a
+    // silent start can be told apart from the phone simply being turned down.
+    private static String describeMusicVolume() {
+        final AudioService svc = instance;
+        if (svc == null) return "n/a";
+        try {
+            final AudioManager am = (AudioManager) svc.getSystemService(Context.AUDIO_SERVICE);
+            String s = am.getStreamVolume(AudioManager.STREAM_MUSIC) + "/"
+                    + am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+            if (Build.VERSION.SDK_INT >= 23 && am.isStreamMute(AudioManager.STREAM_MUSIC)) s += " muted";
+            return s;
+        } catch (Exception e) {
+            return "err:" + e.getClass().getSimpleName();
+        }
+    }
+
+    // Headsets, speakers and cars the phone could send audio to, beyond its
+    // own speaker. Bluetooth here while the user hears nothing is the ghost
+    // route fingerprint.
+    private static String describeExternalOutputs() {
+        final AudioService svc = instance;
+        if (svc == null || Build.VERSION.SDK_INT < 23) return "n/a";
+        try {
+            final AudioManager am = (AudioManager) svc.getSystemService(Context.AUDIO_SERVICE);
+            final StringBuilder sb = new StringBuilder();
+            for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                final int t = d.getType();
+                if (t == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                        || t == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                        || t == AudioDeviceInfo.TYPE_TELEPHONY
+                        || t == AudioDeviceInfo.TYPE_REMOTE_SUBMIX
+                        || t == AudioDeviceInfo.TYPE_FM) continue;
+                if (sb.length() > 0) sb.append(',');
+                sb.append(deviceLabel(d));
+            }
+            return sb.length() == 0 ? "none" : sb.toString();
+        } catch (Exception e) {
+            return "err:" + e.getClass().getSimpleName();
+        }
+    }
 
     public static void init(ServiceListener listener) {
         AudioService.listener = listener;
@@ -239,12 +427,29 @@ public class AudioService extends MediaBrowserServiceCompat {
                     }
                 }
             }
+            bitmap = capArtSize(bitmap);
             artBitmapCache.put(artUriString, bitmap);
             return bitmap;
         } catch (Exception e) {
             e.printStackTrace();
             return null;
         }
+    }
+
+    // The Wear OS media controls bridge rejects session artwork above this
+    // size ("Image is too large (1200x1200)") and shows a blank cover on the
+    // watch. Downloaded covers are stored at 1200px; server covers arrive at
+    // 800px and always worked. Every phone-side reader scales down anyway.
+    private static final int MAX_ART_EDGE_PX = 800;
+
+    private static Bitmap capArtSize(Bitmap bitmap) {
+        if (bitmap == null) return null;
+        int w = bitmap.getWidth();
+        int h = bitmap.getHeight();
+        int longest = Math.max(w, h);
+        if (longest <= MAX_ART_EDGE_PX) return bitmap;
+        float scale = (float) MAX_ART_EDGE_PX / longest;
+        return Bitmap.createScaledBitmap(bitmap, Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)), true);
     }
 
     private static int calculateInSampleSize(BitmapFactory.Options options, int reqWidth, int reqHeight) {
@@ -289,6 +494,12 @@ public class AudioService extends MediaBrowserServiceCompat {
         return processingState;
     }
 
+    // Absorb patch: playback state for code outside this package (MainActivity
+    // decides whether a headless-born engine is safe to tear down on attach).
+    public static boolean isInstancePlaying() {
+        return instance != null && instance.isPlaying();
+    }
+
     public boolean isPlaying() {
         return playing;
     }
@@ -305,6 +516,14 @@ public class AudioService extends MediaBrowserServiceCompat {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        readLastExit();
+        // Absorb patch: if this is a recreated service (a previous instance's
+        // onDestroy nulled the listener), re-register the existing handler so
+        // media buttons keep routing to Dart instead of being dropped in
+        // MediaSessionCallback.
+        if (listener == null) {
+            AudioServicePlugin.restoreServiceListener();
+        }
         repeatMode = 0;
         shuffleMode = 0;
         notificationCreated = false;
@@ -342,8 +561,15 @@ public class AudioService extends MediaBrowserServiceCompat {
             }
         };
 
+        // Absorb patch v2: create the engine when it's missing so headless
+        // starts (Android Auto browse binds, media buttons, media resumption)
+        // boot the app and can serve the browse tree - the cache-only version
+        // of this patch left Android Auto with an empty library whenever the
+        // process was dead. The old poisoned-cache problem (a headless-born
+        // engine froze the next real launch on the splash screen) is handled
+        // on the other side now: MainActivity tears down an idle headless-born
+        // engine and boots fresh instead of attaching to it.
         flutterEngine = AudioServicePlugin.getFlutterEngine(this);
-        System.out.println("flutterEngine warmed up");
     }
 
     @Override
@@ -722,6 +948,13 @@ public class AudioService extends MediaBrowserServiceCompat {
     private void exitPlayingState() {
         if (config.androidStopForegroundOnPause) {
             exitForegroundState();
+        } else {
+            // Keep the foreground service alive so the notification, lock
+            // screen, Bluetooth and WearOS controls stay responsive after a
+            // pause, but release the CPU wakelock - holding PARTIAL_WAKE_LOCK
+            // while paused drains battery for nothing. enterPlayingState()
+            // re-acquires it on resume.
+            releaseWakeLock();
         }
     }
 
@@ -792,13 +1025,13 @@ public class AudioService extends MediaBrowserServiceCompat {
      */
     synchronized void setMetadata(MediaMetadataCompat mediaMetadata) {
         String artCacheFilePath = mediaMetadata.getString("artCacheFile");
+        String artUri = mediaMetadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI);
         if (artCacheFilePath != null) {
             // Load local files and network images, cached in files
             artBitmap = loadArtBitmap(artCacheFilePath, null);
             mediaMetadata = putArtToMetadata(mediaMetadata);
         } else {
             // Load content:// URIs
-            String artUri = mediaMetadata.getString(MediaMetadataCompat.METADATA_KEY_DISPLAY_ICON_URI);
             if (artUri != null && artUri.startsWith("content:")) {
                 String loadThumbnailUri = mediaMetadata.getString("loadThumbnailUri");
                 artBitmap = loadArtBitmap(artUri, loadThumbnailUri);
@@ -807,10 +1040,18 @@ public class AudioService extends MediaBrowserServiceCompat {
                 artBitmap = null;
             }
         }
+        android.util.Log.i("AbsorbArt", "setMetadata art="
+                + (artCacheFilePath != null ? "file" : artUri == null ? "none" : artUri.substring(0, Math.min(8, artUri.length())))
+                + " bitmap=" + describeBitmap(artBitmap));
         this.mediaMetadata = mediaMetadata;
         mediaSession.setMetadata(mediaMetadata);
         handler.removeCallbacksAndMessages(null);
         handler.post(this::updateNotification);
+    }
+
+    private static String describeBitmap(Bitmap b) {
+        if (b == null) return "null";
+        return b.getWidth() + "x" + b.getHeight() + " " + b.getConfig() + " " + (b.getByteCount() / 1024) + "KB";
     }
 
     private MediaMetadataCompat putArtToMetadata(MediaMetadataCompat mediaMetadata) {
@@ -822,6 +1063,7 @@ public class AudioService extends MediaBrowserServiceCompat {
 
     @Override
     public BrowserRoot onGetRoot(String clientPackageName, int clientUid, Bundle rootHints) {
+        stampCarClient(clientPackageName);
         Boolean isRecentRequest = rootHints == null ? null : (Boolean)rootHints.getBoolean(BrowserRoot.EXTRA_RECENT);
         if (isRecentRequest == null) isRecentRequest = false;
         Bundle extras = config.getBrowsableRootExtras();
@@ -839,6 +1081,11 @@ public class AudioService extends MediaBrowserServiceCompat {
 
     @Override
     public void onLoadChildren(final String parentMediaId, final Result<List<MediaBrowserCompat.MediaItem>> result, Bundle options) {
+        // Keeps the car stamp fresh through a long drive - AA re-queries the
+        // tree whenever we notify children changed.
+        try {
+            stampCarClient(getCurrentBrowserInfo().getPackageName());
+        } catch (Exception ignored) {}
         if (listener == null) {
             result.sendResult(new ArrayList<>());
             return;
@@ -923,9 +1170,22 @@ public class AudioService extends MediaBrowserServiceCompat {
             listener.onPrepareFromUri(uri, extras);
         }
 
+        // Also stamps the car client when Android Auto itself sends the
+        // command, so a long drive with no browsing keeps the stamp fresh
+        // right up to the head-unit pause that precedes the phantom. Only
+        // valid inside a Callback method; headset presses arrive via the
+        // system and never match a car package.
+        private void stampCarController() {
+            try {
+                stampCarClient(mediaSession.getCurrentControllerInfo().getPackageName());
+            } catch (Exception ignored) {}
+        }
+
         @Override
         public void onPlay() {
             if (listener == null) return;
+            stampCarController();
+            lastPlayAt = SystemClock.elapsedRealtime();
             listener.onPlay();
         }
 
@@ -954,6 +1214,14 @@ public class AudioService extends MediaBrowserServiceCompat {
             @SuppressWarnings("deprecation")
             final KeyEvent event = (KeyEvent)mediaButtonEvent.getExtras().getParcelable(Intent.EXTRA_KEY_EVENT);
             if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                stampCarController();
+                lastMediaKeyCode = event.getKeyCode();
+                lastMediaKeyAt = SystemClock.elapsedRealtime();
+                try {
+                    lastMediaKeyPkg = mediaSession.getCurrentControllerInfo().getPackageName();
+                } catch (Exception e) {
+                    lastMediaKeyPkg = null;
+                }
                 switch (event.getKeyCode()) {
                 case KEYCODE_BYPASS_PLAY:
                     onPlay();
@@ -1009,6 +1277,8 @@ public class AudioService extends MediaBrowserServiceCompat {
         @Override
         public void onPause() {
             if (listener == null) return;
+            stampCarController();
+            lastPauseAt = SystemClock.elapsedRealtime();
             listener.onPause();
         }
 

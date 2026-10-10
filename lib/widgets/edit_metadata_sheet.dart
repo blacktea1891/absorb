@@ -8,6 +8,7 @@ import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/socket_service.dart';
 import '../screens/chapter_editor_screen.dart';
+import 'overlay_toast.dart';
 
 enum _ETab { details, cover, chapters, match, encode, embed }
 
@@ -17,14 +18,19 @@ enum _ETab { details, cover, chapters, match, encode, embed }
 /// built here. Each tab has its own scroll controller so swiping between
 /// adjacent tabs never double-attaches one controller.
 class MetadataEditView extends StatefulWidget {
+  static const quickMatchButtonKey = Key('metadataQuickMatchButton');
+  static const filePathsSectionKey = Key('metadataFilePathsSection');
+
   final String itemId;
   final String bookTitle;
   final Map<String, dynamic> metadata;
   final List<String> tags;
   final List<dynamic> audioFiles;
+  final List<dynamic> libraryFiles;
   final String relPath;
   final bool isEbookOnly;
   final bool isAdmin;
+  final String? libraryId;
 
   const MetadataEditView({
     super.key,
@@ -33,9 +39,11 @@ class MetadataEditView extends StatefulWidget {
     required this.metadata,
     this.tags = const [],
     this.audioFiles = const [],
+    this.libraryFiles = const [],
     this.relPath = '',
     this.isEbookOnly = false,
     this.isAdmin = false,
+    this.libraryId,
   });
 
   @override
@@ -76,8 +84,20 @@ class _MetadataEditViewState extends State<MetadataEditView>
   List<Map<String, dynamic>> _searchResults = [];
   bool _isSearching = false;
   bool _hasSearched = false;
+  bool _quickMatching = false;
   String _provider = 'audible';
   static const _providerKeys = ['audible', 'itunes', 'openlibrary'];
+  // The server's own provider list, when it offers one (BookOrbit).
+  List<Map<String, String>>? _serverProviders;
+
+  Future<void> _loadServerProviders() async {
+    final list = await context.read<AuthProvider>().apiService?.bookMatchProviders();
+    if (!mounted || list == null || list.isEmpty) return;
+    setState(() {
+      _serverProviders = list;
+      if (!list.any((p) => p['key'] == _provider)) _provider = list.first['key']!;
+    });
+  }
 
   String _providerLabel(AppLocalizations l, String key) {
     switch (key) {
@@ -93,7 +113,41 @@ class _MetadataEditViewState extends State<MetadataEditView>
   List<String> _coverResults = [];
   bool _coverSearching = false;
   String _coverProvider = 'best';
+  // BookOrbit keeps a square audiobook cover and a portrait book cover.
+  List<String> _coverSlots = const [];
+  String? _coverSlot;
+
+  Future<void> _loadCoverSlots() async {
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null || !api.isBookOrbit) return;
+    final slots = await api.coverSlots(widget.itemId);
+    final provider = await api.defaultCoverSearchProvider();
+    if (!mounted) return;
+    setState(() {
+      _coverSlots = slots;
+      _coverSlot = slots.contains('audio')
+          ? 'audio'
+          : slots.isNotEmpty
+              ? slots.first
+              : (widget.isEbookOnly ? 'ebook' : 'audio');
+      _coverProvider = provider ?? 'duckduckgo';
+    });
+  }
+
+  List<String> get _bookOrbitCoverProviders =>
+      ['duckduckgo', 'itunes', if (_coverSlot != 'ebook') 'audiobookcovers', 'all'];
+
+  String get _bookOrbitCoverProvider =>
+      _bookOrbitCoverProviders.contains(_coverProvider) ? _coverProvider : 'duckduckgo';
   bool _saving = false;
+  bool _explicit = false;
+  bool _abridged = false;
+
+  // Existing library values for the series/genres/tags typeahead. Fetched once
+  // from the library's filterdata so a value can be picked instead of retyped.
+  List<String> _allSeries = [];
+  List<String> _allGenres = [];
+  List<String> _allTags = [];
 
   // Encode tab
   String _encodeCodec = 'aac';
@@ -125,6 +179,12 @@ class _MetadataEditViewState extends State<MetadataEditView>
       ..addTaskStartedListener(_onTaskStarted)
       ..addTaskProgressListener(_onTaskProgress)
       ..addTaskFinishedListener(_onTaskFinished);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(_restoreRunningTask());
+    });
+    _loadFilterSuggestions();
+    _loadServerProviders();
+    _loadCoverSlots();
     final m = widget.metadata;
     _titleCtrl = TextEditingController(text: m['title'] as String? ?? '');
     _subtitleCtrl = TextEditingController(text: m['subtitle'] as String? ?? '');
@@ -136,6 +196,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
     _asinCtrl = TextEditingController(text: m['asin'] as String? ?? '');
     _isbnCtrl = TextEditingController(text: m['isbn'] as String? ?? '');
     _languageCtrl = TextEditingController(text: m['language'] as String? ?? '');
+    _explicit = m['explicit'] == true;
+    _abridged = m['abridged'] == true;
     _coverUrlCtrl = TextEditingController();
     _coverSearchTitleCtrl = TextEditingController(text: m['title'] as String? ?? '');
     _coverSearchAuthorCtrl = TextEditingController(text: m['authorName'] as String? ?? '');
@@ -199,6 +261,123 @@ class _MetadataEditViewState extends State<MetadataEditView>
   }
 
   // ─── Quick Match ────────────────────────────────────────────
+
+  String _serverMatchProvider() {
+    final libraryId = widget.libraryId;
+    if (libraryId == null) return 'google';
+    for (final library in context.read<LibraryProvider>().libraries) {
+      if (library is! Map || library['id'] != libraryId) continue;
+      final provider = library['provider']?.toString().trim() ?? '';
+      if (provider.isNotEmpty) return provider;
+    }
+    return 'google';
+  }
+
+  Future<void> _runServerQuickMatch() async {
+    final l = AppLocalizations.of(context)!;
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty) {
+      showOverlayToast(context, l.chapterErrorTitleRequired,
+          icon: Icons.error_outline_rounded);
+      return;
+    }
+
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null) return;
+
+    FocusScope.of(context).unfocus();
+    setState(() => _quickMatching = true);
+    final author = _authorCtrl.text.trim();
+    final result = await api.matchLibraryItem(
+      widget.itemId,
+      title: title,
+      author: author.isEmpty ? null : author,
+      provider: _serverMatchProvider(),
+    );
+    if (!mounted) return;
+
+    final warning = result?['warning']?.toString().trim() ?? '';
+    final updated = result?['updated'] == true;
+    setState(() {
+      _quickMatching = false;
+      if (updated) {
+        _loadMatchedLibraryItem(result?['libraryItem']);
+        _coverVersion++;
+      }
+    });
+
+    if (updated) context.read<LibraryProvider>().refresh();
+
+    final message = result == null
+        ? l.failedToUpdateMetadata
+        : warning.isNotEmpty
+            ? warning
+            : updated
+                ? l.editMetadataUpdatedFromMatch
+                : l.quickMatchNoUpdates;
+    showOverlayToast(
+      context,
+      message,
+      icon: result == null
+          ? Icons.error_outline_rounded
+          : warning.isNotEmpty
+              ? Icons.warning_amber_rounded
+              : updated
+                  ? Icons.check_circle_outline_rounded
+                  : Icons.info_outline_rounded,
+    );
+  }
+
+  void _loadMatchedLibraryItem(dynamic rawItem) {
+    if (rawItem is! Map) return;
+    final media = rawItem['media'];
+    if (media is! Map) return;
+    final metadata = media['metadata'];
+    if (metadata is! Map) return;
+
+    String value(String key) => _safeString(metadata[key]);
+    _titleCtrl.text = value('title');
+    _subtitleCtrl.text = value('subtitle');
+    _authorCtrl.text = value('authorName');
+    _narratorCtrl.text = value('narratorName');
+    _descCtrl.text = value('description');
+    _publisherCtrl.text = value('publisher');
+    _yearCtrl.text = value('publishedYear');
+    _languageCtrl.text = value('language');
+    _genresCtrl.text = value('genres');
+    _tagsCtrl.text = _safeString(media['tags']);
+    _asinCtrl.text = value('asin');
+    _isbnCtrl.text = value('isbn');
+    _explicit = metadata['explicit'] == true;
+    _abridged = metadata['abridged'] == true;
+
+    final previousSeriesRows = List.of(_seriesRows);
+    _seriesRows.clear();
+    final series = metadata['series'];
+    if (series is List) {
+      for (final entry in series) {
+        if (entry is! Map) continue;
+        _seriesRows.add((
+          name: TextEditingController(text: _safeString(entry['name'])),
+          seq: TextEditingController(text: _safeString(entry['sequence'])),
+        ));
+      }
+    }
+    if (_seriesRows.isEmpty) {
+      _seriesRows.add((name: TextEditingController(), seq: TextEditingController()));
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final row in previousSeriesRows) {
+        row.name.dispose();
+        row.seq.dispose();
+      }
+    });
+
+    _searchTitleCtrl.text = _titleCtrl.text;
+    _searchAuthorCtrl.text = _authorCtrl.text;
+    _coverSearchTitleCtrl.text = _titleCtrl.text;
+    _coverSearchAuthorCtrl.text = _authorCtrl.text;
+  }
 
   Future<void> _doSearch() async {
     final title = _searchTitleCtrl.text.trim();
@@ -290,7 +469,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
           ? _safeString(book['cover'])
           : _safeString(book['image']);
       if (coverUrl.isNotEmpty) {
-        await api.updateItemCoverUrl(widget.itemId, coverUrl);
+        await api.updateItemCoverUrl(widget.itemId, coverUrl, coverSlot: _coverSlot);
       }
     }
 
@@ -302,23 +481,11 @@ class _MetadataEditViewState extends State<MetadataEditView>
       context.read<LibraryProvider>().refresh();
       _coverVersion++;
       // stays on the edit page
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text(l.editMetadataUpdatedFromMatch),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ));
+      showOverlayToast(context, l.editMetadataUpdatedFromMatch,
+          icon: Icons.check_circle_outline_rounded);
     } else {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text(l.failedToUpdateMetadata),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ));
+      showOverlayToast(context, l.failedToUpdateMetadata,
+          icon: Icons.error_outline_rounded);
     }
   }
 
@@ -447,6 +614,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
       'asin': _asinCtrl.text.trim(),
       'isbn': _isbnCtrl.text.trim(),
       'language': _languageCtrl.text.trim(),
+      'explicit': _explicit,
+      'abridged': _abridged,
     };
 
     // Authors/narrators are arrays in ABS, not simple strings
@@ -486,9 +655,9 @@ class _MetadataEditViewState extends State<MetadataEditView>
     bool ok = await api.updateItemMedia(widget.itemId, update, tags: tags);
 
     if (ok && _coverFilePath != null) {
-      ok = await api.uploadItemCover(widget.itemId, _coverFilePath!);
+      ok = await api.uploadItemCover(widget.itemId, _coverFilePath!, coverSlot: _coverSlot);
     } else if (ok && _coverUrlCtrl.text.trim().isNotEmpty) {
-      ok = await api.updateItemCoverUrl(widget.itemId, _coverUrlCtrl.text.trim());
+      ok = await api.updateItemCoverUrl(widget.itemId, _coverUrlCtrl.text.trim(), coverSlot: _coverSlot);
     }
 
     if (!mounted) return;
@@ -499,23 +668,11 @@ class _MetadataEditViewState extends State<MetadataEditView>
       context.read<LibraryProvider>().refresh();
       _coverVersion++;
       // stays on the edit page
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text(l.metadataUpdated),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ));
+      showOverlayToast(context, l.metadataUpdated,
+          icon: Icons.check_circle_outline_rounded);
     } else {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(
-          content: Text(l.failedToUpdateMetadata),
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ));
+      showOverlayToast(context, l.failedToUpdateMetadata,
+          icon: Icons.error_outline_rounded);
     }
   }
 
@@ -530,6 +687,55 @@ class _MetadataEditViewState extends State<MetadataEditView>
         _coverUrlCtrl.clear();
       });
     }
+  }
+
+  /// Clear the cover entirely, so the book falls back to the generated
+  /// title card. Every other control here replaces one cover with another;
+  /// there was no way to end up with none.
+  Future<void> _removeCover() async {
+    final l = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l.coverRemove),
+        content: Text(l.coverRemoveConfirm),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l.remove),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null) return;
+    setState(() => _saving = true);
+    final ok = await api.removeItemCover(widget.itemId, coverSlot: _coverSlot);
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      if (ok) {
+        _coverVersion++;
+        _coverFilePath = null;
+        _coverUrlCtrl.clear();
+      }
+    });
+    if (ok) {
+      // The grid reads has-cover from the item payload, so refresh rather than
+      // leaving stale art behind on the shelves.
+      context.read<LibraryProvider>().refresh();
+    }
+    showOverlayToast(
+      context,
+      ok ? l.coverRemoved : l.coverRemoveFailed,
+      icon: ok ? Icons.check_circle_outline_rounded : Icons.error_outline_rounded,
+    );
   }
 
   String _safeString(dynamic value) {
@@ -837,10 +1043,12 @@ class _MetadataEditViewState extends State<MetadataEditView>
         _runningAction = null;
         _taskProgress = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.encodeFailed)));
+      showOverlayToast(context, l.encodeFailed,
+          icon: Icons.error_outline_rounded);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.encodeStarted)));
+    showOverlayToast(context, l.encodeStarted,
+        icon: Icons.graphic_eq_rounded);
   }
 
   Future<void> _startEmbed() async {
@@ -873,10 +1081,12 @@ class _MetadataEditViewState extends State<MetadataEditView>
         _runningAction = null;
         _taskProgress = null;
       });
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.embedCouldNotStart)));
+      showOverlayToast(context, l.embedCouldNotStart,
+          icon: Icons.error_outline_rounded);
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(l.embedStarted)));
+    showOverlayToast(context, l.embedStarted,
+        icon: Icons.edit_note_rounded);
   }
 
   void _onTaskStarted(Map<String, dynamic> data) {
@@ -888,6 +1098,29 @@ class _MetadataEditViewState extends State<MetadataEditView>
     setState(() {
       _runningAction = action;
       _taskProgress = 0;
+    });
+  }
+
+  Future<void> _restoreRunningTask() async {
+    if (!mounted) return;
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null) return;
+    final tasks = await api.getServerTasks();
+    if (!mounted || _runningAction != null || tasks == null) return;
+    final matching = tasks.where((task) {
+      final itemId = (task['data'] as Map?)?['libraryItemId']?.toString();
+      final action = task['action'] as String?;
+      return itemId == widget.itemId &&
+          task['isFinished'] != true &&
+          (action == 'encode-m4b' || action == 'embed-metadata');
+    }).toList()
+      ..sort((a, b) =>
+          ((b['startedAt'] as num?)?.toInt() ?? 0)
+              .compareTo((a['startedAt'] as num?)?.toInt() ?? 0));
+    if (matching.isEmpty || !mounted || _runningAction != null) return;
+    setState(() {
+      _runningAction = matching.first['action'] as String?;
+      _taskProgress = null;
     });
   }
 
@@ -918,9 +1151,13 @@ class _MetadataEditViewState extends State<MetadataEditView>
     final msg = failed
         ? (embed ? l.embedFailed : l.encodeFailedTask)
         : (embed ? l.embedComplete : l.encodeComplete);
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(msg)));
+    showOverlayToast(
+      context,
+      msg,
+      icon: failed
+          ? Icons.error_outline_rounded
+          : Icons.check_circle_outline_rounded,
+    );
   }
 
   // ─── Build ──────────────────────────────────────────────────
@@ -996,7 +1233,12 @@ class _MetadataEditViewState extends State<MetadataEditView>
                     dropdownColor: cs.surfaceContainerHigh,
                     style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                     icon: Icon(Icons.expand_more_rounded, size: 18, color: cs.onSurfaceVariant),
-                    items: _providerKeys.map((k) => DropdownMenuItem(value: k, child: Text(_providerLabel(l, k)))).toList(),
+                    items: _serverProviders != null
+                        ? [
+                            for (final p in _serverProviders!)
+                              DropdownMenuItem(value: p['key'], child: Text(p['label'] ?? p['key']!)),
+                          ]
+                        : _providerKeys.map((k) => DropdownMenuItem(value: k, child: Text(_providerLabel(l, k)))).toList(),
                     onChanged: (v) { if (v != null) setState(() => _provider = v); },
                   ),
                 ),
@@ -1163,14 +1405,29 @@ class _MetadataEditViewState extends State<MetadataEditView>
   // ─── Custom Tab ─────────────────────────────────────────────
 
   Widget _buildCustomTab(ColorScheme cs, TextTheme tt, AppLocalizations l) {
+    final filePaths = fullLibraryFilePaths(widget.libraryFiles);
+    final bookOrbit = context.read<AuthProvider>().isBookOrbit;
     return Column(children: [
       // Save button bar
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
         child: Row(children: [
+          if (widget.isAdmin || bookOrbit)
+            OutlinedButton.icon(
+              key: MetadataEditView.quickMatchButtonKey,
+              onPressed: _saving || _quickMatching ? null : _runServerQuickMatch,
+              icon: _quickMatching
+                  ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary))
+                  : const Icon(Icons.auto_fix_high_rounded, size: 18),
+              label: Text(l.quickMatch),
+              style: OutlinedButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
           const Spacer(),
           FilledButton.icon(
-            onPressed: _saving ? null : _saveCustom,
+            onPressed: _saving || _quickMatching ? null : _saveCustom,
             icon: _saving
                 ? SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: cs.onPrimary))
                 : const Icon(Icons.check_rounded, size: 18),
@@ -1179,17 +1436,16 @@ class _MetadataEditViewState extends State<MetadataEditView>
           ),
         ]),
       ),
-      const SizedBox(height: 8),
       Expanded(
         child: ListView(
           controller: _detailsScroll,
-          padding: EdgeInsets.fromLTRB(20, 0, 20, 32 + MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).viewPadding.bottom),
+          padding: EdgeInsets.fromLTRB(20, 8, 20, 32 + MediaQuery.of(context).viewInsets.bottom + MediaQuery.of(context).viewPadding.bottom),
           children: [
             _field(l.titleLabel, _titleCtrl, tt),
             _field(l.subtitleLabel, _subtitleCtrl, tt),
             _field(l.authorLabel, _authorCtrl, tt),
             _field(l.narratorLabel, _narratorCtrl, tt),
-            for (int i = 0; i < _seriesRows.length; i++)
+            for (int i = 0; i < _seriesRows.length; i++) ...[
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(child: _field(l.seriesLabel, _seriesRows[i].name, tt)),
                 const SizedBox(width: 12),
@@ -1213,6 +1469,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
                   constraints: const BoxConstraints(),
                 ),
               ]),
+              _suggestionChips(_seriesRows[i].name, _allSeries, multi: false),
+            ],
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
               child: Align(
@@ -1234,12 +1492,56 @@ class _MetadataEditViewState extends State<MetadataEditView>
               Expanded(child: _field(l.languageLabel, _languageCtrl, tt)),
             ]),
             _field(l.genresLabel, _genresCtrl, tt, hint: l.commaSeparated),
+            _suggestionChips(_genresCtrl, _allGenres, multi: true),
             _field(l.tagsLabel, _tagsCtrl, tt, hint: l.commaSeparated),
+            _suggestionChips(_tagsCtrl, _allTags, multi: true),
             Row(children: [
               Expanded(child: _field(l.asinLabel, _asinCtrl, tt)),
               const SizedBox(width: 12),
               Expanded(child: _field(l.isbnLabel, _isbnCtrl, tt)),
             ]),
+            Row(children: [
+              if (!bookOrbit) Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _explicit = !_explicit),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Row(children: [
+                    Checkbox(
+                      value: _explicit,
+                      onChanged: (v) => setState(() => _explicit = v ?? false),
+                    ),
+                    Expanded(child: Text(l.explicitContent, style: tt.bodyMedium)),
+                  ]),
+                ),
+              ),
+              if (!bookOrbit) const SizedBox(width: 12),
+              Expanded(
+                child: InkWell(
+                  onTap: () => setState(() => _abridged = !_abridged),
+                  borderRadius: BorderRadius.circular(10),
+                  child: Row(children: [
+                    Checkbox(
+                      value: _abridged,
+                      onChanged: (v) => setState(() => _abridged = v ?? false),
+                    ),
+                    Expanded(child: Text(l.abridged, style: tt.bodyMedium)),
+                  ]),
+                ),
+              ),
+            ]),
+            if (widget.isAdmin && filePaths.isNotEmpty) ...[
+              const SizedBox(height: 20),
+              Text(l.libraryFilesCount(filePaths.length),
+                key: MetadataEditView.filePathsSectionKey,
+                style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(height: 8),
+              for (final path in filePaths)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: SelectableText(path, style: tt.bodySmall?.copyWith(
+                    color: cs.onSurfaceVariant, height: 1.35)),
+                ),
+            ],
 
           ],
         ),
@@ -1250,8 +1552,12 @@ class _MetadataEditViewState extends State<MetadataEditView>
   // ─── Cover Tab ──────────────────────────────────────────────
 
   Widget _buildCoverTab(ColorScheme cs, TextTheme tt, AppLocalizations l) {
+    final api = context.read<AuthProvider>().apiService;
+    final bookOrbit = api?.isBookOrbit == true;
     final base = _safeBaseCoverUrl();
-    final coverUrl = base.isEmpty ? '' : '$base?v=$_coverVersion';
+    final coverUrl = bookOrbit
+        ? api!.getCoverUrl(widget.itemId, width: null, coverSlot: _coverSlot)
+        : base.isEmpty ? '' : '$base?v=$_coverVersion';
     return Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
@@ -1273,6 +1579,32 @@ class _MetadataEditViewState extends State<MetadataEditView>
           controller: _coverScroll,
           padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
           children: [
+            if (_coverSlots.length > 1) ...[
+              Center(
+                child: SegmentedButton<String>(
+                  segments: [
+                    ButtonSegment(
+                      value: 'audio',
+                      icon: const Icon(Icons.crop_square_rounded),
+                      label: Text(l.coverSlotAudiobook),
+                    ),
+                    ButtonSegment(
+                      value: 'ebook',
+                      icon: const Icon(Icons.crop_portrait_rounded),
+                      label: Text(l.coverSlotBook),
+                    ),
+                  ],
+                  selected: {_coverSlot ?? 'audio'},
+                  onSelectionChanged: _saving
+                      ? null
+                      : (s) => setState(() {
+                            _coverSlot = s.first;
+                            _coverResults = [];
+                          }),
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
             Center(
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(12),
@@ -1288,6 +1620,16 @@ class _MetadataEditViewState extends State<MetadataEditView>
                 ),
               ),
             ),
+            if (base.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: TextButton.icon(
+                  onPressed: _saving ? null : _removeCover,
+                  icon: Icon(Icons.hide_image_outlined, size: 18, color: cs.error),
+                  label: Text(l.coverRemove, style: TextStyle(color: cs.error)),
+                ),
+              ),
+            ],
             const SizedBox(height: 16),
             Text(l.coverImage, style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
@@ -1364,18 +1706,31 @@ class _MetadataEditViewState extends State<MetadataEditView>
             const SizedBox(height: 8),
             Row(children: [
               DropdownButton<String>(
-                value: _coverProvider,
+                value: bookOrbit ? _bookOrbitCoverProvider : _coverProvider,
                 onChanged: (v) => setState(() => _coverProvider = v ?? 'best'),
-                items: const [
-                  DropdownMenuItem(value: 'best', child: Text('Best')),
-                  DropdownMenuItem(value: 'all', child: Text('All')),
-                  DropdownMenuItem(value: 'google', child: Text('Google')),
-                  DropdownMenuItem(value: 'fantlab', child: Text('FantLab')),
-                  DropdownMenuItem(value: 'audible', child: Text('Audible')),
-                  DropdownMenuItem(value: 'itunes', child: Text('iTunes')),
-                  DropdownMenuItem(value: 'openlibrary', child: Text('OpenLibrary')),
-                  DropdownMenuItem(value: 'audiobookcovers', child: Text('AudiobookCovers.com')),
-                ],
+                items: bookOrbit
+                    ? [
+                        for (final p in _bookOrbitCoverProviders)
+                          DropdownMenuItem(
+                            value: p,
+                            child: Text(switch (p) {
+                              'duckduckgo' => 'DuckDuckGo',
+                              'itunes' => 'iTunes',
+                              'audiobookcovers' => 'AudiobookCovers.com',
+                              _ => 'All',
+                            }),
+                          ),
+                      ]
+                    : const [
+                        DropdownMenuItem(value: 'best', child: Text('Best')),
+                        DropdownMenuItem(value: 'all', child: Text('All')),
+                        DropdownMenuItem(value: 'google', child: Text('Google')),
+                        DropdownMenuItem(value: 'fantlab', child: Text('FantLab')),
+                        DropdownMenuItem(value: 'audible', child: Text('Audible')),
+                        DropdownMenuItem(value: 'itunes', child: Text('iTunes')),
+                        DropdownMenuItem(value: 'openlibrary', child: Text('OpenLibrary')),
+                        DropdownMenuItem(value: 'audiobookcovers', child: Text('AudiobookCovers.com')),
+                      ],
               ),
               const Spacer(),
               FilledButton.tonalIcon(
@@ -1394,7 +1749,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
                 crossAxisCount: 3,
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 8,
-                childAspectRatio: 1.0,
+                childAspectRatio: _coverSlot == 'ebook' ? 2 / 3 : 1.0,
                 children: [
                   for (final url in _coverResults)
                     GestureDetector(
@@ -1442,17 +1797,18 @@ class _MetadataEditViewState extends State<MetadataEditView>
     final api = context.read<AuthProvider>().apiService;
     final title = _coverSearchTitleCtrl.text.trim();
     if (api == null || title.isEmpty) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l.coverEnterTitleFirst)));
+      showOverlayToast(context, l.coverEnterTitleFirst,
+          icon: Icons.error_outline_rounded);
       return;
     }
     final author = _coverSearchAuthorCtrl.text.trim();
-    final providers = switch (_coverProvider) {
-      'best' => _bestCoverProviders,
-      'all' => _allCoverProviders,
-      _ => [_coverProvider],
-    };
+    final providers = api.isBookOrbit
+        ? [_bookOrbitCoverProvider]
+        : switch (_coverProvider) {
+            'best' => _bestCoverProviders,
+            'all' => _allCoverProviders,
+            _ => [_coverProvider],
+          };
     // Query one provider at a time and append results as they arrive, so a
     // slow provider can't time out the whole search and covers stream in.
     setState(() {
@@ -1462,7 +1818,7 @@ class _MetadataEditViewState extends State<MetadataEditView>
     final seen = <String>{};
     for (final p in providers) {
       if (!mounted) return;
-      final results = await api.searchCovers(title, author: author, provider: p);
+      final results = await api.searchCovers(title, author: author, provider: p, coverSlot: _coverSlot);
       if (!mounted) return;
       final fresh = results.where(seen.add).toList();
       if (fresh.isNotEmpty) setState(() => _coverResults = [..._coverResults, ...fresh]);
@@ -1470,9 +1826,8 @@ class _MetadataEditViewState extends State<MetadataEditView>
     if (!mounted) return;
     setState(() => _coverSearching = false);
     if (_coverResults.isEmpty) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(SnackBar(content: Text(l.coverNoneFound)));
+      showOverlayToast(context, l.coverNoneFound,
+          icon: Icons.search_off_rounded);
     }
   }
 
@@ -1481,16 +1836,20 @@ class _MetadataEditViewState extends State<MetadataEditView>
     final api = context.read<AuthProvider>().apiService;
     if (api == null) return;
     setState(() => _saving = true);
-    final ok = await api.updateItemCoverUrl(widget.itemId, url);
+    final ok = await api.updateItemCoverUrl(widget.itemId, url, coverSlot: _coverSlot);
     if (!mounted) return;
     if (ok) context.read<LibraryProvider>().refresh();
     setState(() {
       _saving = false;
       if (ok) _coverVersion++;
     });
-    ScaffoldMessenger.of(context)
-      ..clearSnackBars()
-      ..showSnackBar(SnackBar(content: Text(ok ? l.coverUpdated : l.coverCouldNotUpdate)));
+    showOverlayToast(
+      context,
+      ok ? l.coverUpdated : l.coverCouldNotUpdate,
+      icon: ok
+          ? Icons.check_circle_outline_rounded
+          : Icons.error_outline_rounded,
+    );
   }
 
   /// Show a cover result full-size with its resolution and an explicit Apply.
@@ -1583,4 +1942,97 @@ class _MetadataEditViewState extends State<MetadataEditView>
       ),
     );
   }
+
+  Future<void> _loadFilterSuggestions() async {
+    final api = context.read<AuthProvider>().apiService;
+    final libId = widget.libraryId ?? context.read<LibraryProvider>().selectedLibraryId;
+    if (api == null || libId == null) return;
+    final data = await api.getLibraryFilterData(libId);
+    if (data == null || !mounted) return;
+    List<String> names(String key) {
+      final raw = data[key] as List<dynamic>? ?? [];
+      return raw
+          .map((e) => e is Map ? (e['name'] as String? ?? '') : e.toString())
+          .where((s) => s.isNotEmpty)
+          .toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    }
+    setState(() {
+      _allSeries = names('series');
+      _allGenres = names('genres');
+      _allTags = names('tags');
+    });
+  }
+
+  /// Inline typeahead under a field: as the user types, shows up to 6 existing
+  /// library values that match, tapping one fills it in. For [multi] fields
+  /// (comma-separated genres/tags) it completes the word after the last comma
+  /// and leaves a trailing ", " ready for the next one.
+  Widget _suggestionChips(TextEditingController ctrl, List<String> source, {required bool multi}) {
+    if (source.isEmpty) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: ctrl,
+      builder: (context, value, _) {
+        final full = value.text;
+        final existing = (multi ? full.split(',') : [full])
+            .map((s) => s.trim().toLowerCase())
+            .where((s) => s.isNotEmpty)
+            .toSet();
+        final token = (multi ? full.split(',').last : full).trim();
+        if (token.isEmpty) return const SizedBox.shrink();
+        final tl = token.toLowerCase();
+        final matches = source.where((s) {
+          final sl = s.toLowerCase();
+          return sl.contains(tl) && sl != tl && !existing.contains(sl);
+        }).toList()
+          ..sort((a, b) {
+            final ar = a.toLowerCase().startsWith(tl) ? 0 : 1;
+            final br = b.toLowerCase().startsWith(tl) ? 0 : 1;
+            return ar != br ? ar - br : a.length - b.length;
+          });
+        if (matches.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Wrap(
+            spacing: 6, runSpacing: 6,
+            children: matches.take(6).map((name) => ActionChip(
+              label: Text(name, style: tt.bodySmall),
+              visualDensity: VisualDensity.compact,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              backgroundColor: cs.primary.withValues(alpha: 0.10),
+              side: BorderSide(color: cs.primary.withValues(alpha: 0.25)),
+              onPressed: () {
+                final String next;
+                if (multi) {
+                  final parts = full.split(',').map((s) => s.trim()).toList();
+                  parts[parts.length - 1] = name;
+                  next = '${parts.join(', ')}, ';
+                } else {
+                  next = name;
+                }
+                ctrl.value = TextEditingValue(
+                  text: next,
+                  selection: TextSelection.collapsed(offset: next.length),
+                );
+              },
+            )).toList(),
+          ),
+        );
+      },
+    );
+  }
+}
+
+List<String> fullLibraryFilePaths(List<dynamic> libraryFiles) {
+  final paths = <String>[];
+  for (final file in libraryFiles) {
+    if (file is! Map) continue;
+    final metadata = file['metadata'];
+    if (metadata is! Map) continue;
+    final path = metadata['path']?.toString().trim() ?? '';
+    if (path.isNotEmpty && !paths.contains(path)) paths.add(path);
+  }
+  return paths;
 }

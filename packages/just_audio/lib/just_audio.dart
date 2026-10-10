@@ -678,11 +678,13 @@ class AudioPlayer {
     Timer? currentTimer;
     StreamSubscription<Duration?>? durationSubscription;
     StreamSubscription<PlaybackEvent>? playbackEventSubscription;
+    StreamSubscription<bool>? playingSubscription;
     void yieldPosition(Timer timer) {
       if (controller.isClosed || _durationSubject.isClosed) {
         timer.cancel();
         durationSubscription?.cancel();
         playbackEventSubscription?.cancel();
+        playingSubscription?.cancel();
         if (!controller.isClosed) {
           // This will in turn close _positionSubject.
           controller.close();
@@ -694,9 +696,20 @@ class AudioPlayer {
       }
     }
 
-    durationSubscription = durationStream.listen((duration) {
+    // Only run the periodic timer while actually playing. While paused or
+    // stopped it would otherwise keep waking the event loop (and, under a held
+    // wakelock, the CPU) ~once a second forever. Seeks while paused still
+    // update the position via the playbackEventStream listener below.
+    void restartTimer() {
       currentTimer?.cancel();
-      currentTimer = Timer.periodic(step(), yieldPosition);
+      currentTimer = playing ? Timer.periodic(step(), yieldPosition) : null;
+    }
+
+    durationSubscription = durationStream.listen((duration) {
+      restartTimer();
+    }, onError: (Object e, StackTrace stackTrace) {});
+    playingSubscription = playingStream.listen((_) {
+      restartTimer();
     }, onError: (Object e, StackTrace stackTrace) {});
     playbackEventSubscription = playbackEventStream.listen((event) {
       controller.add(position);
@@ -2281,7 +2294,9 @@ abstract class AudioSource {
   /// for background audio purposes, consider using the plugin audio_service
   /// instead of just_audio_background.
   static UriAudioSource uri(Uri uri,
-      {Map<String, String>? headers, dynamic tag}) {
+      {Map<String, String>? headers,
+      dynamic tag,
+      ProgressiveAudioSourceOptions? options}) {
     bool hasExtension(Uri uri, String extension) =>
         uri.path.toLowerCase().endsWith('.$extension') ||
         uri.fragment.toLowerCase().endsWith('.$extension');
@@ -2290,7 +2305,8 @@ abstract class AudioSource {
     } else if (hasExtension(uri, 'm3u8')) {
       return HlsAudioSource(uri, headers: headers, tag: tag);
     } else {
-      return ProgressiveAudioSource(uri, headers: headers, tag: tag);
+      return ProgressiveAudioSource(uri,
+          headers: headers, tag: tag, options: options);
     }
   }
 
@@ -2301,8 +2317,9 @@ abstract class AudioSource {
   /// ```
   /// AudioSource.uri(Uri.file(filePath), tag: tag);
   /// ```
-  static UriAudioSource file(String filePath, {dynamic tag}) {
-    return AudioSource.uri(Uri.file(filePath), tag: tag);
+  static UriAudioSource file(String filePath,
+      {dynamic tag, ProgressiveAudioSourceOptions? options}) {
+    return AudioSource.uri(Uri.file(filePath), tag: tag, options: options);
   }
 
   /// Convenience method to create an audio source for an asset.
@@ -4186,7 +4203,9 @@ Future<void> _serveCachedFile(HttpRequest request, File cachedFile,
       final lower = name.toLowerCase();
       if (lower == 'content-length' ||
           lower == 'content-range' ||
-          lower == 'transfer-encoding') return;
+          lower == 'transfer-encoding') {
+        return;
+      }
       try {
         request.response.headers.set(name, value);
       } catch (_) {}

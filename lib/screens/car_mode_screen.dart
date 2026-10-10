@@ -5,11 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart' hide PlaybackEvent;
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../main.dart' show applyOrientationLock;
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/bookmark_service.dart';
 import '../widgets/card_buttons.dart';
+import '../services/screen_wake.dart';
+import '../widgets/overlay_toast.dart';
 import '../l10n/app_localizations.dart';
 
 class CarModeScreen extends StatefulWidget {
@@ -45,6 +48,7 @@ class _CarModeScreenState extends State<CarModeScreen>
   int _backSkip = 10;
   int _forwardSkip = 30;
   bool _preferChapterBar = false;
+  bool _speedAdjustedTime = true;
   late AnimationController _playPauseController;
   Timer? _displayTimer;
 
@@ -58,6 +62,9 @@ class _CarModeScreenState extends State<CarModeScreen>
     );
     _loadSkipSettings();
     PlayerSettings.settingsChanged.addListener(_loadSkipSettings);
+    PlayerSettings.getSpeedAdjustedTime().then((v) {
+      if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
+    });
     widget.player.addListener(_onPlayerChanged);
     // Tick every second so the speed-adjusted time display updates smoothly
     // even when the position stream fires less often (e.g. at 0.5x speed).
@@ -72,19 +79,28 @@ class _CarModeScreenState extends State<CarModeScreen>
     ]);
   }
 
+  String? _lastLibraryId;
+
   void _loadSkipSettings() {
-    PlayerSettings.getBackSkip().then((v) {
+    final libraryId = widget.player.currentLibraryId;
+    _lastLibraryId = libraryId;
+    PlayerSettings.getEffectiveBackSkip(libraryId: libraryId).then((v) {
       if (mounted && v != _backSkip) setState(() => _backSkip = v);
     });
-    PlayerSettings.getForwardSkip().then((v) {
+    PlayerSettings.getEffectiveForwardSkip(libraryId: libraryId).then((v) {
       if (mounted && v != _forwardSkip) setState(() => _forwardSkip = v);
     });
     PlayerSettings.getNotificationChapterProgress().then((v) {
       if (mounted && v != _preferChapterBar) setState(() => _preferChapterBar = v);
     });
+    PlayerSettings.getKeepScreenOnInCarMode().then((v) {
+      if (mounted) ScreenWake.hold('car', v);
+    });
   }
 
   void _onPlayerChanged() {
+    // Reload skips when the playing item's library changes.
+    if (widget.player.currentLibraryId != _lastLibraryId) _loadSkipSettings();
     if (mounted) setState(() {});
   }
 
@@ -93,8 +109,11 @@ class _CarModeScreenState extends State<CarModeScreen>
     _displayTimer?.cancel();
     PlayerSettings.settingsChanged.removeListener(_loadSkipSettings);
     widget.player.removeListener(_onPlayerChanged);
+    ScreenWake.hold('car', false);
     _playPauseController.dispose();
-    SystemChrome.setPreferredOrientations([]);
+    // Back to the user's saved rotation preference - the old empty list
+    // ("all allowed") silently dropped the portrait lock until a restart.
+    applyOrientationLock();
     super.dispose();
   }
 
@@ -124,6 +143,8 @@ class _CarModeScreenState extends State<CarModeScreen>
       chapters: widget.fallbackChapters,
       episodeId: widget.episodeId,
       episodeTitle: widget.episodeTitle,
+      libraryId: context.read<LibraryProvider>().selectedLibraryId,
+      fromUi: true,
     );
     if (mounted) setState(() => _isStarting = false);
   }
@@ -152,7 +173,7 @@ class _CarModeScreenState extends State<CarModeScreen>
     final chapters = widget.player.chapters;
     if (chapters.isEmpty) return (0, Duration.zero, Duration.zero);
     final pos = widget.player.position.inSeconds.toDouble();
-    final speed = widget.player.speed;
+    final speed = _speedAdjustedTime ? widget.player.speed : 1.0;
     for (final ch in chapters) {
       final start = (ch['start'] as num?)?.toDouble() ?? 0;
       final end = (ch['end'] as num?)?.toDouble() ?? 0;
@@ -243,7 +264,7 @@ class _CarModeScreenState extends State<CarModeScreen>
                 builder: (context, _) {
                   final pos = player.position;
                   final total = Duration(seconds: player.totalDuration.round());
-                  final speed = player.speed;
+                  final speed = _speedAdjustedTime ? player.speed : 1.0;
                   final bookProgress = total.inMilliseconds > 0
                       ? (pos.inMilliseconds / total.inMilliseconds).clamp(0.0, 1.0)
                       : 0.0;
@@ -330,7 +351,7 @@ class _CarModeScreenState extends State<CarModeScreen>
                           aspectRatio: 1,
                           child: GestureDetector(
                             onTap: player.hasBook
-                                ? player.togglePlayPause
+                                ? () => player.togglePlayPause(fromUi: true)
                                 : widget.itemId != null ? _startPlayback : null,
                             child: Stack(
                               children: [
@@ -495,13 +516,8 @@ class _CarModeScreenState extends State<CarModeScreen>
                         positionSeconds: pos,
                         title: chTitle.isNotEmpty ? chTitle : l.carModeBookmarkDefault,
                       );
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(l.carModeBookmarkAdded),
-                          duration: const Duration(seconds: 2),
-                          behavior: SnackBarBehavior.floating,
-                        ),
-                      );
+                      showOverlayToast(context, l.carModeBookmarkAdded,
+                          icon: Icons.bookmark_added_rounded);
                     } : null,
                   ),
                 ],

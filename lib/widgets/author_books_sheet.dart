@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'overlay_toast.dart';
+import 'absorb_placement.dart';
+import 'swipe_action.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
 import '../services/wording.dart';
@@ -60,6 +61,7 @@ class AuthorBooksSheet extends StatefulWidget {
 
 class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
   List<Map<String, dynamic>> _books = [];
+  List<Map<String, dynamic>> _seriesGroups = [];
   bool _isLoading = true;
   String? _description;
   String? _imageUrl;
@@ -75,6 +77,19 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
     _displayName = widget.authorName;
     _loadViewSettings();
     _loadAuthorAndBooks();
+  }
+
+  /// Grouped items carry their series as a single map; every other screen
+  /// reads the expanded item's list, so store it in that shape.
+  void _normalizeGroupedSeries() {
+    for (final group in _seriesGroups) {
+      final items = group['items'] as List<dynamic>? ?? [];
+      for (final item in items.whereType<Map<String, dynamic>>()) {
+        final metadata = (item['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>?;
+        final series = metadata?['series'];
+        if (series is Map<String, dynamic>) metadata!['series'] = [series];
+      }
+    }
   }
 
   Future<void> _loadViewSettings() async {
@@ -109,9 +124,14 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
           } else {
             _imageUrl = null;
           }
-          // libraryItems from the author endpoint include full metadata with series info
           final rawItems = authorData['libraryItems'] as List<dynamic>? ?? [];
           _books = rawItems.whereType<Map<String, dynamic>>().toList();
+          // Books grouped by series, each item carrying its id/name/sequence for
+          // that series. The flat list only has the joined `seriesName` string,
+          // which cannot be split back apart when a name contains a comma.
+          final rawSeries = authorData['series'] as List<dynamic>? ?? [];
+          _seriesGroups = rawSeries.whereType<Map<String, dynamic>>().toList();
+          _normalizeGroupedSeries();
           registerBookCovers(context.read<LibraryProvider>(), _books);
         }
         _isLoading = false;
@@ -127,7 +147,7 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
     final lib = context.read<LibraryProvider>();
     final auth = context.watch<AuthProvider>();
     final headers = lib.mediaHeaders;
-    final canEdit = auth.isAdmin && !lib.isOffline;
+    final canEdit = auth.canUpdateMetadata && !lib.isOffline;
 
     if (_isLoading) {
       return Column(
@@ -164,6 +184,48 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
   }
 
   List<_BookSection> _buildSections(AppLocalizations l) {
+    if (_seriesGroups.isNotEmpty) {
+      final grouped = _buildSectionsFromGroups(l);
+      if (grouped != null) return grouped;
+    }
+    return _buildSectionsFromNames(l);
+  }
+
+  /// Sections built from the server's series grouping. Null when the grouping
+  /// came back in a shape we cannot read, so the caller can fall back.
+  List<_BookSection>? _buildSectionsFromGroups(AppLocalizations l) {
+    final sections = <_BookSection>[];
+    final grouped = <String>{};
+
+    for (final group in _seriesGroups) {
+      final name = (group['name'] as String? ?? '').trim();
+      final items = (group['items'] as List<dynamic>? ?? []).whereType<Map<String, dynamic>>().toList();
+      if (name.isEmpty || items.isEmpty) continue;
+      for (final item in items) {
+        final id = item['id'] as String? ?? '';
+        if (id.isNotEmpty) grouped.add(id);
+      }
+      sections.add(_BookSection(label: name, seriesId: group['id'] as String?, books: items));
+    }
+
+    if (sections.isEmpty) return null;
+
+    final standalones = [
+      for (final book in _books)
+        if (!grouped.contains(book['id'] as String? ?? '')) book,
+    ];
+
+    sections.sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
+    _sortByTitle(standalones);
+    if (standalones.isNotEmpty) {
+      sections.add(_BookSection(label: l.standalone, books: standalones, isStandalone: true));
+    }
+    return sections;
+  }
+
+  /// Fallback for servers that do not return the grouped series list: rebuild
+  /// the grouping from the joined `seriesName` string.
+  List<_BookSection> _buildSectionsFromNames(AppLocalizations l) {
     final seriesMap = <String, _BookSection>{};
     final standalones = <Map<String, dynamic>>[];
 
@@ -221,12 +283,7 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
     final seriesSections = seriesMap.values.toList()
       ..sort((a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()));
 
-    // Sort standalones alphabetically by title
-    standalones.sort((a, b) {
-      final tA = ((a['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>?)?['title'] as String? ?? '';
-      final tB = ((b['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>?)?['title'] as String? ?? '';
-      return tA.toLowerCase().compareTo(tB.toLowerCase());
-    });
+    _sortByTitle(standalones);
 
     final allSections = <_BookSection>[...seriesSections];
     if (standalones.isNotEmpty) {
@@ -235,9 +292,26 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
     return allSections;
   }
 
+  void _sortByTitle(List<Map<String, dynamic>> books) {
+    books.sort((a, b) {
+      final tA = ((a['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>?)?['title'] as String? ?? '';
+      final tB = ((b['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>?)?['title'] as String? ?? '';
+      return tA.toLowerCase().compareTo(tB.toLowerCase());
+    });
+  }
+
   /// Get just the "#N" for a book within a specific series.
   String? _sequenceFor(Map<String, dynamic> book, String seriesName) {
-    final sn = ((book['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>?)?['seriesName'] as String? ?? '';
+    final metadata = (book['media'] as Map<String, dynamic>?)?['metadata'] as Map<String, dynamic>? ?? {};
+    final structured = metadata['series'];
+    if (structured is List) {
+      for (final entry in structured.whereType<Map<String, dynamic>>()) {
+        if ((entry['name'] as String? ?? '').toLowerCase() != seriesName.toLowerCase()) continue;
+        final seq = entry['sequence'];
+        return seq == null || seq.toString().trim().isEmpty ? null : '#${seq.toString().trim()}';
+      }
+    }
+    final sn = metadata['seriesName'] as String? ?? '';
     final pattern = RegExp(r'#\s*([\d.]+)');
     for (final entry in sn.split(',').map((e) => e.trim())) {
       final name = entry.replaceFirst(RegExp(r'\s*#\s*[\d.]+$'), '').trim();
@@ -334,7 +408,10 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
           SliverPadding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, bottomPad),
             sliver: SliverGrid(
-              gridDelegate: sheetBookGridDelegate(context),
+              gridDelegate: sheetBookGridDelegate(
+                context,
+                childAspectRatio: 0.65,
+              ),
               delegate: SliverChildBuilderDelegate((_, i) {
                 final item = collapsed[i];
                 if (item is _BookSection) {
@@ -357,7 +434,10 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             sliver: SliverGrid(
-              gridDelegate: sheetBookGridDelegate(context),
+              gridDelegate: sheetBookGridDelegate(
+                context,
+                childAspectRatio: 0.65,
+              ),
               delegate: SliverChildBuilderDelegate(
                 (_, i) => GridBookTile(item: section.books[i], sequenceBadge: _sequenceFor(section.books[i], section.label)?.replaceFirst('#', '')),
                 childCount: section.books.length,
@@ -474,27 +554,19 @@ class _AuthorBooksSheetState extends State<AuthorBooksSheet> {
     final isOnAbsorbing = lib.isOnAbsorbingList(bookId);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      child: Dismissible(
+      child: SwipeAction(
         key: ValueKey('absorb-$bookId'),
-        direction: isOnAbsorbing ? DismissDirection.none : DismissDirection.startToEnd,
-        confirmDismiss: (_) async {
-          await lib.addToAbsorbingQueue(bookId);
-          lib.absorbingItemCache[bookId] = Map<String, dynamic>.from(book);
-          HapticFeedback.mediumImpact();
-          if (context.mounted) {
-            showOverlayToast(context, Wording.of(context).sectionDetailAddedToAbsorbing(bookTitle), icon: Icons.add_circle_outline_rounded);
-          }
-          return false;
-        },
-        background: Container(
-          alignment: Alignment.centerLeft,
-          padding: const EdgeInsets.only(left: 20),
-          decoration: BoxDecoration(
-            color: cs.primary.withValues(alpha: 0.15),
-            borderRadius: BorderRadius.circular(14),
-          ),
-          child: Icon(Icons.add_circle_outline_rounded, color: cs.primary),
-        ),
+        onStartToEnd: isOnAbsorbing
+            ? null
+            : SwipeActionSpec(
+                icon: Icons.add_circle_outline_rounded,
+                color: cs.primary,
+                onTrigger: () async {
+                  await addToAbsorbingWithPicker(context, bookId,
+                      item: book,
+                      addedToast: Wording.of(context).sectionDetailAddedToAbsorbing(bookTitle));
+                },
+              ),
         child: BookResultTile(
           item: book,
           serverUrl: widget.serverUrl,

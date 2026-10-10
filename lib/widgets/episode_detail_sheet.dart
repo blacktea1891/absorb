@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -13,6 +14,7 @@ import '../providers/auth_provider.dart';
 import 'card_buttons.dart';
 import 'html_description.dart';
 import 'overlay_toast.dart';
+import 'absorb_placement.dart';
 import 'playlist_picker_sheet.dart';
 import 'action_pill.dart';
 import '../main.dart' show rootNavigatorKey;
@@ -21,25 +23,44 @@ import 'episode_list_sheet.dart';
 import '../utils/duration_format.dart';
 
 class EpisodeDetailSheet extends StatefulWidget {
+  static final Set<String> _openEpisodeKeys = <String>{};
+
   final Map<String, dynamic> podcastItem;
   final Map<String, dynamic> episode;
   final ScrollController? scrollController;
+  final String? sourcePlaylistId;
   /// Compact long-press layout: header + Play + Download + the action grid,
   /// skipping the description / chapters / all-episodes sections.
   final bool quick;
 
-  const EpisodeDetailSheet({super.key, required this.podcastItem, required this.episode})
+  const EpisodeDetailSheet({
+    super.key,
+    required this.podcastItem,
+    required this.episode,
+    this.sourcePlaylistId,
+  })
       : scrollController = null, quick = false;
 
   const EpisodeDetailSheet._({
     required this.podcastItem,
     required this.episode,
     required this.scrollController,
+    this.sourcePlaylistId,
     this.quick = false,
   }) : super(key: null);
 
-  static void show(BuildContext context, Map<String, dynamic> podcastItem, Map<String, dynamic> episode) {
-    showStackableSheet(
+  static void show(
+    BuildContext context,
+    Map<String, dynamic> podcastItem,
+    Map<String, dynamic> episode, {
+    String? sourcePlaylistId,
+  }) {
+    final itemKey = podcastItem['id'] ?? identityHashCode(podcastItem);
+    final episodeKey = episode['id'] ?? identityHashCode(episode);
+    final openKey = '$itemKey::$episodeKey';
+    if (!_openEpisodeKeys.add(openKey)) return;
+
+    showStackableSheet<void>(
       context: context,
       useSafeArea: true,
       initialChildSize: 0.75,
@@ -48,12 +69,18 @@ class EpisodeDetailSheet extends StatefulWidget {
         podcastItem: podcastItem,
         episode: episode,
         scrollController: scrollController,
+        sourcePlaylistId: sourcePlaylistId,
       ),
-    );
+    ).whenComplete(() => _openEpisodeKeys.remove(openKey));
   }
 
   /// Long-press shortcut: a compact quick-actions sheet for one episode.
-  static void showQuick(BuildContext context, Map<String, dynamic> podcastItem, Map<String, dynamic> episode) {
+  static void showQuick(
+    BuildContext context,
+    Map<String, dynamic> podcastItem,
+    Map<String, dynamic> episode, {
+    String? sourcePlaylistId,
+  }) {
     showStackableSheet(
       context: context,
       useSafeArea: true,
@@ -63,6 +90,7 @@ class EpisodeDetailSheet extends StatefulWidget {
         podcastItem: podcastItem,
         episode: episode,
         scrollController: scrollController,
+        sourcePlaylistId: sourcePlaylistId,
         quick: true,
       ),
     );
@@ -103,6 +131,20 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
 
   String get _rawDescription => widget.episode['description'] as String? ?? '';
 
+  Future<void> _activateQueueSource() async {
+    final playlistId = widget.sourcePlaylistId;
+    if (playlistId != null && playlistId.isNotEmpty) {
+      await PlayerSettings.setQueueModePlaylist(playlistId);
+    }
+  }
+
+  Future<void> _restoreActivatedQueueSource(QueueModeSnapshot backup) async {
+    final playlistId = widget.sourcePlaylistId;
+    if (playlistId != null && playlistId.isNotEmpty) {
+      await PlayerSettings.restoreQueueModeIfPlaylistActive(playlistId, backup);
+    }
+  }
+
   Future<void> _play() async {
     final auth = context.read<AuthProvider>();
     final api = auth.apiService;
@@ -124,6 +166,13 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
     // collapsed after tab transition races with sheet pop animations.
     final rootNav = Navigator.of(context, rootNavigator: true);
     final rootContext = rootNav.context;
+    final lib = context.read<LibraryProvider>();
+    final queueModeBackup = await PlayerSettings.queueModeSnapshot();
+    await _activateQueueSource();
+    if (!rootNav.mounted) {
+      await _restoreActivatedQueueSource(queueModeBackup);
+      return;
+    }
     debugPrint('[PodcastPlay] Popping stacked sheets before playItem (item=$_itemId episode=$_episodeId)');
     rootNav.popUntil((route) => route.isFirst);
     debugPrint('[PodcastPlay] Sheets popped, calling playItem');
@@ -134,10 +183,17 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       coverUrl: api.getCoverUrl(_itemId), totalDuration: _duration, chapters: _chapters,
       episodeId: _episodeId,
       episodeTitle: _episodeTitle,
+      // The show's own library, not the browsing library (wrong with unified
+      // libraries on). Null lets the player resolve it from the session.
+      libraryId: widget.podcastItem['libraryId'] as String?,
+      fromUi: true,
     );
     debugPrint('[PodcastPlay] playItem returned in ${DateTime.now().difference(t0).inMilliseconds}ms (error=${error ?? 'none'})');
-    if (error != null && rootContext.mounted) {
-      showErrorSnackBar(rootContext, error);
+    if (error != null) {
+      unawaited(_restoreActivatedQueueSource(queueModeBackup));
+      if (rootContext.mounted) showErrorToast(rootContext, error);
+    } else {
+      unawaited(lib.syncQueueAutoDownloads());
     }
   }
 
@@ -153,7 +209,8 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       author: _showTitle,
       coverUrl: api.getCoverUrl(_itemId),
       episodeId: _episodeId,
-      libraryId: context.read<LibraryProvider>().selectedLibraryId,
+      libraryId: widget.podcastItem['libraryId'] as String? ??
+          context.read<LibraryProvider>().selectedLibraryId,
     );
     if (error != null && mounted) {
       showOverlayToast(context, error, icon: Icons.error_outline_rounded);
@@ -186,21 +243,21 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
           ),
         );
         if (confirmed != true) return;
-        // Un-finish — keep current position
+        // Un-finish. The server clears the position to 0, same as the web UI.
         await api.updateEpisodeProgress(
           _itemId, _episodeId,
           currentTime: currentTime,
           duration: _duration,
           isFinished: false,
         );
+        await lib.markNotFinishedLocally(key);
         await lib.refresh();
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(l.episodeDetailMarkedNotFinished),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ));
+          showOverlayToast(
+            context,
+            l.episodeDetailMarkedNotFinished,
+            icon: Icons.replay_rounded,
+          );
         }
       } else {
         // Confirm before marking finished
@@ -225,18 +282,20 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
         );
         lib.markFinishedLocally(key, skipAutoAdvance: true);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(l.episodeDetailMarkedFinishedNice),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 2),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ));
+          showOverlayToast(
+            context,
+            l.episodeDetailMarkedFinishedNice,
+            icon: Icons.check_circle_outline_rounded,
+          );
         }
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(l.failedToUpdateCheckConnection)));
+        showOverlayToast(
+          context,
+          l.failedToUpdateCheckConnection,
+          icon: Icons.error_outline_rounded,
+        );
       }
     }
   }
@@ -249,15 +308,13 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
         TextButton(onPressed: () {
-          DownloadService().deleteDownload(dlKey);
+          DownloadService().deleteDownload(dlKey, byUser: true);
           Navigator.pop(ctx);
-          ScaffoldMessenger.of(context)
-            ..clearSnackBars()
-            ..showSnackBar(SnackBar(
-              content: Text(l.downloadRemoved),
-              duration: const Duration(seconds: 2),
-              behavior: SnackBarBehavior.floating,
-            ));
+          showOverlayToast(
+            context,
+            l.downloadRemoved,
+            icon: Icons.delete_outline_rounded,
+          );
         },
           child: Text(l.remove, style: const TextStyle(color: Colors.redAccent))),
       ],
@@ -376,7 +433,12 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
             const SizedBox(height: 16),
             GestureDetector(
               onTap: () {
-                EpisodeListSheet.show(context, widget.podcastItem);
+                EpisodeListSheet.show(
+                  context,
+                  widget.podcastItem,
+                  sourcePlaylistId: widget.sourcePlaylistId,
+                  sourcePlaylistEpisodeId: _episodeId,
+                );
               },
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -630,25 +692,19 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
           if (lib.isOnAbsorbingList(dlKey)) {
             await lib.removeFromAbsorbing(dlKey);
             if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                duration: const Duration(seconds: 3),
-                content: Text(Wording.of(context).removedFromAbsorbing),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+              showOverlayToast(
+                context,
+                Wording.of(context).removedFromAbsorbing,
+                icon: Icons.remove_circle_outline_rounded,
+              );
             }
           } else {
-            await lib.addToAbsorbingQueue(dlKey);
-            final cached = Map<String, dynamic>.from(widget.podcastItem);
-            cached['recentEpisode'] = Map<String, dynamic>.from(widget.episode);
-            cached['_absorbingKey'] = dlKey;
-            lib.absorbingItemCache[dlKey] = cached;
-            if (context.mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                duration: const Duration(seconds: 3),
-                content: Text(Wording.of(context).addedToAbsorbing),
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
-            }
+            await addToAbsorbingWithPicker(context, dlKey,
+                item: {
+                  ...widget.podcastItem,
+                  'recentEpisode': Map<String, dynamic>.from(widget.episode),
+                },
+                addedToast: Wording.of(context).addedToAbsorbing);
           }
         }),
       if (!lib.isOffline)
@@ -661,6 +717,20 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
               episodeId: widget.episode['id'] as String?,
             );
           }),
+      if (!includeOpenDetails && !lib.isOffline)
+        ActionPillData(
+          icon: Icons.history_rounded,
+          label: l.historyServerTab,
+          onTap: () {
+            dismiss();
+            showPlaybackHistorySheet(
+              context,
+              itemId: _itemId,
+              episodeId: _episodeId,
+              initialTab: PlaybackHistoryTab.sessions,
+            );
+          },
+        ),
       if (progress > 0 || isFinished)
         ActionPillData(icon: Icons.restart_alt_rounded, label: l.resetProgress,
           onTap: () { dismiss(); _resetProgress(context); }),
@@ -669,7 +739,14 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
           onTap: () {
             final rc = rootNavigatorKey.currentContext;
             Navigator.of(context).pop();
-            if (rc != null) EpisodeDetailSheet.show(rc, widget.podcastItem, widget.episode);
+            if (rc != null) {
+              EpisodeDetailSheet.show(
+                rc,
+                widget.podcastItem,
+                widget.episode,
+                sourcePlaylistId: widget.sourcePlaylistId,
+              );
+            }
           }),
     ];
   }
@@ -724,23 +801,26 @@ class _EpisodeDetailSheetState extends State<EpisodeDetailSheet> {
     }
 
     final compoundKey = '$_itemId-$_episodeId';
+    final progressId = context
+        .read<LibraryProvider>()
+        .getEpisodeProgressData(_itemId, _episodeId)?['id'] as String?;
     await ProgressSyncService().deleteLocal(compoundKey);
-    final ok = await api.deleteEpisodeProgress(_itemId, _episodeId);
-    // Mark as unfinished with zero progress on the server
-    await api.updateEpisodeProgress(
-      _itemId, _episodeId,
-      currentTime: 0,
-      duration: _duration,
-      isFinished: false,
-    );
+    // Deleting the record is what the web UI does. Fall back to zeroing it in
+    // place when there is no record id to delete or the delete is refused.
+    var ok = progressId != null && await api.deleteMediaProgress(progressId);
+    if (!ok) {
+      ok = await api.zeroEpisodeProgress(_itemId, _episodeId, duration: _duration);
+    }
 
     if (context.mounted) {
       context.read<LibraryProvider>().resetProgressFor(compoundKey);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        duration: const Duration(seconds: 3),
-        content: Text(ok ? l.progressResetFreshStart : l.resetMayNotHaveSynced),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+      showOverlayToast(
+        context,
+        ok ? l.progressResetFreshStart : l.resetMayNotHaveSynced,
+        icon: ok
+            ? Icons.restart_alt_rounded
+            : Icons.warning_amber_rounded,
+      );
     }
   }
 

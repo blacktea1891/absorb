@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import 'cover_badges.dart';
+import '../services/ebook_cache.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
@@ -13,15 +15,31 @@ import 'episode_list_sheet.dart';
 class BookCard extends StatelessWidget {
   final Map<String, dynamic> item;
   final bool showProgress;
+  final bool showSubtitle;
   final bool isWide;
   final double coverAspectRatio;
+  final String? sourcePlaylistId;
+  final String? sourcePlaylistEpisodeId;
+  final String? sourceCollectionId;
+  final String? sourceCollectionName;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback? onSelectionToggle;
 
   const BookCard({
     super.key,
     required this.item,
     this.showProgress = false,
+    this.showSubtitle = false,
     this.isWide = false,
     this.coverAspectRatio = 1.0,
+    this.sourcePlaylistId,
+    this.sourcePlaylistEpisodeId,
+    this.sourceCollectionId,
+    this.sourceCollectionName,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectionToggle,
   });
 
   @override
@@ -36,6 +54,7 @@ class BookCard extends StatelessWidget {
     final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
 
     final title = metadata['title'] as String? ?? l.bookCardUnknownTitle;
+    final subtitle = metadata['subtitle'] as String? ?? '';
     final authorName = metadata['authorName'] as String? ?? '';
     final coverUrl = lib.getCoverUrl(itemId);
 
@@ -44,6 +63,7 @@ class BookCard extends StatelessWidget {
     final isFinished = lib.getProgressData(itemId)?['isFinished'] == true;
     final isExplicit = PlayerSettings.showExplicitBadge && metadata['explicit'] == true;
     final isDownloaded = DownloadService().isDownloaded(itemId ?? '');
+    final hasEbook = PlayerSettings.showEbookBadge && hasEbookFile(item);
     // Only compute for podcast shows that aren't being rendered as an episode
     // (an episode card shows the recentEpisode payload, not show-level info).
     final unfinishedCount = (lib.isPodcastLibrary && item['recentEpisode'] == null)
@@ -52,10 +72,59 @@ class BookCard extends StatelessWidget {
 
     final headers = lib.mediaHeaders;
 
-    if (isWide) {
-      return _buildWideCard(context, cs, tt, l, title, authorName, coverUrl, progress, headers, isExplicit: isExplicit);
-    }
-    return _buildCompactCard(context, cs, tt, l, title, authorName, coverUrl, progress, headers, isFinished: isFinished, isDownloaded: isDownloaded, isExplicit: isExplicit, unfinishedCount: unfinishedCount);
+    final card = isWide
+        ? _buildWideCard(context, cs, tt, l, title, authorName, coverUrl, progress, headers, isExplicit: isExplicit, hasEbook: hasEbook)
+        : _buildCompactCard(context, cs, tt, l, title, subtitle, authorName, coverUrl, progress, headers, isFinished: isFinished, isDownloaded: isDownloaded, isExplicit: isExplicit, unfinishedCount: unfinishedCount, hasEbook: hasEbook);
+    if (!selectionMode) return card;
+    // Selection sits on top of the finished card rather than inside both
+    // layouts: the overlay swallows the tap, so nothing below it can open a
+    // sheet while the shelf is being ticked through.
+    return Stack(
+      children: [
+        card,
+        Positioned.fill(
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: onSelectionToggle,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(12),
+                border: selected
+                    ? Border.all(color: cs.primary, width: 3)
+                    : null,
+                color: selected
+                    ? cs.primary.withValues(alpha: 0.18)
+                    : Colors.transparent,
+              ),
+            ),
+          ),
+        ),
+        Positioned(
+          top: 6,
+          left: 6,
+          child: IgnorePointer(
+            child: Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: selected
+                    ? cs.primary
+                    : Colors.black.withValues(alpha: 0.55),
+                border: Border.all(
+                  color: selected ? cs.primary : Colors.white70,
+                ),
+              ),
+              child: Icon(
+                selected ? Icons.check_rounded : Icons.circle_outlined,
+                size: 17,
+                color: selected ? cs.onPrimary : Colors.white70,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   void _navigateToDetail(BuildContext context) {
@@ -65,12 +134,28 @@ class BookCard extends StatelessWidget {
     if (lib.isPodcastLibrary) {
       final episode = item['recentEpisode'] as Map<String, dynamic>?;
       if (episode != null) {
-        EpisodeDetailSheet.show(context, item, episode);
+        EpisodeDetailSheet.show(
+          context,
+          item,
+          episode,
+          sourcePlaylistId: sourcePlaylistId,
+        );
       } else {
-        EpisodeListSheet.show(context, item);
+        EpisodeListSheet.show(
+          context,
+          item,
+          sourcePlaylistId: sourcePlaylistId,
+          sourcePlaylistEpisodeId: sourcePlaylistEpisodeId,
+        );
       }
     } else {
-      showBookDetailSheet(context, itemId);
+      showBookDetailSheet(
+        context,
+        itemId,
+        sourcePlaylistId: sourcePlaylistId,
+        sourceCollectionId: sourceCollectionId,
+        sourceCollectionName: sourceCollectionName,
+      );
     }
   }
 
@@ -83,13 +168,25 @@ class BookCard extends StatelessWidget {
       // Episode card -> episode quick sheet; show cover -> keep current behaviour.
       final episode = item['recentEpisode'] as Map<String, dynamic>?;
       if (episode != null) {
-        EpisodeDetailSheet.showQuick(context, item, episode);
+        EpisodeDetailSheet.showQuick(
+          context,
+          item,
+          episode,
+          sourcePlaylistId: sourcePlaylistId,
+        );
       } else {
         _navigateToDetail(context);
       }
       return;
     }
-    showQuickActionsSheet(context, itemId, initialItem: item);
+    showQuickActionsSheet(
+      context,
+      itemId,
+      initialItem: item,
+      sourcePlaylistId: sourcePlaylistId,
+      sourceCollectionId: sourceCollectionId,
+      sourceCollectionName: sourceCollectionName,
+    );
   }
 
   /// Wide "continue listening" card with square cover + text side-by-side.
@@ -105,6 +202,7 @@ class BookCard extends StatelessWidget {
     double progress,
     Map<String, String> headers, {
     bool isExplicit = false,
+    bool hasEbook = false,
   }) {
     return Card(
       elevation: 0,
@@ -123,7 +221,9 @@ class BookCard extends StatelessWidget {
               height: 120,
               child: Stack(
                 children: [
-                  _CoverImage(coverUrl: coverUrl, cs: cs, fit: BoxFit.contain, httpHeaders: headers),
+                  _CoverImage(coverUrl: coverUrl, cs: cs, fit: BoxFit.contain, httpHeaders: headers, title: title, author: authorName),
+                  if (hasEbook && !selectionMode)
+                    const Positioned(top: 4, left: 4, child: EbookCoverBadge()),
                   if (isExplicit)
                     Positioned(
                       top: 4, right: DownloadService().isDownloaded(item['id'] as String? ?? '') ? 30 : 4,
@@ -137,17 +237,9 @@ class BookCard extends StatelessWidget {
                       ),
                     ),
                   if (DownloadService().isDownloaded(item['id'] as String? ?? ''))
-                    Positioned(
-                      top: 4, right: 4,
-                      child: Container(
-                        padding: const EdgeInsets.all(3),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: Icon(Icons.download_done_rounded,
-                            size: 14, color: cs.primary),
-                      ),
+                    const Positioned(
+                      left: 0, right: 0, bottom: 0,
+                      child: CoverStateBadges(isDownloaded: true, isFinished: false),
                     ),
                 ],
               ),
@@ -223,6 +315,7 @@ class BookCard extends StatelessWidget {
     TextTheme tt,
     AppLocalizations l,
     String title,
+    String subtitle,
     String authorName,
     String? coverUrl,
     double progress,
@@ -231,6 +324,7 @@ class BookCard extends StatelessWidget {
     bool isDownloaded = false,
     bool isExplicit = false,
     int unfinishedCount = 0,
+    bool hasEbook = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -254,7 +348,7 @@ class BookCard extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  _CoverImage(coverUrl: coverUrl, cs: cs, httpHeaders: headers, coverAspectRatio: coverAspectRatio),
+                  _CoverImage(coverUrl: coverUrl, cs: cs, httpHeaders: headers, coverAspectRatio: coverAspectRatio, title: title, author: authorName),
                   if (progress > 0 && !isFinished)
                     Positioned(
                       left: 0,
@@ -306,52 +400,15 @@ class BookCard extends StatelessWidget {
                         ),
                       ),
                     ),
+                  if (hasEbook && !selectionMode)
+                    const Positioned(top: 4, left: 4, child: EbookCoverBadge()),
                   if (isFinished || isDownloaded)
                     Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.85),
-                              Colors.black.withValues(alpha: 0.0),
-                            ],
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isFinished) ...[
-                              Icon(Icons.check_circle_rounded,
-                                  size: 10, color: Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent[400] : Colors.green.shade700),
-                              const SizedBox(width: 3),
-                              Text(l.bookCardDone,
-                                  style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent[400] : Colors.green.shade700)),
-                            ],
-                            if (isFinished && isDownloaded)
-                              const SizedBox(width: 6),
-                            if (isDownloaded) ...[
-                              Icon(Icons.download_done_rounded,
-                                  size: 10, color: cs.primary),
-                              const SizedBox(width: 3),
-                              Text(l.bookCardSaved,
-                                  style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: cs.primary)),
-                            ],
-                          ],
-                        ),
+                      left: 0, right: 0, bottom: 0,
+                      child: CoverStateBadges(
+                        isDownloaded: isDownloaded,
+                        isFinished: isFinished,
+                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
                       ),
                     ),
                 ],
@@ -373,6 +430,20 @@ class BookCard extends StatelessWidget {
             ),
           ),
         ),
+        // Subtitle. A book without one hands the line to the author instead
+        // of leaving a gap under the title.
+        if (showSubtitle && subtitle.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant.withValues(alpha: 0.75),
+              ),
+            ),
+          ),
         if (authorName.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -397,8 +468,10 @@ class _CoverImage extends StatelessWidget {
   final BoxFit fit;
   final Map<String, String> httpHeaders;
   final double coverAspectRatio;
+  final String? title;
+  final String? author;
 
-  const _CoverImage({required this.coverUrl, required this.cs, this.fit = BoxFit.cover, this.httpHeaders = const {}, this.coverAspectRatio = 1.0});
+  const _CoverImage({required this.coverUrl, required this.cs, this.fit = BoxFit.cover, this.httpHeaders = const {}, this.coverAspectRatio = 1.0, this.title, this.author});
 
   @override
   Widget build(BuildContext context) {
@@ -413,16 +486,16 @@ class _CoverImage extends StatelessWidget {
     if (coverUrl!.startsWith('/')) {
       final file = File(coverUrl!);
       if (file.existsSync()) {
-        return BlurPaddedCover(
+        return EinkCoverTone(child: BlurPaddedCover(
           enabled: isSquare,
           blurChild: Image.file(file, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const SizedBox.shrink()),
           child: Image.file(file, fit: effectiveFit, errorBuilder: (_, __, ___) => _placeholder()),
-        );
+        ));
       }
       return _placeholder();
     }
 
-    return BlurPaddedCover(
+    return EinkCoverTone(child: BlurPaddedCover(
       enabled: isSquare,
       blurChild: CachedNetworkImage(
         imageUrl: coverUrl!,
@@ -437,21 +510,13 @@ class _CoverImage extends StatelessWidget {
         placeholder: (_, __) => _placeholder(),
         errorWidget: (_, __, ___) => _placeholder(),
       ),
-    );
+    ));
   }
 
-  Widget _placeholder() {
-    return Container(
-      color: cs.surfaceContainerHighest,
-      child: Center(
-        child: Icon(
-          Icons.headphones_rounded,
-          size: 32,
-          color: cs.onSurfaceVariant.withValues(alpha: 0.4),
-        ),
-      ),
-    );
-  }
+  /// Home shelves used to show a bare headphones icon here while the library
+  /// grid showed the generated title card, so the same coverless book looked
+  /// different depending on the screen. One placeholder everywhere now.
+  Widget _placeholder() => CoverPlaceholder(title: title, author: author);
 }
 
 /// Pressable wrapper that scales down slightly on tap for tactile feedback.

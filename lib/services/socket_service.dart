@@ -1,7 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 
+import 'player_settings.dart';
+import 'server_backend.dart';
+
 class SocketService {
+  static const authorChangeEvents = <String>[
+    'author_added',
+    'author_updated',
+    'author_removed',
+    'authors_num_books_updated',
+  ];
   static final SocketService _instance = SocketService._();
   factory SocketService() => _instance;
   SocketService._();
@@ -16,23 +25,53 @@ class SocketService {
 
   Map<String, String> _customHeaders = {};
 
+  @visibleForTesting
+  static ({String origin, String path}) socketTargetForServerUrl(
+    String serverUrl,
+  ) {
+    final uri = Uri.parse(serverUrl.trim());
+    final basePath = uri.path.replaceFirst(RegExp(r'/+$'), '');
+    return (
+      origin: '${uri.scheme}://${uri.authority}',
+      path: '$basePath/socket.io',
+    );
+  }
+
   /// Build socket.io options with capped reconnection to avoid
   /// hammering an unreachable server (and draining battery).
-  Map<String, dynamic> _buildOptions() {
+  @visibleForTesting
+  static Map<String, dynamic> buildSocketOptions(
+    String socketPath, {
+    Map<String, String> customHeaders = const {},
+  }) {
     final builder = io.OptionBuilder()
         .setTransports(['websocket'])
+        .setPath(socketPath)
+        .enableForceNew()
         .enableReconnection()
         .setReconnectionDelay(1000)
         .setReconnectionDelayMax(30000)
         .setReconnectionAttempts(5);
-    if (_customHeaders.isNotEmpty) {
-      builder.setExtraHeaders(_customHeaders);
+    if (customHeaders.isNotEmpty) {
+      builder.setExtraHeaders(customHeaders);
     }
     return builder.build();
   }
 
+  io.Socket _createSocket(String serverUrl) {
+    final target = socketTargetForServerUrl(serverUrl);
+    return io.io(
+      target.origin,
+      buildSocketOptions(target.path, customHeaders: _customHeaders),
+    );
+  }
+
   /// Called when the server pushes a progress update (cross-device sync).
   void Function(Map<String, dynamic> progress)? onProgressUpdated;
+
+  /// Called after each successful socket auth (initial connect and every
+  /// reconnect) so listeners can catch up on events missed while offline.
+  void Function()? onAuthenticated;
 
   /// Called when a library item is added, updated, or removed.
   void Function(Map<String, dynamic> data)? onItemUpdated;
@@ -46,6 +85,9 @@ class SocketService {
   /// Called when a collection changes.
   void Function()? onCollectionUpdated;
 
+  /// Called when one of the user's playlists changes.
+  void Function()? onPlaylistUpdated;
+
   /// Called when the current user's data changes on the server.
   void Function(Map<String, dynamic> data)? onUserUpdated;
 
@@ -56,9 +98,10 @@ class SocketService {
   /// Payload: serialized Task object including action and data.libraryItemId.
   void Function(Map<String, dynamic> data)? onEncodeFinished;
 
-  // Task (encode-m4b / embed-metadata) event fan-out so screens can subscribe
-  // alongside the library provider's onEncodeFinished above. task_started and
-  // task_finished carry the action; task_progress is generic {libraryItemId, progress}.
+  // Server task event fan-out so admin and item screens can subscribe alongside
+  // the library provider's onEncodeFinished above. task_started and
+  // task_finished carry the action; task_progress is generic
+  // {libraryItemId, progress}.
   final List<void Function(Map<String, dynamic>)> _taskStartedListeners = [];
   final List<void Function(Map<String, dynamic>)> _taskProgressListeners = [];
   final List<void Function(Map<String, dynamic>)> _taskFinishedListeners = [];
@@ -97,6 +140,196 @@ class SocketService {
     }
   }
 
+  // Server log fan-out. Each consumer keeps its own minimum level so opening
+  // another log surface later cannot steal or disable an existing listener.
+  // The server is subscribed at the lowest requested threshold and entries
+  // are filtered again before delivery to each consumer.
+  final Map<void Function(Map<String, dynamic>), int> _serverLogListeners = {};
+
+  void addServerLogListener(
+    void Function(Map<String, dynamic>) fn, {
+    required int level,
+  }) {
+    _serverLogListeners[fn] = _validLogLevel(level);
+    _syncServerLogSubscription();
+  }
+
+  void updateServerLogListenerLevel(
+    void Function(Map<String, dynamic>) fn,
+    int level,
+  ) {
+    if (!_serverLogListeners.containsKey(fn)) return;
+    _serverLogListeners[fn] = _validLogLevel(level);
+    _syncServerLogSubscription();
+  }
+
+  void removeServerLogListener(void Function(Map<String, dynamic>) fn) {
+    if (_serverLogListeners.remove(fn) == null) return;
+    _syncServerLogSubscription();
+  }
+
+  int _validLogLevel(int level) => level.clamp(0, 6).toInt();
+
+  int? get _lowestRequestedLogLevel {
+    if (_serverLogListeners.isEmpty) return null;
+    var lowest = _serverLogListeners.values.first;
+    for (final level in _serverLogListeners.values.skip(1)) {
+      if (level < lowest) lowest = level;
+    }
+    return lowest;
+  }
+
+  void _syncServerLogSubscription() {
+    if (_socket?.connected != true) return;
+    final level = _lowestRequestedLogLevel;
+    if (level == null) {
+      _socket!.emit('remove_log_listener');
+    } else {
+      _socket!.emit('set_log_listener', level);
+    }
+  }
+
+  void _handleServerLog(dynamic data) {
+    final log = normalizeSocketMap(data);
+    if (log == null) return;
+    final rawLevel = log['level'];
+    final level = rawLevel is num
+        ? rawLevel.toInt()
+        : int.tryParse(rawLevel?.toString() ?? '') ?? 0;
+    for (final listener in Map.of(_serverLogListeners).entries) {
+      if (level >= listener.value) listener.key(log);
+    }
+  }
+
+  void _registerServerLogEvents() {
+    _socket!.on('log', _handleServerLog);
+  }
+
+  @visibleForTesting
+  static Map<String, dynamic>? normalizeSocketMap(Object? data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) {
+      return data.map((key, value) => MapEntry(key.toString(), value));
+    }
+    return null;
+  }
+
+  void _handleTaskStarted(dynamic data) {
+    final task = normalizeSocketMap(data);
+    if (task == null) return;
+    debugPrint('[Socket] Task started: ${task['action'] ?? task['id']}');
+    _emitTaskStarted(task);
+  }
+
+  void _handleTaskProgress(dynamic data) {
+    final progress = normalizeSocketMap(data);
+    if (progress != null) _emitTaskProgress(progress);
+  }
+
+  void _handleTaskFinished(dynamic data) {
+    final task = normalizeSocketMap(data);
+    if (task == null) return;
+    debugPrint('[Socket] Task finished: ${task['action'] ?? task['id']}');
+    if (task['action'] == 'encode-m4b') onEncodeFinished?.call(task);
+    _emitTaskFinished(task);
+  }
+
+  // Library-item change fan-out so screens can react to scan/watcher-driven
+  // changes (e.g. items flagged missing) without claiming the single-slot
+  // onItemUpdated callback. Fires for item_added/item_updated/item_removed and
+  // the scanner's bulk items_updated/items_added events.
+  final List<VoidCallback> _itemsChangedListeners = [];
+
+  void addItemsChangedListener(VoidCallback fn) {
+    if (!_itemsChangedListeners.contains(fn)) _itemsChangedListeners.add(fn);
+  }
+  void removeItemsChangedListener(VoidCallback fn) =>
+      _itemsChangedListeners.remove(fn);
+
+  void _emitItemsChanged() {
+    for (final fn in List.of(_itemsChangedListeners)) {
+      fn();
+    }
+  }
+
+  // Per-item update fan-out carrying the item JSON, so an open detail view can
+  // live-refresh when its item changes on the server (web UI edits, scans,
+  // finished episode downloads). Bulk events fan out one call per item.
+  final List<void Function(Map<String, dynamic>)> _itemUpdatedListeners = [];
+
+  void addItemUpdatedListener(void Function(Map<String, dynamic>) fn) {
+    if (!_itemUpdatedListeners.contains(fn)) _itemUpdatedListeners.add(fn);
+  }
+  void removeItemUpdatedListener(void Function(Map<String, dynamic>) fn) =>
+      _itemUpdatedListeners.remove(fn);
+
+  void _emitItemUpdated(dynamic data) {
+    if (data is Map<String, dynamic>) {
+      for (final fn in List.of(_itemUpdatedListeners)) {
+        fn(data);
+      }
+    } else if (data is List) {
+      for (final item in data.whereType<Map<String, dynamic>>()) {
+        for (final fn in List.of(_itemUpdatedListeners)) {
+          fn(item);
+        }
+      }
+    }
+  }
+
+  /// An item change made by this app on a server with no socket (BookOrbit),
+  /// sent to the same listeners the socket's item_updated reaches.
+  void emitLocalItemUpdated(Map<String, dynamic> item) {
+    onItemUpdated?.call(item);
+    _emitItemUpdated(item);
+    _emitItemsChanged();
+  }
+
+  /// The item_removed counterpart of [emitLocalItemUpdated].
+  void emitLocalItemRemoved(Map<String, dynamic> item) {
+    onItemRemoved?.call(item);
+    _emitItemRemoved(item);
+    _emitItemsChanged();
+  }
+
+  // Removal fan-out with payload ({id, ...}), alongside the single-slot
+  // onItemRemoved owned by the library provider.
+  final List<void Function(Map<String, dynamic>)> _itemRemovedListeners = [];
+
+  void addItemRemovedListener(void Function(Map<String, dynamic>) fn) {
+    if (!_itemRemovedListeners.contains(fn)) _itemRemovedListeners.add(fn);
+  }
+  void removeItemRemovedListener(void Function(Map<String, dynamic>) fn) =>
+      _itemRemovedListeners.remove(fn);
+
+  void _emitItemRemoved(Map<String, dynamic> data) {
+    for (final fn in List.of(_itemRemovedListeners)) {
+      fn(data);
+    }
+  }
+
+  // Author change fan-out (added/updated/removed) so the authors tab can
+  // live-refresh after quick-match or edits.
+  final List<VoidCallback> _authorsChangedListeners = [];
+
+  void addAuthorsChangedListener(VoidCallback fn) {
+    if (!_authorsChangedListeners.contains(fn)) _authorsChangedListeners.add(fn);
+  }
+  void removeAuthorsChangedListener(VoidCallback fn) =>
+      _authorsChangedListeners.remove(fn);
+
+  void _emitAuthorsChanged() {
+    for (final fn in List.of(_authorsChangedListeners)) {
+      fn();
+    }
+  }
+
+  void _registerAuthorListeners() {
+    for (final event in authorChangeEvents) {
+      _socket!.on(event, (_) => _emitAuthorsChanged());
+    }
+  }
+
   /// Called when ereader devices change. Server emits this both for the
   /// per-user update (always) and admin-wide updates (only to admins).
   /// Payload shape: { ereaderDevices: [...] } already filtered for this user.
@@ -114,12 +347,24 @@ class SocketService {
   void connect(String serverUrl, String token, {Map<String, String> customHeaders = const {}}) {
     if (_socket != null) disconnect();
 
+    // BookOrbit has its own socket namespaces and no progress events, so
+    // its accounts run on the refresh timers instead.
+    if (ServerBackend.active.isBookOrbit) return;
+
     _token = token;
     _serverUrl = serverUrl;
     _customHeaders = customHeaders;
 
+    // E-ink mode never holds a live socket (battery first) - keep the
+    // credentials so turning the mode off can reconnect, but stop short of
+    // opening the connection. Progress still syncs over plain HTTP.
+    if (PlayerSettings.einkMode) {
+      debugPrint('[Battery] Socket not opened (e-ink mode)');
+      return;
+    }
+
     try {
-      _socket = io.io(serverUrl, _buildOptions());
+      _socket = _createSocket(serverUrl);
 
       // onConnect fires on initial connect AND every reconnect
       _socket!.onConnect((_) {
@@ -130,6 +375,8 @@ class SocketService {
 
       _socket!.on('init', (_) {
         debugPrint('[Socket] Authenticated - user is online');
+        _syncServerLogSubscription();
+        onAuthenticated?.call();
       });
 
       _socket!.on('auth_failed', (_) {
@@ -151,14 +398,33 @@ class SocketService {
       _socket!.on('item_added', (data) {
         debugPrint('[Socket] Item added');
         if (data is Map<String, dynamic>) onItemUpdated?.call(data);
+        _emitItemUpdated(data);
+        _emitItemsChanged();
       });
       _socket!.on('item_updated', (data) {
         debugPrint('[Socket] Item updated');
         if (data is Map<String, dynamic>) onItemUpdated?.call(data);
+        _emitItemUpdated(data);
+        _emitItemsChanged();
       });
       _socket!.on('item_removed', (data) {
         debugPrint('[Socket] Item removed');
-        if (data is Map<String, dynamic>) onItemRemoved?.call(data);
+        if (data is Map<String, dynamic>) {
+          onItemRemoved?.call(data);
+          _emitItemRemoved(data);
+        }
+        _emitItemsChanged();
+      });
+      // Bulk events the scanner emits in chunks while a scan runs
+      _socket!.on('items_updated', (data) {
+        debugPrint('[Socket] Items updated (bulk)');
+        _emitItemUpdated(data);
+        _emitItemsChanged();
+      });
+      _socket!.on('items_added', (data) {
+        debugPrint('[Socket] Items added (bulk)');
+        _emitItemUpdated(data);
+        _emitItemsChanged();
       });
 
       // Series changes
@@ -189,28 +455,36 @@ class SocketService {
         onCollectionUpdated?.call();
       });
 
+      // Playlist changes (server emits these per-user)
+      _socket!.on('playlist_added', (_) {
+        debugPrint('[Socket] Playlist added');
+        onPlaylistUpdated?.call();
+      });
+      _socket!.on('playlist_updated', (_) {
+        debugPrint('[Socket] Playlist updated');
+        onPlaylistUpdated?.call();
+      });
+      _socket!.on('playlist_removed', (_) {
+        debugPrint('[Socket] Playlist removed');
+        onPlaylistUpdated?.call();
+      });
+
+      // Author changes
+      _registerAuthorListeners();
+
       // Current user updated
       _socket!.on('user_updated', (data) {
         debugPrint('[Socket] User updated');
         if (data is Map<String, dynamic>) onUserUpdated?.call(data);
       });
 
-      // Task lifecycle (encode-m4b / embed-metadata). task_started + finished
-      // carry the action; task_progress is generic {libraryItemId, progress}.
-      _socket!.on('task_started', (data) {
-        if (data is Map<String, dynamic>) _emitTaskStarted(data);
-      });
-      _socket!.on('task_progress', (data) {
-        if (data is Map<String, dynamic>) _emitTaskProgress(data);
-      });
-      _socket!.on('task_finished', (data) {
-        if (data is! Map<String, dynamic>) return;
-        if (data['action'] == 'encode-m4b') {
-          debugPrint('[Socket] Encode finished');
-          onEncodeFinished?.call(data);
-        }
-        _emitTaskFinished(data);
-      });
+      // Server task lifecycle. task_started + finished carry the action;
+      // task_progress is generic {libraryItemId, progress}.
+      _socket!.on('task_started', _handleTaskStarted);
+      _socket!.on('task_progress', _handleTaskProgress);
+      _socket!.on('task_finished', _handleTaskFinished);
+
+      _registerServerLogEvents();
 
       // Ereader device list changed (admin-wide or per-user). Payload carries
       // the list already filtered for this connection's user.
@@ -255,10 +529,12 @@ class SocketService {
     _token = null;
     _serverUrl = null;
     onProgressUpdated = null;
+    onAuthenticated = null;
     onItemUpdated = null;
     onItemRemoved = null;
     onSeriesUpdated = null;
     onCollectionUpdated = null;
+    onPlaylistUpdated = null;
     onUserUpdated = null;
     onReconnectFailed = null;
     onEncodeFinished = null;
@@ -290,13 +566,15 @@ class SocketService {
   /// Reconnect after a soft disconnect, reusing saved credentials.
   void softReconnect() {
     if (_socket != null) return; // already connected
+    if (ServerBackend.active.isBookOrbit) return;
+    if (PlayerSettings.einkMode) return;
     final url = _serverUrl;
     final token = _token;
     if (url == null || token == null) return;
     debugPrint('[Battery] Socket RECONNECTED (soft)');
 
     try {
-      _socket = io.io(url, _buildOptions());
+      _socket = _createSocket(url);
 
       _socket!.onConnect((_) {
         _connectedAt = DateTime.now();
@@ -306,6 +584,8 @@ class SocketService {
 
       _socket!.on('init', (_) {
         debugPrint('[Socket] Authenticated - user is online');
+        _syncServerLogSubscription();
+        onAuthenticated?.call();
       });
 
       _socket!.on('auth_failed', (_) {
@@ -322,12 +602,28 @@ class SocketService {
 
       _socket!.on('item_added', (data) {
         if (data is Map<String, dynamic>) onItemUpdated?.call(data);
+        _emitItemUpdated(data);
+        _emitItemsChanged();
       });
       _socket!.on('item_updated', (data) {
         if (data is Map<String, dynamic>) onItemUpdated?.call(data);
+        _emitItemUpdated(data);
+        _emitItemsChanged();
       });
       _socket!.on('item_removed', (data) {
-        if (data is Map<String, dynamic>) onItemRemoved?.call(data);
+        if (data is Map<String, dynamic>) {
+          onItemRemoved?.call(data);
+          _emitItemRemoved(data);
+        }
+        _emitItemsChanged();
+      });
+      _socket!.on('items_updated', (data) {
+        _emitItemUpdated(data);
+        _emitItemsChanged();
+      });
+      _socket!.on('items_added', (data) {
+        _emitItemUpdated(data);
+        _emitItemsChanged();
       });
 
       _socket!.on('series_added', (_) => onSeriesUpdated?.call());
@@ -338,21 +634,21 @@ class SocketService {
       _socket!.on('collection_updated', (_) => onCollectionUpdated?.call());
       _socket!.on('collection_removed', (_) => onCollectionUpdated?.call());
 
+      _socket!.on('playlist_added', (_) => onPlaylistUpdated?.call());
+      _socket!.on('playlist_updated', (_) => onPlaylistUpdated?.call());
+      _socket!.on('playlist_removed', (_) => onPlaylistUpdated?.call());
+
+      _registerAuthorListeners();
+
       _socket!.on('user_updated', (data) {
         if (data is Map<String, dynamic>) onUserUpdated?.call(data);
       });
 
-      _socket!.on('task_started', (data) {
-        if (data is Map<String, dynamic>) _emitTaskStarted(data);
-      });
-      _socket!.on('task_progress', (data) {
-        if (data is Map<String, dynamic>) _emitTaskProgress(data);
-      });
-      _socket!.on('task_finished', (data) {
-        if (data is! Map<String, dynamic>) return;
-        if (data['action'] == 'encode-m4b') onEncodeFinished?.call(data);
-        _emitTaskFinished(data);
-      });
+      _socket!.on('task_started', _handleTaskStarted);
+      _socket!.on('task_progress', _handleTaskProgress);
+      _socket!.on('task_finished', _handleTaskFinished);
+
+      _registerServerLogEvents();
 
       _socket!.on('ereader-devices-updated', (data) {
         if (data is! Map) return;

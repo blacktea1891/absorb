@@ -1,0 +1,979 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:whisper_ggml_plus/whisper_ggml_plus.dart';
+
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import '../main.dart' show rootNavigatorKey;
+import '../providers/auth_provider.dart';
+import '../providers/library_provider.dart';
+import 'api_service.dart';
+import 'audio_player_service.dart';
+import 'download_service.dart';
+import 'remote_audio_slice.dart';
+import '../utils/whisper_language.dart';
+
+/// On-device bookmark transcription using Whisper (whisper.cpp via
+/// whisper_ggml_plus). Opt-in. Downloaded books decode from their files;
+/// streamed books read the window straight off the server.
+///
+/// This is the single seam between the app and the underlying speech engine.
+/// The UI and bookmark code only ever talk to [TranscriptionService] - the
+/// concrete engine (whisper_ggml_plus today, possibly sherpa-onnx forced
+/// alignment later for read-along) stays swappable behind it.
+///
+/// Audio is decoded to the 16kHz mono WAV Whisper requires by native code
+/// (Android MediaCodec / iOS AVAssetReader) - no ffmpeg ships in the app.
+
+enum TranscriptionModelSize { tiny, base, small }
+
+/// Which user-facing feature a transcription job belongs to, so it can run
+/// the model the user assigned to that feature.
+enum TranscriptionFeature { bookmarks, readAlong }
+
+/// Static description of a downloadable model. We deliberately pull the q5_1
+/// quantized weights (roughly half the size, negligible accuracy loss) but
+/// save them under the *unquantized* filename whisper.cpp's loader expects, so
+/// [WhisperController] finds them. whisper.cpp loads quantized ggml transparently.
+class TranscriptionModelInfo {
+  const TranscriptionModelInfo({
+    required this.size,
+    required this.whisperModel,
+    required this.downloadUrl,
+    required this.fileName,
+    required this.approxBytes,
+  });
+
+  final TranscriptionModelSize size;
+  final WhisperModel whisperModel;
+  final String downloadUrl;
+  final String fileName;
+  final int approxBytes;
+
+  static const tiny = TranscriptionModelInfo(
+    size: TranscriptionModelSize.tiny,
+    whisperModel: WhisperModel.tiny,
+    downloadUrl:
+        'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny-q5_1.bin',
+    fileName: 'ggml-tiny.bin',
+    approxBytes: 32 * 1024 * 1024, // ~31 MB
+  );
+
+  static const base = TranscriptionModelInfo(
+    size: TranscriptionModelSize.base,
+    whisperModel: WhisperModel.base,
+    downloadUrl:
+        'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base-q5_1.bin',
+    fileName: 'ggml-base.bin',
+    approxBytes: 60 * 1024 * 1024, // ~57 MB
+  );
+
+  static const small = TranscriptionModelInfo(
+    size: TranscriptionModelSize.small,
+    whisperModel: WhisperModel.small,
+    downloadUrl:
+        'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin',
+    fileName: 'ggml-small.bin',
+    approxBytes: 190 * 1024 * 1024, // ~182 MB
+  );
+
+  static TranscriptionModelInfo forSize(TranscriptionModelSize size) =>
+      switch (size) {
+        TranscriptionModelSize.tiny => tiny,
+        TranscriptionModelSize.base => base,
+        TranscriptionModelSize.small => small,
+      };
+
+}
+
+/// Why a transcription could not be produced. The UI maps these to localized,
+/// user-facing messages.
+enum TranscriptionError {
+  disabled,
+  modelMissing,
+  notDownloaded,
+  noMetadata,
+  extractFailed,
+  transcribeFailed,
+  busy,
+  empty,
+}
+
+class TranscriptionException implements Exception {
+  TranscriptionException(this.kind, [this.detail]);
+  final TranscriptionError kind;
+  final Object? detail;
+  @override
+  String toString() => 'TranscriptionException($kind${detail == null ? '' : ': $detail'})';
+}
+
+/// Resolve which downloaded track file contains [globalSeconds] and the offset
+/// within that track. Pure function so it can be unit-tested without any
+/// download state. [trackDurations] is index-aligned with the track file list.
+({int index, double offset}) mapGlobalToTrack(
+    List<double> trackDurations, double globalSeconds) {
+  var remaining = globalSeconds < 0 ? 0.0 : globalSeconds;
+  if (trackDurations.isEmpty) return (index: 0, offset: remaining);
+  for (var i = 0; i < trackDurations.length; i++) {
+    final d = trackDurations[i];
+    final isLast = i == trackDurations.length - 1;
+    if (remaining < d || isLast) {
+      final maxOffset = d > 0 ? d : remaining;
+      return (index: i, offset: remaining.clamp(0.0, maxOffset).toDouble());
+    }
+    remaining -= d;
+  }
+  return (index: trackDurations.length - 1, offset: 0);
+}
+
+class TranscriptionService {
+  TranscriptionService._();
+  static final TranscriptionService instance = TranscriptionService._();
+
+  static const _channel = MethodChannel('com.barnabas.absorb/transcription');
+
+  final WhisperController _whisper = WhisperController();
+
+  // How much audio to feed Whisper around a bookmark, and how far before the
+  // mark to start (so the clip captures the lead-in, not just what follows).
+  static const double _windowSeconds = 30.0;
+  static const double _leadSeconds = 3.0;
+
+  bool _busy = false;
+  bool _cancelDownload = false;
+
+  // A native crash in the audio decode or in whisper takes the app down with
+  // nothing in the log, and the two look identical from outside. These say
+  // which step was running when the log stops, with the memory numbers
+  // jetsam would have judged. Logged for the first few per run only (the live
+  // transcript does this every few seconds), but every step leaves a marker
+  // that the next launch reports if the run never finished.
+  static const _stepMarkerKey = 'transcribe_step_marker';
+  int _stepMarks = 0;
+  void _markStep(String step) {
+    unawaited(_stampStep(step, log: _stepMarks < 6));
+    _stepMarks++;
+  }
+
+  Future<void> _stampStep(String step, {required bool log}) async {
+    final memory = await _memoryNumbers();
+    if (log) debugPrint('[Transcribe] step: $step ($memory)');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_stepMarkerKey,
+          '${DateTime.now().millisecondsSinceEpoch}|$memory|$step');
+    } catch (_) {}
+  }
+
+  Future<void> _clearStepMarker() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_stepMarkerKey);
+    } catch (_) {}
+  }
+
+  Future<String> _memoryNumbers() async {
+    if (Platform.isIOS) {
+      final m = await AudioPlayerService.iosMemoryInfo();
+      return 'footprint=${m.footprintMb}MB available=${m.availableMb}MB';
+    }
+    return 'rss=${ProcessInfo.currentRss ~/ 1048576}MB';
+  }
+
+  /// A step marker still present at launch means the last run died inside
+  /// transcription. Say which step and how much memory it held.
+  Future<void> reportInterruptedRun() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_stepMarkerKey);
+      if (raw == null) return;
+      await prefs.remove(_stepMarkerKey);
+      final parts = raw.split('|');
+      if (parts.length < 3) return;
+      final at = int.tryParse(parts[0]) ?? 0;
+      final ago = DateTime.now()
+          .difference(DateTime.fromMillisecondsSinceEpoch(at))
+          .inMinutes;
+      debugPrint('[Transcribe] previous run ended during "${parts.sublist(2).join('|')}" '
+          '${ago}min ago (${parts[1]})');
+    } catch (_) {}
+  }
+
+  /// Which model the last run actually used, after [_modelFor] had its say.
+  TranscriptionModelSize? lastModelUsed;
+
+  // Detected language per book. 'auto' makes whisper run the encoder twice
+  // (once to detect, once to transcribe), so pay that only on a book's first
+  // window and pass the answer explicitly from then on.
+  final Map<String, String> _bookLang = {};
+
+  // The book's metadata language as a Whisper code, so a tagged book skips
+  // detection altogether.
+  final Map<String, String> _metadataLang = {};
+
+  String _langFor(String? itemId) {
+    if (itemId == null) return 'auto';
+    final known = _bookLang[itemId] ?? _metadataLang[itemId];
+    if (known != null) return known;
+    // Streamed books get theirs from the item fetch in _streamTracksFor.
+    final raw = DownloadService().getCachedSessionData(itemId);
+    if (raw == null || raw.isEmpty) return 'auto';
+    String? named;
+    try {
+      final session = jsonDecode(raw) as Map<String, dynamic>;
+      final meta = session['mediaMetadata'] as Map<String, dynamic>?;
+      named = whisperLanguageCode(meta?['language'] as String?);
+    } catch (_) {}
+    if (named == null) return 'auto';
+    _rememberMetadataLanguage(itemId, named);
+    return named;
+  }
+
+  void _rememberMetadataLanguage(String itemId, String code) {
+    if (_metadataLang.containsKey(itemId)) return;
+    _metadataLang[itemId] = code;
+    debugPrint('[Transcribe] $itemId is tagged "$code", skipping detection');
+  }
+
+  // Model management
+
+  Future<String> _modelDir() => WhisperController.getModelDir();
+
+  Future<File> _modelFile(TranscriptionModelInfo info) async {
+    final dir = await _modelDir();
+    return File('$dir${Platform.pathSeparator}${info.fileName}');
+  }
+
+  Future<bool> isModelDownloaded(TranscriptionModelSize size) async {
+    final file = await _modelFile(TranscriptionModelInfo.forSize(size));
+    return file.existsSync() && await file.length() > 0;
+  }
+
+  /// Stream the (quantized) model to disk with progress (0..1). Writes to a
+  /// `.part` file and renames on success so an interrupted download is never
+  /// mistaken for a complete model. Throws on HTTP error or cancellation.
+  Future<void> downloadModel(
+    TranscriptionModelSize size, {
+    void Function(double progress)? onProgress,
+  }) async {
+    _cancelDownload = false;
+    final info = TranscriptionModelInfo.forSize(size);
+    final file = await _modelFile(info);
+    await file.parent.create(recursive: true);
+    final part = File('${file.path}.part');
+
+    final client = HttpClient();
+    try {
+      final request = await client.getUrl(Uri.parse(info.downloadUrl));
+      final response = await request.close();
+      if (response.statusCode != 200) {
+        throw TranscriptionException(
+            TranscriptionError.modelMissing, 'HTTP ${response.statusCode}');
+      }
+      final total = response.contentLength > 0
+          ? response.contentLength
+          : info.approxBytes;
+      final sink = part.openWrite();
+      var received = 0;
+      try {
+        await for (final chunk in response) {
+          if (_cancelDownload) {
+            await sink.close();
+            if (part.existsSync()) await part.delete();
+            throw TranscriptionException(TranscriptionError.modelMissing, 'cancelled');
+          }
+          received += chunk.length;
+          sink.add(chunk);
+          onProgress?.call((received / total).clamp(0.0, 1.0));
+        }
+        await sink.flush();
+        await sink.close();
+      } catch (_) {
+        await sink.close().catchError((_) {});
+        if (part.existsSync()) await part.delete().catchError((_) => part);
+        rethrow;
+      }
+      if (file.existsSync()) await file.delete();
+      await part.rename(file.path);
+      onProgress?.call(1.0);
+      debugPrint('[Transcribe] Model ${info.fileName} downloaded (${received ~/ (1024 * 1024)} MB)');
+    } finally {
+      client.close(force: false);
+    }
+  }
+
+  void cancelActiveDownload() => _cancelDownload = true;
+
+  Future<void> deleteModel(TranscriptionModelSize size) async {
+    final file = await _modelFile(TranscriptionModelInfo.forSize(size));
+    if (file.existsSync()) await file.delete();
+  }
+
+  // Transcription
+
+  /// Can this book be transcribed right now? Downloaded books always can; a
+  /// streamed one can while the server is reachable.
+  bool canTranscribeBook(String itemId) =>
+      (DownloadService().getLocalPaths(itemId)?.isNotEmpty ?? false) ||
+      _streamingApi() != null;
+
+  /// The server to stream from, or null while offline.
+  ApiService? _streamingApi() {
+    final ctx = rootNavigatorKey.currentContext;
+    if (ctx == null) return null;
+    try {
+      if (Provider.of<LibraryProvider>(ctx, listen: false).isOffline) return null;
+      return Provider.of<AuthProvider>(ctx, listen: false).apiService;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// A streamed book's tracks, fetched once per book: the same list Find the
+  /// start in the chapter editor reads from.
+  final Map<String, List<RemoteTrack>> _streamTracks = {};
+
+  Future<List<RemoteTrack>?> _streamTracksFor(String itemId) async {
+    final cached = _streamTracks[itemId];
+    if (cached != null) return cached;
+    final api = _streamingApi();
+    if (api == null) return null;
+    final isEpisode = itemId.length > 36;
+    final apiItemId = isEpisode ? itemId.substring(0, 36) : itemId;
+    final item = await api.getLibraryItem(apiItemId);
+    final media = item?['media'] as Map<String, dynamic>?;
+    if (media == null) return null;
+    final named = whisperLanguageCode(
+        (media['metadata'] as Map<String, dynamic>?)?['language'] as String?);
+    if (named != null) _rememberMetadataLanguage(itemId, named);
+    final raw = <Map<String, dynamic>>[];
+    if (isEpisode) {
+      final episodeId = itemId.substring(37);
+      final episode = (media['episodes'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .where((e) => e['id'] == episodeId)
+          .firstOrNull;
+      final track = episode?['audioTrack'] as Map<String, dynamic>?;
+      if (track != null) raw.add(track);
+    } else {
+      raw.addAll((media['tracks'] as List<dynamic>? ?? const [])
+          .whereType<Map<String, dynamic>>());
+      if (raw.isEmpty) {
+        for (final af in (media['audioFiles'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, dynamic>>()
+            .where((af) => af['exclude'] != true)) {
+          final ino = af['ino'] as String?;
+          if (ino == null) continue;
+          raw.add({
+            'duration': af['duration'],
+            'mimeType': af['mimeType'],
+            'contentUrl': '/api/items/$apiItemId/file/$ino',
+          });
+        }
+      }
+    }
+    final tracks = <RemoteTrack>[];
+    for (final t in raw) {
+      final contentUrl = t['contentUrl'] as String?;
+      if (contentUrl == null) return null;
+      tracks.add(RemoteTrack(
+        url: api.buildTrackUrl(contentUrl),
+        headers: api.mediaHeaders,
+        durationSeconds: (t['duration'] as num?)?.toDouble() ?? 0,
+        mimeType: t['mimeType'] as String?,
+      ));
+    }
+    if (tracks.isEmpty) return null;
+    debugPrint('[Transcribe] $itemId streams from ${tracks.length} track(s)');
+    return _streamTracks[itemId] = tracks;
+  }
+
+  /// Where the window starting at book time [gStart] comes from: the
+  /// downloaded file when there is one, else the server ([stream] set).
+  Future<({String source, double localOffset, double trackDuration, RemoteTrack? stream})>
+      _locate(String itemId, double gStart) async {
+    final localPaths = DownloadService().getLocalPaths(itemId);
+    if (localPaths != null && localPaths.isNotEmpty) {
+      final durations = _trackDurations(itemId);
+      final int trackIndex;
+      final double localOffset;
+      final double trackDuration;
+      if (durations != null && durations.length == localPaths.length) {
+        final m = mapGlobalToTrack(durations, gStart);
+        trackIndex = m.index;
+        localOffset = m.offset;
+        trackDuration = durations[trackIndex];
+      } else if (localPaths.length == 1) {
+        // Single-file book: no per-track metadata needed.
+        trackIndex = 0;
+        localOffset = gStart;
+        trackDuration = double.infinity;
+      } else {
+        // Multi-file book but we can't map without durations.
+        throw TranscriptionException(TranscriptionError.noMetadata);
+      }
+      final sourcePath = localPaths[trackIndex];
+      // Books in a custom Android (SAF) folder are content:// URIs - File()
+      // can't see those, but the native extractor opens them fine.
+      if (!sourcePath.startsWith('content://') && !File(sourcePath).existsSync()) {
+        throw TranscriptionException(TranscriptionError.notDownloaded, sourcePath);
+      }
+      return (
+        source: sourcePath,
+        localOffset: localOffset,
+        trackDuration: trackDuration,
+        stream: null,
+      );
+    }
+
+    final List<RemoteTrack>? tracks;
+    try {
+      tracks = await _streamTracksFor(itemId);
+    } catch (e) {
+      throw TranscriptionException(TranscriptionError.notDownloaded, e);
+    }
+    if (tracks == null) throw TranscriptionException(TranscriptionError.notDownloaded);
+    final durations = [for (final t in tracks) t.durationSeconds];
+    final m = tracks.length == 1
+        ? (index: 0, offset: gStart)
+        : mapGlobalToTrack(durations, gStart);
+    final track = tracks[m.index];
+    return (
+      source: track.url,
+      localOffset: m.offset,
+      trackDuration: track.durationSeconds > 0 ? track.durationSeconds : double.infinity,
+      stream: track,
+    );
+  }
+
+  /// Decode [window] seconds at [at] to a 16kHz WAV. Android's decoder opens
+  /// a stream URL itself; Apple's only reads files, so on iOS the window's
+  /// bytes are pulled down and rewrapped first.
+  Future<String?> _decodeWindow(
+    ({String source, double localOffset, double trackDuration, RemoteTrack? stream}) at,
+    double window,
+  ) async {
+    final remote = at.stream;
+    if (remote == null || !Platform.isIOS) {
+      return _extractWav(
+        sourcePath: at.source,
+        startSeconds: at.localOffset,
+        durationSeconds: window,
+        headers: remote?.headers ?? const {},
+      );
+    }
+    AudioSlice? slice;
+    try {
+      slice = await RemoteAudioSlicer.fetch(
+        remote,
+        at.localOffset,
+        window,
+        tmpDir: (await getTemporaryDirectory()).path,
+      );
+    } catch (e) {
+      debugPrint('[Transcribe] slice failed: $e');
+      throw TranscriptionException(TranscriptionError.extractFailed, e);
+    }
+    try {
+      return await _extractWav(
+        sourcePath: slice.path,
+        startSeconds: slice.startWithin,
+        durationSeconds: window,
+      );
+    } finally {
+      try {
+        File(slice.path).deleteSync();
+      } catch (_) {}
+    }
+  }
+
+  /// Which model to run for one job.
+  ///
+  /// [preferAccuracy] says whether the words have to stand on their own. When
+  /// the book's EPUB is there, every word gets replaced by the book's own
+  /// anyway, so tiny is enough - and being several times faster is what keeps
+  /// the live transcript ahead of the narration. With no ebook the transcript
+  /// IS the text, so a bigger model earns its time: small for a one-shot
+  /// bookmark, base for read along, which small cannot keep realtime on.
+  Future<TranscriptionModelInfo> _modelFor(
+      bool? preferAccuracy, TranscriptionFeature feature) async {
+    final want = preferAccuracy == false
+        ? TranscriptionModelSize.tiny
+        : feature == TranscriptionFeature.bookmarks
+            ? TranscriptionModelSize.small
+            : TranscriptionModelSize.base;
+    // Only run what is actually on the device. When the intended model is
+    // missing, the nearest smaller one stands in (base for small) before
+    // anything bigger gets a turn.
+    const ladder = [
+      TranscriptionModelSize.small,
+      TranscriptionModelSize.base,
+      TranscriptionModelSize.tiny,
+    ];
+    final i = ladder.indexOf(want);
+    final order = [...ladder.sublist(i), ...ladder.sublist(0, i).reversed];
+    for (final s in order) {
+      if (!await isModelDownloaded(s)) continue;
+      final picked = TranscriptionModelInfo.forSize(s);
+      if (s != want) {
+        debugPrint('[Transcribe] using ${picked.fileName} - '
+            '${TranscriptionModelInfo.forSize(want).fileName} is not downloaded');
+      }
+      return picked;
+    }
+    // Nothing downloaded at all - the caller turns this into modelMissing.
+    return TranscriptionModelInfo.forSize(want);
+  }
+
+  /// Transcribe the audio around [positionSeconds] of [itemId]. Returns the
+  /// transcript text plus the path to the extracted 16kHz WAV clip, which the
+  /// caller can play back for review and MUST delete when finished. Throws
+  /// [TranscriptionException] on any failure so the UI can show a specific message.
+  Future<({String text, String audioPath})> transcribeAt({
+    required String itemId,
+    required double positionSeconds,
+    double windowSeconds = _windowSeconds,
+    double leadSeconds = _leadSeconds,
+    bool? preferAccuracy,
+    TranscriptionFeature feature = TranscriptionFeature.bookmarks,
+  }) async {
+    if (!await PlayerSettings.getTranscriptionEnabled()) {
+      throw TranscriptionException(TranscriptionError.disabled);
+    }
+    if (_busy) throw TranscriptionException(TranscriptionError.busy);
+
+    final info = await _modelFor(preferAccuracy, feature);
+    if (!await isModelDownloaded(info.size)) {
+      throw TranscriptionException(TranscriptionError.modelMissing);
+    }
+    lastModelUsed = info.size;
+
+    final double gStart = (positionSeconds - leadSeconds).clamp(0.0, double.infinity);
+    final at = await _locate(itemId, gStart);
+    final sourcePath = at.source;
+    final localOffset = at.localOffset;
+    final trackDuration = at.trackDuration;
+
+    // Clamp the window so it never runs past the end of this track (v1 doesn't
+    // span file boundaries - a bookmark in the last few seconds of a track just
+    // gets a shorter clip).
+    final available = trackDuration.isFinite ? trackDuration - localOffset : windowSeconds;
+    final window = available < windowSeconds ? available : windowSeconds;
+    if (window <= 0.5) {
+      throw TranscriptionException(TranscriptionError.extractFailed, 'window too short');
+    }
+
+    _busy = true;
+    String? wavPath;
+    final watch = Stopwatch()..start();
+    try {
+      _markStep('decoding ${sourcePath.split('.').last} audio '
+          '(${localOffset.toStringAsFixed(0)}s +${window.toStringAsFixed(0)}s)');
+      wavPath = await _decodeWindow(at, window);
+      final extractMs = watch.elapsedMilliseconds;
+      if (wavPath == null || !File(wavPath).existsSync()) {
+        throw TranscriptionException(TranscriptionError.extractFailed);
+      }
+
+      // NB: TranscribeResult isn't exported by the package, so let the type be
+      // inferred rather than naming it. `.transcription` is a (exported)
+      // WhisperTranscribeResponse whose `.text` is the full transcript.
+      final String text;
+      final lang = _langFor(itemId);
+      try {
+        _markStep('audio decoded, running whisper ${info.fileName}');
+        final result = await _whisper.transcribe(
+          model: info.whisperModel,
+          audioPath: wavPath,
+          lang: lang,
+          convert: false, // we always hand it a ready 16kHz WAV
+          withTimestamps: false,
+          // Audiobooks are wall-to-wall speech, and Silero turned out to cost
+          // more per window than the transcription itself.
+          vadMode: WhisperVadMode.disabled,
+          threads: _threads(),
+        );
+        text = (result?.transcription.text ?? '').trim();
+        _noteEngine(result);
+        _cacheLanguage(itemId, result?.language, text.isNotEmpty);
+      } catch (e) {
+        if (e is TranscriptionException) rethrow;
+        throw TranscriptionException(TranscriptionError.transcribeFailed, e);
+      }
+      debugPrint('[Transcribe] window=${window.toStringAsFixed(1)}s '
+          'model=${info.fileName} lang=$lang extract=${extractMs}ms '
+          'whisper=${watch.elapsedMilliseconds - extractMs}ms '
+          'engine=${Whisper.usesCompatEngine ? 'compat' : 'fast'} '
+          'chars=${text.length}');
+      if (text.isEmpty) throw TranscriptionException(TranscriptionError.empty);
+      // Hand the extracted clip to the caller (for review playback). Ownership
+      // transfers, so null out wavPath to skip the finally-delete below.
+      final out = (text: text, audioPath: wavPath);
+      wavPath = null;
+      return out;
+    } finally {
+      _busy = false;
+      unawaited(_clearStepMarker());
+      if (wavPath != null) {
+        try {
+          final f = File(wavPath);
+          if (f.existsSync()) await f.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  bool get isBusy => _busy;
+
+  /// Transcribe [windowSeconds] starting at global book time [startSeconds]
+  /// and return the segments with timestamps relative to the window start.
+  /// For audio-to-text alignment (Find in audiobook) - the extracted clip is
+  /// deleted before returning. Same guards and exceptions as [transcribeAt].
+  Future<List<({double start, double end, String text})>> transcribeWindowSegments({
+    required String itemId,
+    required double startSeconds,
+    required double windowSeconds,
+    bool? preferAccuracy,
+    TranscriptionFeature feature = TranscriptionFeature.readAlong,
+  }) async {
+    if (!await PlayerSettings.getTranscriptionEnabled()) {
+      throw TranscriptionException(TranscriptionError.disabled);
+    }
+    if (_busy) throw TranscriptionException(TranscriptionError.busy);
+
+    final info = await _modelFor(preferAccuracy, feature);
+    if (!await isModelDownloaded(info.size)) {
+      throw TranscriptionException(TranscriptionError.modelMissing);
+    }
+    lastModelUsed = info.size;
+
+    final double gStart = startSeconds.clamp(0.0, double.infinity);
+    final at = await _locate(itemId, gStart);
+    final sourcePath = at.source;
+    final localOffset = at.localOffset;
+    final trackDuration = at.trackDuration;
+
+    final available = trackDuration.isFinite ? trackDuration - localOffset : windowSeconds;
+    final window = available < windowSeconds ? available : windowSeconds;
+    if (window <= 0.5) {
+      throw TranscriptionException(TranscriptionError.extractFailed, 'window too short');
+    }
+
+    _busy = true;
+    String? wavPath;
+    final watch = Stopwatch()..start();
+    try {
+      _markStep('decoding ${sourcePath.split('.').last} audio '
+          '(${localOffset.toStringAsFixed(0)}s +${window.toStringAsFixed(0)}s)');
+      wavPath = await _decodeWindow(at, window);
+      final extractMs = watch.elapsedMilliseconds;
+      if (wavPath == null || !File(wavPath).existsSync()) {
+        throw TranscriptionException(TranscriptionError.extractFailed);
+      }
+
+      final List<({double start, double end, String text})> segments;
+      final lang = _langFor(itemId);
+      try {
+        _markStep('audio decoded, running whisper ${info.fileName}');
+        final result = await _whisper.transcribe(
+          model: info.whisperModel,
+          audioPath: wavPath,
+          lang: lang,
+          convert: false,
+          withTimestamps: true,
+          // See transcribeAt - Silero cost more per window than whisper.
+          vadMode: WhisperVadMode.disabled,
+          // This path feeds the live transcript, where a late answer is as
+          // bad as a wrong one. A failed window just gets skipped over.
+          noFallback: true,
+          // One word per segment with real token timestamps. Without this,
+          // word timing is interpolated across multi-second segments and the
+          // read-along highlight drifts between anchors.
+          splitOnWord: true,
+          threads: _threads(),
+        );
+        segments = (result?.transcription.segments ?? const [])
+            .map((s) => (
+                  start: s.fromTs.inMilliseconds / 1000.0,
+                  end: s.toTs.inMilliseconds / 1000.0,
+                  text: s.text.trim(),
+                ))
+            .where((s) => s.text.isNotEmpty)
+            .toList();
+        _noteEngine(result);
+        _cacheLanguage(itemId, result?.language, segments.isNotEmpty);
+      } catch (e) {
+        if (e is TranscriptionException) rethrow;
+        throw TranscriptionException(TranscriptionError.transcribeFailed, e);
+      }
+      debugPrint('[Transcribe] segments window=${window.toStringAsFixed(1)}s '
+          'model=${info.fileName} lang=$lang extract=${extractMs}ms '
+          'whisper=${watch.elapsedMilliseconds - extractMs}ms '
+          'threads=${_threads()} engine=${Whisper.usesCompatEngine ? 'compat' : 'fast'} '
+          'segments=${segments.length}');
+      if (segments.isEmpty) throw TranscriptionException(TranscriptionError.empty);
+      return segments;
+    } finally {
+      _busy = false;
+      unawaited(_clearStepMarker());
+      if (wavPath != null) {
+        try {
+          final f = File(wavPath);
+          if (f.existsSync()) await f.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Transcription is switched on and a model for [feature] is on the device,
+  /// regardless of any particular book.
+  Future<bool> canTranscribeNow({
+    TranscriptionFeature feature = TranscriptionFeature.readAlong,
+  }) async {
+    if (!await PlayerSettings.getTranscriptionEnabled()) return false;
+    final info = await _modelFor(null, feature);
+    return isModelDownloaded(info.size);
+  }
+
+  /// Decode [durationSeconds] of [source] from [startSeconds] (seconds into
+  /// that file, not the book) into a 16kHz mono WAV and hand back its path.
+  /// [source] is a local file, a content:// URI or a stream URL; the caller
+  /// owns the file. For callers that want the audio itself rather than a
+  /// transcript, like the chapter start finder.
+  Future<String?> extractWindowWav({
+    required String source,
+    required double startSeconds,
+    required double durationSeconds,
+  }) =>
+      _extractWav(
+        sourcePath: source,
+        startSeconds: startSeconds,
+        durationSeconds: durationSeconds,
+      );
+
+  /// Whisper over one ready-made 16kHz mono WAV. Same guards as
+  /// [transcribeAt]; the file is left alone.
+  Future<String> transcribeWav(
+    String wavPath, {
+    String? itemId,
+    bool? preferAccuracy,
+    TranscriptionFeature feature = TranscriptionFeature.readAlong,
+  }) async {
+    if (!await PlayerSettings.getTranscriptionEnabled()) {
+      throw TranscriptionException(TranscriptionError.disabled);
+    }
+    if (_busy) throw TranscriptionException(TranscriptionError.busy);
+    final info = await _modelFor(preferAccuracy, feature);
+    if (!await isModelDownloaded(info.size)) {
+      throw TranscriptionException(TranscriptionError.modelMissing);
+    }
+    lastModelUsed = info.size;
+    _busy = true;
+    final watch = Stopwatch()..start();
+    try {
+      final lang = _langFor(itemId);
+      final String text;
+      try {
+        _markStep('audio decoded, running whisper ${info.fileName}');
+        final result = await _whisper.transcribe(
+          model: info.whisperModel,
+          audioPath: wavPath,
+          lang: lang,
+          convert: false,
+          withTimestamps: false,
+          vadMode: WhisperVadMode.disabled,
+          threads: _threads(),
+        );
+        text = (result?.transcription.text ?? '').trim();
+        _noteEngine(result);
+        if (itemId != null) _cacheLanguage(itemId, result?.language, text.isNotEmpty);
+      } catch (e) {
+        if (e is TranscriptionException) rethrow;
+        throw TranscriptionException(TranscriptionError.transcribeFailed, e);
+      }
+      debugPrint('[Transcribe] wav model=${info.fileName} lang=$lang '
+          'whisper=${watch.elapsedMilliseconds}ms chars=${text.length}');
+      if (text.isEmpty) throw TranscriptionException(TranscriptionError.empty);
+      return text;
+    } finally {
+      _busy = false;
+      unawaited(_clearStepMarker());
+    }
+  }
+
+  /// Like [transcribeWav] but keeps Whisper's segments and their timing, for
+  /// callers that care where the pauses fall.
+  Future<List<({double start, double end, String text})>> transcribeWavTimed(
+    String wavPath, {
+    String? itemId,
+    TranscriptionFeature feature = TranscriptionFeature.readAlong,
+  }) async {
+    if (!await PlayerSettings.getTranscriptionEnabled()) {
+      throw TranscriptionException(TranscriptionError.disabled);
+    }
+    if (_busy) throw TranscriptionException(TranscriptionError.busy);
+    final info = await _modelFor(null, feature);
+    if (!await isModelDownloaded(info.size)) {
+      throw TranscriptionException(TranscriptionError.modelMissing);
+    }
+    lastModelUsed = info.size;
+    _busy = true;
+    try {
+      final lang = _langFor(itemId);
+      final List<({double start, double end, String text})> segments;
+      try {
+        _markStep('audio decoded, running whisper ${info.fileName}');
+        final result = await _whisper.transcribe(
+          model: info.whisperModel,
+          audioPath: wavPath,
+          lang: lang,
+          convert: false,
+          withTimestamps: true,
+          vadMode: WhisperVadMode.disabled,
+          threads: _threads(),
+        );
+        segments = (result?.transcription.segments ?? const [])
+            .map((s) => (
+                  start: s.fromTs.inMilliseconds / 1000.0,
+                  end: s.toTs.inMilliseconds / 1000.0,
+                  text: s.text.trim(),
+                ))
+            .where((s) => s.text.isNotEmpty)
+            .toList();
+        _noteEngine(result);
+        if (itemId != null) _cacheLanguage(itemId, result?.language, segments.isNotEmpty);
+      } catch (e) {
+        if (e is TranscriptionException) rethrow;
+        throw TranscriptionException(TranscriptionError.transcribeFailed, e);
+      }
+      if (segments.isEmpty) throw TranscriptionException(TranscriptionError.empty);
+      return segments;
+    } finally {
+      _busy = false;
+      unawaited(_clearStepMarker());
+    }
+  }
+
+  // Internals
+
+  // Capped at 4, not core count: whisper barriers its threads at every layer,
+  // so the slowest thread gates each step. On big.LITTLE phones a fifth and
+  // sixth thread land on little cores, and once Android's touch boost decays
+  // those drop to idle clocks and drag a 7s window out past 30s. Four threads
+  // stay on the big and mid cores and hold their speed unboosted.
+  int _threads() => (Platform.numberOfProcessors - 1).clamp(2, 4);
+
+  String? _loggedBackend;
+
+  /// What the engine reported about itself: which backend it is on, said
+  /// once, and whatever ggml and whisper logged, which is where a Metal
+  /// kernel that failed to build shows up.
+  void _noteEngine(dynamic result) {
+    final backend = result?.backend as String?;
+    if (backend != null && backend != _loggedBackend) {
+      _loggedBackend = backend;
+      debugPrint('[Transcribe] whisper runs on $backend');
+    }
+    final log = (result?.log as String?)?.trim();
+    if (log == null || log.isEmpty) return;
+    for (final line in log.split('\n')) {
+      final t = line.trim();
+      if (t.isNotEmpty) debugPrint('[WhisperCpp] $t');
+    }
+  }
+
+  /// Remember what language detection settled on, but only from a window that
+  /// actually produced output - a detection made on silence or music would
+  /// pin the whole book to a garbage language.
+  void _cacheLanguage(String itemId, String? detected, bool hadOutput) {
+    if (!hadOutput || _bookLang.containsKey(itemId)) return;
+    if (detected == null || detected.isEmpty || detected == 'auto') return;
+    _bookLang[itemId] = detected;
+    debugPrint('[Transcribe] $itemId speaks "$detected"');
+  }
+
+  /// Per-track durations (seconds) from the cached offline session metadata,
+  /// index-aligned with the downloaded track files. Null when unavailable.
+  /// The first track (file) boundary strictly after [from] and no later than
+  /// [upTo], or null. Windows never cross a file boundary, so a probe that
+  /// starts just before one is cut short and never hears what follows it.
+  double? trackBoundaryBetween(String itemId, double from, double upTo) {
+    final durations = _trackDurations(itemId);
+    if (durations == null || durations.length < 2) return null;
+    var acc = 0.0;
+    for (var i = 0; i < durations.length - 1; i++) {
+      acc += durations[i];
+      if (acc > from + 0.05 && acc <= upTo) return acc;
+      if (acc > upTo) break;
+    }
+    return null;
+  }
+
+  List<double>? _trackDurations(String itemId) {
+    final raw = DownloadService().getCachedSessionData(itemId);
+    if (raw == null || raw.isEmpty) {
+      final streamed = _streamTracks[itemId];
+      return streamed == null
+          ? null
+          : [for (final t in streamed) t.durationSeconds];
+    }
+    try {
+      final session = jsonDecode(raw) as Map<String, dynamic>;
+      final tracks = session['audioTracks'] as List<dynamic>?;
+      if (tracks == null || tracks.isEmpty) return null;
+      return tracks
+          .map((t) => ((t as Map<String, dynamic>)['duration'] as num?)?.toDouble() ?? 0.0)
+          .toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Decode a clip of [sourcePath] into a playable standalone WAV, for
+  /// surfaces that need a small file instead of the original (the bookmark
+  /// audition falls back to this when a second player can't open a huge
+  /// single-file book). Never touches the whisper engine, so no gating.
+  Future<String?> extractClipWav({
+    required String sourcePath,
+    required double startSeconds,
+    required double durationSeconds,
+  }) =>
+      _extractWav(
+        sourcePath: sourcePath,
+        startSeconds: startSeconds,
+        durationSeconds: durationSeconds,
+      );
+
+  /// Ask native code to decode [durationSeconds] of [sourcePath] starting at
+  /// [startSeconds] into a 16kHz mono WAV, returning the temp file path.
+  Future<String?> _extractWav({
+    required String sourcePath,
+    required double startSeconds,
+    required double durationSeconds,
+    Map<String, String> headers = const {},
+  }) async {
+    final tmpDir = await getTemporaryDirectory();
+    final outPath =
+        '${tmpDir.path}${Platform.pathSeparator}absorb_transcribe_${DateTime.now().microsecondsSinceEpoch}.wav';
+    try {
+      final ok = await _channel.invokeMethod<bool>('extractWav', {
+        'sourcePath': sourcePath,
+        'startSeconds': startSeconds,
+        'durationSeconds': durationSeconds,
+        'outPath': outPath,
+        if (headers.isNotEmpty) 'headers': headers,
+      });
+      return ok == true ? outPath : null;
+    } on PlatformException catch (e) {
+      throw TranscriptionException(TranscriptionError.extractFailed, e.message);
+    } on MissingPluginException catch (e) {
+      throw TranscriptionException(TranscriptionError.extractFailed, e.message);
+    }
+  }
+}

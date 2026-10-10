@@ -1,16 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import 'cover_badges.dart';
 import '../services/wording.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import 'book_detail_sheet.dart';
+import 'books_sheet_shared.dart' show coverGridCount;
 import 'episode_detail_sheet.dart';
-import 'overlay_toast.dart';
+import 'absorb_placement.dart';
+import 'swipe_action.dart';
 import 'stackable_sheet.dart';
 
 /// Open the right detail sheet for a section entity: episode detail for
@@ -128,9 +130,6 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
   }
 
   Widget _buildList(ColorScheme cs, TextTheme tt, LibraryProvider lib, AppLocalizations l) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
-
     return ListView.builder(
       controller: widget.scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4)
@@ -184,7 +183,10 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
                       if (isExplicit) _explicitBadge(l),
                       if (progress > 0 && !isFinished) _progressBar(cs, progress),
                       if (isFinished || isDownloaded)
-                        _badges(cs, doneColor, isFinished, isDownloaded, l),
+                        Positioned(
+                          left: 0, right: 0, bottom: 0,
+                          child: CoverStateBadges(isDownloaded: isDownloaded, isFinished: isFinished),
+                        ),
                     ]),
                   ),
                   Expanded(
@@ -217,30 +219,19 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
           ),
         );
 
-        return Dismissible(
+        return SwipeAction(
           key: ValueKey('absorb-$itemId'),
-          direction: isOnAbsorbing
-              ? DismissDirection.none
-              : DismissDirection.startToEnd,
-          confirmDismiss: (_) async {
-            await lib.addToAbsorbingQueue(itemId);
-            lib.absorbingItemCache[itemId] = Map<String, dynamic>.from(item);
-            HapticFeedback.mediumImpact();
-            if (context.mounted) {
-              showOverlayToast(context, Wording.of(context).sectionDetailAddedToAbsorbing(title),
-                  icon: Icons.add_circle_outline_rounded);
-            }
-            return false;
-          },
-          background: Container(
-            alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.only(left: 20),
-            decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(Icons.add_circle_outline_rounded, color: cs.primary),
-          ),
+          onStartToEnd: isOnAbsorbing
+              ? null
+              : SwipeActionSpec(
+                  icon: Icons.add_circle_outline_rounded,
+                  color: cs.primary,
+                  onTrigger: () async {
+                    await addToAbsorbingWithPicker(context, itemId,
+                        item: item,
+                        addedToast: Wording.of(context).sectionDetailAddedToAbsorbing(title));
+                  },
+                ),
           child: card,
         );
       },
@@ -248,8 +239,6 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
   }
 
   Widget _buildGrid(ColorScheme cs, TextTheme tt, LibraryProvider lib, AppLocalizations l) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
     final isRect = widget.coverAspectRatio < 1.0;
     // Text area is ~50px; cover uses aspect ratio to determine height
     final childAspectRatio = isRect ? 0.45 : 0.62;
@@ -259,9 +248,9 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4)
           .copyWith(bottom: 40),
       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
+        crossAxisCount: coverGridCount(context),
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
         childAspectRatio: childAspectRatio,
       ),
       itemCount: widget.entities.length,
@@ -304,7 +293,10 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
                     if (progress > 0 && !isFinished)
                       _progressBar(cs, progress),
                     if (isFinished || isDownloaded)
-                      _badges(cs, doneColor, isFinished, isDownloaded, l),
+                      Positioned(
+                        left: 0, right: 0, bottom: 0,
+                        child: CoverStateBadges(isDownloaded: isDownloaded, isFinished: isFinished),
+                      ),
                   ]),
                 ),
               ),
@@ -371,55 +363,6 @@ class _SectionDetailSheetState extends State<SectionDetailSheet> {
           minHeight: 3,
           backgroundColor: Colors.black38,
           valueColor: AlwaysStoppedAnimation(cs.primary),
-        ),
-      );
-
-  Widget _badges(ColorScheme cs, Color doneColor, bool isFinished,
-      bool isDownloaded, AppLocalizations l) =>
-      Positioned(
-        left: 0, right: 0, bottom: 0,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [
-                Colors.black.withValues(alpha: 0.85),
-                Colors.black.withValues(alpha: 0.0),
-              ],
-            ),
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            if (isFinished)
-              Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.check_circle_rounded,
-                        size: 10, color: doneColor),
-                    const SizedBox(width: 3),
-                    Text(l.sectionDetailDoneBadge,
-                        style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: doneColor)),
-                  ]),
-            if (isDownloaded)
-              Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.download_done_rounded,
-                        size: 10, color: cs.primary),
-                    const SizedBox(width: 3),
-                    Text(l.saved,
-                        style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: cs.primary)),
-                  ]),
-          ]),
         ),
       );
 }

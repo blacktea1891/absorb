@@ -1,17 +1,24 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/backup_service.dart';
+import '../services/setup_link_service.dart';
 import '../widgets/absorb_page_header.dart';
 import '../widgets/absorb_wave_icon.dart';
+import '../widgets/adaptive_modal.dart';
+import '../widgets/overlay_toast.dart';
+import '../widgets/setup_link_share_sheet.dart';
 import '../l10n/app_localizations.dart';
 import '../utils/duration_format.dart';
+import '../utils/app_platform.dart';
+import '../utils/share_origin.dart';
 
 class AdminUsersScreen extends StatefulWidget {
   final List<dynamic> users;
@@ -204,7 +211,8 @@ class _AdminUsersScreenState extends State<AdminUsersScreen> {
   }
 
   void _showEditor(Map<String, dynamic>? user) {
-    showModalBottomSheet(context: context, isScrollControlled: true, useSafeArea: true, backgroundColor: Colors.transparent,
+    showAdaptiveActionMenu(context: context, isScrollControlled: true, useSafeArea: true, backgroundColor: Colors.transparent,
+      desktopWidth: 560, desktopScrollWrap: false,
       builder: (_) => _UserEditorSheet(user: user, libraries: widget.libraries, onSaved: _reload));
   }
 }
@@ -735,10 +743,12 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
   }
 
   void _showSessionDetails(Map<String, dynamic> session) {
-    showModalBottomSheet(
+    showAdaptiveActionMenu(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      desktopWidth: 560,
+      desktopScrollWrap: false,
       builder: (_) => _AdminSessionDetailsSheet(session: session),
     );
   }
@@ -775,16 +785,15 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
   );
 
   void _showEditor() {
-    showModalBottomSheet(context: context, isScrollControlled: true, useSafeArea: true, backgroundColor: Colors.transparent,
+    showAdaptiveActionMenu(context: context, isScrollControlled: true, useSafeArea: true, backgroundColor: Colors.transparent,
+      desktopWidth: 560, desktopScrollWrap: false,
       builder: (_) => _UserEditorSheet(user: widget.user, libraries: widget.libraries, onSaved: () {
         widget.onChanged();
         _load();
       }));
   }
 
-  /// Mint an API key for this user and write a one-account .absorb setup file.
-  /// The new user imports it from the login screen and is signed straight in.
-  /// The file carries a working credential, so it must be handed over privately.
+  /// Mint an API key for this user and package it into a private sign-in link.
   Future<void> _exportSetupFile() async {
     final auth = context.read<AuthProvider>();
     final api = auth.apiService;
@@ -835,9 +844,8 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
     final token = key?['apiKey'] as String?;
     if (token == null || token.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.adminSetupFileKeyError)),
-        );
+        showOverlayToast(context, l.adminSetupFileKeyError,
+            icon: Icons.error_outline_rounded);
       }
       return;
     }
@@ -850,33 +858,64 @@ class _UserDetailScreenState extends State<_UserDetailScreen> {
         userId: userId,
         customHeaders: auth.customHeaders,
       );
-      final jsonStr = const JsonEncoder.withIndent('  ').convert(payload);
-      final safeName = username.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-      final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+      final setupLink = SetupLinkService.createLink(payload);
+      if (!mounted) return;
 
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: l.adminSetupFileSaveTitle,
-        fileName: 'absorb_setup_$safeName.absorb',
-        type: FileType.any,
-        bytes: bytes,
+      await showAdaptiveActionMenu<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        showDragHandle: false,
+        desktopWidth: 560,
+        desktopScrollWrap: false,
+        builder: (sheetContext) => SetupLinkShareSheet(
+          username: username,
+          setupLink: setupLink,
+          onShare: () async {
+            await Share.share(
+              setupLink.toString(),
+              subject: l.setupLinkShareSubject(username),
+              sharePositionOrigin: shareOriginFor(sheetContext),
+            );
+          },
+          onCopy: () async {
+            await Clipboard.setData(ClipboardData(text: setupLink.toString()));
+            if (sheetContext.mounted) {
+              showOverlayToast(sheetContext, l.setupLinkCopied,
+                  icon: Icons.content_copy_rounded);
+            }
+          },
+          onSaveFile: () => _saveSetupFile(payload, username),
+        ),
       );
-
-      if (result != null) {
-        if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-          await File(result).writeAsString(jsonStr);
-        }
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l.adminSetupFileSaved(username))),
-          );
-        }
-      }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(l.adminSetupFileFailed(e.toString()))),
-        );
+        showOverlayToast(context, l.adminSetupFileFailed(e.toString()),
+            icon: Icons.error_outline_rounded);
       }
+    }
+  }
+
+  Future<void> _saveSetupFile(Map<String, dynamic> payload, String username) async {
+    final l = AppLocalizations.of(context)!;
+    final jsonStr = const JsonEncoder.withIndent('  ').convert(payload);
+    final safeName = username.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    final bytes = Uint8List.fromList(utf8.encode(jsonStr));
+
+    final result = await FilePicker.platform.saveFile(
+      dialogTitle: l.adminSetupFileSaveTitle,
+      fileName: 'absorb_setup_$safeName.absorb',
+      type: FileType.any,
+      bytes: bytes,
+    );
+
+    if (result == null) return;
+    if (AppPlatform.isDesktop) {
+      await File(result).writeAsString(jsonStr);
+    }
+    if (mounted) {
+      showOverlayToast(context, l.adminSetupFileSaved(username),
+          icon: Icons.check_circle_outline_rounded);
     }
   }
 
@@ -917,6 +956,8 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
   late bool _hasOpenIDLink;
 
   bool get _isNew => widget.user == null;
+  bool get _isSelf => !_isNew && widget.user?['id'] == context.read<AuthProvider>().userId;
+  bool get _canDeleteUser => !_isNew && !_isSelf && widget.user?['type'] != 'root';
 
   @override
   void initState() {
@@ -952,7 +993,7 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
         Padding(padding: const EdgeInsets.fromLTRB(20, 16, 12, 0),
           child: Row(children: [
             Expanded(child: Text(_isNew ? l.adminUsersNewUser : l.adminUsersEditUser, style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w700, color: cs.onSurface))),
-            if (!_isNew) IconButton(
+            if (_canDeleteUser) IconButton(
               icon: Icon(Icons.delete_outline_rounded, color: Colors.red.shade300, size: 20),
               onPressed: _deleting ? null : _deleteUser),
           ])),
@@ -962,10 +1003,16 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
             _lbl(cs, tt, l.adminUsersUsername), const SizedBox(height: 6),
             TextField(controller: _usernameCtrl, enabled: _isNew, style: TextStyle(color: cs.onSurface),
               decoration: _deco(cs, l.adminUsersEnterUsername)),
-            const SizedBox(height: 16),
-            _lbl(cs, tt, _isNew ? l.adminUsersPassword : l.adminUsersNewPassword), const SizedBox(height: 6),
-            TextField(controller: _passwordCtrl, obscureText: true, style: TextStyle(color: cs.onSurface),
-              decoration: _deco(cs, _isNew ? l.adminUsersEnterPassword : l.adminUsersLeaveBlankToKeep)),
+            if (_isNew || !_isSelf) ...[
+              const SizedBox(height: 16),
+              _lbl(cs, tt, _isNew ? l.adminUsersPassword : l.adminUsersNewPassword), const SizedBox(height: 6),
+              TextField(controller: _passwordCtrl, obscureText: true, style: TextStyle(color: cs.onSurface),
+                decoration: _deco(cs, _isNew ? l.adminUsersEnterPassword : l.adminUsersLeaveBlankToKeep)),
+              if (!_isNew) ...[
+                const SizedBox(height: 6),
+                Text(l.otherUserPasswordResetWarning, style: tt.bodySmall?.copyWith(color: cs.error)),
+              ],
+            ],
             const SizedBox(height: 20),
             _lbl(cs, tt, l.adminUsersAccountType), const SizedBox(height: 8),
             Row(children: [
@@ -1071,8 +1118,8 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
     final l = AppLocalizations.of(context)!;
     final username = _usernameCtrl.text.trim();
-    if (username.isEmpty) { _snk(l.adminUsersUsernameRequired); return; }
-    if (_isNew && _passwordCtrl.text.isEmpty) { _snk(l.adminUsersPasswordRequired); return; }
+    if (username.isEmpty) { _snk(l.adminUsersUsernameRequired, icon: Icons.error_outline_rounded); return; }
+    if (_isNew && _passwordCtrl.text.isEmpty) { _snk(l.adminUsersPasswordRequired, icon: Icons.error_outline_rounded); return; }
     setState(() => _saving = true);
     final perms = {'download': _canDownload, 'update': _canUpdate, 'delete': _canDelete, 'upload': _canUpload,
       'accessExplicitContent': _accessExplicit, 'accessAllLibraries': _accessAllLibraries, 'accessAllTags': true};
@@ -1085,18 +1132,19 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     } else {
       final up = <String, dynamic>{'type': _type, 'isActive': _isActive, 'isLocked': _isLocked,
         'permissions': perms, 'librariesAccessible': _accessAllLibraries ? [] : _selectedLibraries.toList()};
-      if (_passwordCtrl.text.isNotEmpty) up['password'] = _passwordCtrl.text;
+      if (!_isSelf && _passwordCtrl.text.isNotEmpty) up['password'] = _passwordCtrl.text;
       ok = await api.updateUser(widget.user!['id'] as String, up);
     }
     if (mounted) {
       final l2 = AppLocalizations.of(context)!;
       setState(() => _saving = false);
-      if (ok) { widget.onSaved(); Navigator.pop(context); _snk(_isNew ? l2.adminUsersUserCreated : l2.adminUsersUserUpdated); }
-      else { _snk(_isNew ? l2.adminUsersFailedCreate : l2.adminUsersFailedUpdate); }
+      if (ok) { widget.onSaved(); _snk(_isNew ? l2.adminUsersUserCreated : l2.adminUsersUserUpdated, icon: Icons.check_circle_outline_rounded); Navigator.pop(context); }
+      else { _snk(_isNew ? l2.adminUsersFailedCreate : l2.adminUsersFailedUpdate, icon: Icons.error_outline_rounded); }
     }
   }
 
   Future<void> _deleteUser() async {
+    if (!_canDeleteUser) return;
     final l = AppLocalizations.of(context)!;
     final name = widget.user?['username'] ?? l.adminUsersThisUser;
     final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
@@ -1112,8 +1160,8 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     if (mounted) {
       final l2 = AppLocalizations.of(context)!;
       setState(() => _deleting = false);
-      if (ok) { widget.onSaved(); Navigator.pop(context); _snk(l2.adminUsersUserDeleted(name)); }
-      else { _snk(l2.adminUsersFailedDelete); }
+      if (ok) { widget.onSaved(); _snk(l2.adminUsersUserDeleted(name), icon: Icons.delete_outline_rounded); Navigator.pop(context); }
+      else { _snk(l2.adminUsersFailedDelete, icon: Icons.error_outline_rounded); }
     }
   }
 
@@ -1133,13 +1181,13 @@ class _UserEditorSheetState extends State<_UserEditorSheet> {
     if (mounted) {
       final l2 = AppLocalizations.of(context)!;
       setState(() { _unlinking = false; if (ok) _hasOpenIDLink = false; });
-      if (ok) { widget.onSaved(); _snk(l2.adminUsersOpenIdUnlinked); }
-      else { _snk(l2.adminUsersFailedUnlinkOpenId); }
+      if (ok) { widget.onSaved(); _snk(l2.adminUsersOpenIdUnlinked, icon: Icons.link_off_rounded); }
+      else { _snk(l2.adminUsersFailedUnlinkOpenId, icon: Icons.error_outline_rounded); }
     }
   }
 
-  void _snk(String s) => ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
-    SnackBar(content: Text(s), behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+  void _snk(String s, {IconData? icon}) =>
+      showOverlayToast(context, s, icon: icon);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -1196,6 +1244,7 @@ class _AdminSessionDetailsSheet extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final l = AppLocalizations.of(context)!;
+    final desktopMode = ModalSurface.isDesktopOf(context);
     final s = session;
 
     final meta = s['mediaMetadata'] as Map<String, dynamic>? ?? {};
@@ -1237,7 +1286,7 @@ class _AdminSessionDetailsSheet extends StatelessWidget {
     final lib = context.read<LibraryProvider>();
     final coverUrl = itemId != null ? lib.getCoverUrl(itemId) : null;
 
-    return DraggableScrollableSheet(
+    return AdaptiveDraggableScrollableSheet(
       initialChildSize: 0.6,
       minChildSize: 0.4,
       maxChildSize: 0.95,
@@ -1246,20 +1295,37 @@ class _AdminSessionDetailsSheet extends StatelessWidget {
         return Container(
           decoration: BoxDecoration(
             color: cs.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: desktopMode
+                ? BorderRadius.zero
+                : const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 10, bottom: 4),
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: cs.onSurface.withValues(alpha: 0.2),
-                  borderRadius: BorderRadius.circular(2),
+            if (desktopMode)
+              Align(
+                alignment: Alignment.centerRight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+                  child: IconButton(
+                    tooltip: MaterialLocalizations.of(
+                      context,
+                    ).closeButtonTooltip,
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.only(top: 10, bottom: 4),
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: cs.onSurface.withValues(alpha: 0.2),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
               ),
-            ),
             Expanded(
               child: ListView(
                 controller: scrollController,

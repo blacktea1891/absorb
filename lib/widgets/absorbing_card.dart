@@ -5,18 +5,27 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/cover_accent.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../screens/app_shell.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import 'absorbing_shared.dart';
+import 'ebook_router.dart';
+import 'overlay_toast.dart';
+import '../services/ebook_cache.dart';
+import '../services/find_in_ebook.dart';
+import '../services/lyrics_service.dart';
+import 'lyrics_overlay.dart';
 import 'card_edge_progress_bar.dart';
 import 'card_progress_bar.dart';
 import 'card_playback_controls.dart';
 import 'card_buttons.dart';
 import '../services/chromecast_service.dart';
 import 'expanded_card.dart';
+import '../main.dart' show colorSourceNotifier, useColorEverywhereNotifier, manualSeedNotifier, manualColorScheme;
+import 'stable_cached_network_image.dart';
 
 class AbsorbingCard extends StatefulWidget {
   final Map<String, dynamic> item;
@@ -28,15 +37,35 @@ class AbsorbingCard extends StatefulWidget {
 }
 
 class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveClientMixin {
-  ColorScheme? _coverScheme;
+  ColorScheme? _rawCoverScheme;
   Brightness? _coverBrightness; // brightness used to generate _coverScheme
+
+  /// Cover-derived scheme, unless a manual app color is set to apply everywhere.
+  ColorScheme? get _coverScheme {
+    if (colorSourceNotifier.value == 'manual' && useColorEverywhereNotifier.value) {
+      return manualColorScheme(manualSeedNotifier.value, Theme.of(context).brightness);
+    }
+    return _rawCoverScheme;
+  }
   ImageProvider? _coverProvider; // cached for re-deriving on theme change
+  String? _coverProviderIdentity;
   bool _isStarting = false;
   List<dynamic>? _fetchedChapters;
+  Map<String, dynamic>? _fetchedEbookFile;
+  // Server-change tick last acted on, so a same-id item_updated (e.g. an ebook
+  // file added to this book) re-runs the full-item fetch. The card is kept
+  // alive with a stable key, so without this it never picks up a server change.
+  int? _lastSeenUpdatedAt;
+  bool _refetchingItem = false;
   StreamSubscription<Duration>? _chapterTrackSub;
   int _lastChapterIdx = -1;
   ui.Image? _blurredCover; // Precached blurred background
-  String? _blurredCoverUrl; // URL the blur was built from
+  String? _blurredCoverIdentity;
+  String? _pendingBlurIdentity;
+  // Mean brightness of the blurred cover's top strip, which is what the
+  // progress row is drawn on. Null until the blur is ready, or when the card
+  // isn't using the blurred background at all.
+  double? _coverTopLuminance;
   List<String> _buttonOrder = PlayerSettings.defaultButtonOrder;
   int _buttonVisibleCount = PlayerSettings.defaultButtonVisibleCount;
   bool _iconsOnly = false;
@@ -63,6 +92,12 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
   String get _author => _metadata['authorName'] as String? ?? '';
   double get _duration => (_media['duration'] as num?)?.toDouble() ?? 0;
+  Map<String, dynamic>? get _ebookFile =>
+      (_media['ebookFile'] as Map<String, dynamic>?) ?? _fetchedEbookFile;
+  String? get _ebookExt {
+    final ext = ebookExt(_ebookFile);
+    return ext.isEmpty ? null : ext;
+  }
   List<dynamic> get _chapters {
     // Prefer fetched chapters (from full item or episode), fall back to inline data
     if (_fetchedChapters != null && _fetchedChapters!.isNotEmpty) return _fetchedChapters!;
@@ -118,14 +153,52 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
 
   String? get _coverUrl {
     final lib = context.read<LibraryProvider>();
-    return lib.getCoverUrl(_itemId, width: 800);
+    return lib.getCoverUrl(_itemId, width: 1200);
   }
 
-  bool get _isLocalCover => _coverUrl != null && _coverUrl!.startsWith('/');
+  int? _coverUpdatedAt(LibraryProvider lib) {
+    final key = widget.item['_absorbingKey'] as String? ?? _itemId;
+    final cached = lib.absorbingItemCache[key];
+    final candidates = <Object?>[
+      widget.item['updatedAt'],
+      cached?['updatedAt'],
+      lib.itemUpdatedAt(_itemId),
+    ];
+
+    int? newest;
+    for (final candidate in candidates) {
+      final timestamp = switch (candidate) {
+        num value => value.toInt(),
+        String value => int.tryParse(value),
+        _ => null,
+      };
+      if (timestamp != null && (newest == null || timestamp > newest)) {
+        newest = timestamp;
+      }
+    }
+    return newest;
+  }
+
+  String? _coverIdentity(String? coverUrl, LibraryProvider lib) {
+    if (coverUrl == null) return null;
+    if (coverUrl.startsWith('/')) return coverUrl;
+    return stableCoverCacheKey(
+      coverUrl,
+      updatedAt: _coverUpdatedAt(lib),
+    );
+  }
+
+  String? _currentCoverIdentity() {
+    final lib = context.read<LibraryProvider>();
+    return _coverIdentity(lib.getCoverUrl(_itemId, width: 1200), lib);
+  }
 
   @override
   void initState() {
     super.initState();
+    // Baseline the server-change tick so only a CHANGE after mount re-fetches
+    // (the initial fill is handled by _fetchChaptersIfNeeded below).
+    _lastSeenUpdatedAt = context.read<LibraryProvider>().itemUpdatedAt(_itemId);
     _fetchChaptersIfNeeded();
     _startChapterTracking();
     ChromecastService().addListener(_onCastChanged);
@@ -135,6 +208,29 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   void _onSpeedMaybeChanged() => _loadSavedSpeed();
+
+  /// Which library this card's item belongs to, for the per-library cover
+  /// shape. The absorbing shelf item can be a lean/synthetic map without a
+  /// libraryId (especially with merge on, where podcast items are pulled from
+  /// other libraries), so fall back to the cached absorbing entry and then to
+  /// the player when this is the item currently playing.
+  String? _resolveLibraryId() {
+    final direct = widget.item['libraryId'] as String?;
+    if (direct != null && direct.isNotEmpty) return direct;
+    final lib = context.read<LibraryProvider>();
+    final epId = _episodeId;
+    final key = epId != null ? '$_itemId-$epId' : _itemId;
+    final cached = lib.absorbingItemCache[key]?['libraryId'] as String?;
+    if (cached != null && cached.isNotEmpty) return cached;
+    if (_itemId == widget.player.currentItemId) return widget.player.currentLibraryId;
+    return null;
+  }
+
+  void _reloadCoverShape() {
+    PlayerSettings.getRectangleCoversFor(_resolveLibraryId()).then((v) {
+      if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
+    });
+  }
 
   Future<void> _loadSavedSpeed() async {
     final bookSpeed = await PlayerSettings.getBookSpeed(_itemId);
@@ -166,9 +262,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
         });
       }
     });
-    PlayerSettings.getRectangleCovers().then((v) {
-      if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
-    });
+    _reloadCoverShape();
     PlayerSettings.getCoverPlayButton().then((v) {
       if (mounted && v != _coverPlayButton) setState(() => _coverPlayButton = v);
     });
@@ -192,9 +286,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   Future<void> _fetchChaptersIfNeeded() async {
-    // If chapters are already available, skip
-    if (_chapters.isNotEmpty) return;
-    // Fetch full item to get chapters
+    // Skip when the inline item already has both chapters and ebookFile
+    final inlineEbook = _media['ebookFile'] as Map<String, dynamic>?;
+    if (_chapters.isNotEmpty && inlineEbook != null) return;
+    // Fetch full item to fill in whatever's missing
     final auth = context.read<AuthProvider>();
     final api = auth.apiService;
     if (api == null) return;
@@ -202,6 +297,13 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       final fullItem = await api.getLibraryItem(_itemId);
       if (fullItem != null && mounted) {
         final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+        // Cache ebookFile if the inline item didn't have it. resolveEbookFile
+        // also covers supplementary-only books (audiobooks-only libraries
+        // never set media.ebookFile).
+        if (inlineEbook == null) {
+          final ef = resolveEbookFile(fullItem);
+          if (ef != null) setState(() => _fetchedEbookFile = ef);
+        }
         // Books: chapters at media level
         var chapters = media['chapters'] as List<dynamic>? ?? [];
         // Podcasts: chapters on the specific episode
@@ -223,6 +325,33 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
         }
       }
     } catch (_) {}
+  }
+
+  /// Re-fetch the full item when the server reports this book changed (socket
+  /// item_updated bumps the provider's per-item tick). Targets the case where
+  /// an ebook file is added while the app is open: the card's minified entity
+  /// never carries ebookFile and the one-time initState fetch found none, so
+  /// the "Read" action would stay disabled until a restart. Only fires while
+  /// the ebook is still missing, so ordinary cover/metadata updates don't
+  /// trigger needless fetches.
+  void _maybeRefetchOnServerChange(LibraryProvider lib) {
+    final ts = lib.itemUpdatedAt(_itemId);
+    if (ts == _lastSeenUpdatedAt) return;
+    _lastSeenUpdatedAt = ts;
+    // The cover may have changed server-side. Drop the cached provider and
+    // accent scheme so they re-derive from the new cache-busted URL (the
+    // blurred background already re-derives itself on URL change in build).
+    _coverProvider = null;
+    _rawCoverScheme = null;
+    if (_ebookFile != null || _refetchingItem) return;
+    _refetchingItem = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      try {
+        await _fetchChaptersIfNeeded();
+      } finally {
+        _refetchingItem = false;
+      }
+    });
   }
 
   void _startChapterTracking() {
@@ -300,15 +429,27 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     final oldId = oldWidget.item['id'] as String? ?? '';
     if (oldId != _itemId) {
       // Item changed — reset all stale state
-      _coverScheme = null;
+      _rawCoverScheme = null;
       _coverBrightness = null;
       _coverProvider = null;
+      _coverProviderIdentity = null;
       _blurredCover?.dispose();
       _blurredCover = null;
+      _blurredCoverIdentity = null;
+      _pendingBlurIdentity = null;
+      _coverTopLuminance = null;
       _fetchedChapters = null;
+      _fetchedEbookFile = null;
       _lastChapterIdx = -1;
+      _lastSeenUpdatedAt = context.read<LibraryProvider>().itemUpdatedAt(_itemId);
       _fetchChaptersIfNeeded();
+      // The per-show speed is item state too - without this, a card recycled
+      // for a different item shows times computed at the old item's speed.
+      _loadSavedSpeed();
     }
+    // Re-resolve the cover shape: the item (or its libraryId) may have changed,
+    // or the player may now know the library for the item that just started.
+    _reloadCoverShape();
     if (oldWidget.player != widget.player) _startChapterTracking();
   }
 
@@ -324,42 +465,68 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     super.dispose();
   }
 
-  void _onCoverLoaded(ImageProvider provider) {
+  void _onCoverLoaded(ImageProvider provider, String coverIdentity) {
+    if (_currentCoverIdentity() != coverIdentity) return;
+    if (_coverProviderIdentity != coverIdentity) {
+      _rawCoverScheme = null;
+      _coverBrightness = null;
+    }
     _coverProvider = provider;
+    _coverProviderIdentity = coverIdentity;
     _rederiveCoverScheme();
     // Precache the blurred version of the cover, but only when the blurred
     // background is actually in use (skip the work for gradient / off modes).
-    if (_cardBackground == 'blurred' && _blurredCover == null) {
-      _blurredCoverUrl = _coverUrl;
-      _precacheBlur(provider);
+    if (_cardBackground == 'blurred' &&
+        _blurredCoverIdentity != coverIdentity &&
+        _pendingBlurIdentity != coverIdentity) {
+      _pendingBlurIdentity = coverIdentity;
+      _precacheBlur(provider, coverIdentity);
     }
   }
 
   /// In gradient/off mode the cover image isn't painted, so resolve it directly
   /// to keep the extracted [_coverScheme] (accent + gradient colors) available.
-  void _ensureCoverScheme() {
-    if (_coverProvider != null || _coverUrl == null) return;
-    final headers = context.read<LibraryProvider>().mediaHeaders;
-    final ImageProvider provider;
-    if (_isLocalCover) {
-      provider = FileImage(File(_coverUrl!));
-    } else {
-      provider = CachedNetworkImageProvider(_coverUrl!, headers: headers);
+  void _ensureCoverScheme(
+    String? coverUrl,
+    String? coverIdentity,
+    LibraryProvider lib,
+  ) {
+    if (coverUrl == null || coverIdentity == null) return;
+    if (_coverProvider != null && _coverProviderIdentity == coverIdentity) {
+      return;
     }
-    _onCoverLoaded(provider);
+    final headers = lib.mediaHeaders;
+    final ImageProvider provider;
+    if (coverUrl.startsWith('/')) {
+      provider = FileImage(File(coverUrl));
+    } else {
+      provider = CachedNetworkImageProvider(
+        coverUrl,
+        headers: headers,
+        cacheKey: coverIdentity,
+      );
+    }
+    _onCoverLoaded(provider, coverIdentity);
   }
 
   void _rederiveCoverScheme() {
     final provider = _coverProvider;
-    if (provider == null) return;
+    final coverIdentity = _coverProviderIdentity;
+    if (provider == null || coverIdentity == null) return;
     final brightness = Theme.of(context).brightness;
-    if (_coverScheme != null && _coverBrightness == brightness) return;
+    if (_rawCoverScheme != null && _coverBrightness == brightness) return;
     _coverBrightness = brightness;
     ColorScheme.fromImageProvider(provider: provider, brightness: brightness)
         .then((s) {
-          if (mounted) {
+          if (mounted &&
+              _coverProviderIdentity == coverIdentity &&
+              _coverBrightness == brightness) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _coverScheme = s);
+              if (mounted &&
+                  _coverProviderIdentity == coverIdentity &&
+                  _coverBrightness == brightness) {
+                setState(() => _rawCoverScheme = s);
+              }
             });
           }
         })
@@ -367,7 +534,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   }
 
   /// Resolve the image, render it blurred to an offscreen canvas, cache the result.
-  Future<void> _precacheBlur(ImageProvider provider) async {
+  Future<void> _precacheBlur(
+    ImageProvider provider,
+    String coverIdentity,
+  ) async {
     try {
       final completer = Completer<ui.Image>();
       final stream = provider.resolve(ImageConfiguration.empty);
@@ -401,27 +571,49 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       final blurred = await picture.toImage(targetWidth, targetHeight);
       picture.dispose();
 
-      if (mounted) {
-        setState(() => _blurredCover = blurred);
+      final topLuminance = await topStripLuminance(blurred);
+
+      if (mounted && _currentCoverIdentity() == coverIdentity) {
+        final previous = _blurredCover;
+        setState(() {
+          _blurredCover = blurred;
+          _blurredCoverIdentity = coverIdentity;
+          _coverTopLuminance = topLuminance;
+        });
+        previous?.dispose();
       } else {
         blurred.dispose();
       }
     } catch (_) {
       // Fallback: card will show without blurred background, which is fine
+    } finally {
+      if (_pendingBlurIdentity == coverIdentity) {
+        _pendingBlurIdentity = null;
+      }
     }
   }
+
+
+  /// The store key the live transcript runs under for this card.
+  String get _lyricsKey =>
+      _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
 
   @override
   Widget build(BuildContext context) {
     super.build(context); // required for AutomaticKeepAliveClientMixin
-    final tt = Theme.of(context).textTheme;
-    final cs = _coverScheme ?? Theme.of(context).colorScheme;
+    // E-ink mode: the cover-derived palette renders as washed-out grey, so
+    // the card sticks to the monochrome app theme.
+    final cs = (PlayerSettings.einkMode ? null : _coverScheme) ??
+        Theme.of(context).colorScheme;
     final accent = cs.primary;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final l = AppLocalizations.of(context)!;
 
     final lib = context.watch<LibraryProvider>();
-    final mediaHeaders = lib.mediaHeaders;
+    final coverUrl = lib.getCoverUrl(_itemId, width: 1200);
+    final coverIdentity = _coverIdentity(coverUrl, lib);
+    final isLocalCover = coverUrl?.startsWith('/') ?? false;
+    _maybeRefetchOnServerChange(lib);
     // For podcast episodes, look up progress by compound key (itemId-episodeId)
     final progress = (_episodeId != null)
         ? lib.getEpisodeProgress(_itemId, _episodeId!)
@@ -458,15 +650,16 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       debugPrint('[Card] $sig');
     }
 
-    // Invalidate blurred background when cover URL changes (e.g. after server update)
-    if (_blurredCover != null && _blurredCoverUrl != _coverUrl) {
-      _blurredCover?.dispose();
-      _blurredCover = null;
-    }
     // In gradient/off mode the cover image isn't painted, so derive its scheme separately.
-    if (_cardBackground != 'blurred') _ensureCoverScheme();
+    if (_cardBackground != 'blurred') {
+      _ensureCoverScheme(coverUrl, coverIdentity, lib);
+    }
 
-    final showBookBar = (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty);
+    final tt = Theme.of(context).textTheme;
+    final mediaHeaders = lib.mediaHeaders;
+    // A chapterless book gets the same single-bar look as a chapterless
+    // podcast: no top book bar, just the scrubber bar carrying the title.
+    final showBookBar = _chapters.isNotEmpty;
     return GestureDetector(
       onVerticalDragEnd: (details) {
         final vy = details.primaryVelocity ?? 0;
@@ -505,25 +698,27 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                 height: double.infinity,
               ),
             )
-          else if (_coverUrl != null)
+          else if (coverUrl != null && coverIdentity != null)
             // Fallback while blur is being computed: show unblurred cover dimmed
             RepaintBoundary(
-              child: _isLocalCover
+              child: isLocalCover
                   ? Builder(builder: (_) {
-                      final provider = FileImage(File(_coverUrl!));
-                      _onCoverLoaded(provider);
+                      final provider = FileImage(File(coverUrl));
+                      _onCoverLoaded(provider, coverIdentity);
                       return Opacity(
                         opacity: 0.3,
-                        child: Image.file(File(_coverUrl!), fit: BoxFit.cover,
+                        child: Image.file(File(coverUrl), fit: BoxFit.cover,
+                          gaplessPlayback: true,
                           errorBuilder: (_, __, ___) => Container(color: isDark ? Colors.black : Colors.white)),
                       );
                     })
-                  : CachedNetworkImage(
-                      imageUrl: _coverUrl!,
+                  : StableCachedNetworkImage(
+                      imageUrl: coverUrl,
+                      cacheKey: coverIdentity,
                       fit: BoxFit.cover,
                       httpHeaders: mediaHeaders,
                       imageBuilder: (_, provider) {
-                        _onCoverLoaded(provider);
+                        _onCoverLoaded(provider, coverIdentity);
                         return Opacity(
                           opacity: 0.3,
                           child: Image(image: provider, fit: BoxFit.cover),
@@ -614,11 +809,27 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final liveBookProgress = dur > 0 ? (pos / dur).clamp(0.0, 1.0) : bookProgress;
                       final elapsed = pos / speed;
                       final remaining = (dur - pos) / speed;
+                      // This row sits on the cover, not on the theme surface.
+                      // With a blurred background the scrim is at its thinnest
+                      // right here (0.3 / 0.4), so a pale cover in dark mode
+                      // used to leave white text on a near-white backdrop.
+                      // Pick the ink from what is actually behind it; the other
+                      // background modes follow the theme as before.
+                      final coverLuminance =
+                          _cardBackground == 'blurred' ? _coverTopLuminance : null;
+                      final ink = coverLuminance == null
+                          ? null
+                          : inkForLuminance(scrimmedLuminance(
+                              coverLuminance,
+                              isDark ? Colors.black : Colors.white,
+                              isDark ? 0.3 : 0.4,
+                            ));
                       final timeStyle = tt.labelSmall?.copyWith(
-                        color: isDark ? Colors.white.withValues(alpha: 0.55) : cs.onSurface,
+                        color: ink?.ink ??
+                            (isDark ? Colors.white.withValues(alpha: 0.55) : cs.onSurface),
                         fontWeight: FontWeight.w500, fontSize: (compact ? 10 : 11) * _progressTextScale,
                         fontFeatures: const [FontFeature.tabularFigures()],
-                        shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
+                        shadows: [Shadow(color: ink?.shadow ?? (isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6)), blurRadius: 4)],
                       );
                       return Stack(
                         alignment: Alignment.center,
@@ -647,7 +858,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     listenable: Listenable.merge([ChromecastService(), widget.player]),
                     builder: (context, _) => LayoutBuilder(
                     builder: (context, constraints) {
-                      final maxW = constraints.maxWidth * 0.75;
+                      final maxW = constraints.maxWidth * 0.85;
                       final rawH = constraints.maxHeight.isFinite ? constraints.maxHeight : maxW;
                       final maxH = rawH - 24;
                       double coverW, coverH;
@@ -666,9 +877,10 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                       final isCastingThis = castService.isCasting && castService.castingItemId == _itemId;
                       final coverPlaying = isCastingThis ? castService.isPlaying : (_isActive && widget.player.isPlaying);
                       final coverLoading = _isStarting || (_isActive && widget.player.isLoadingOrBuffering && !widget.player.isPlaying);
-                      return Center(child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                      return Column(
+                        mainAxisSize: MainAxisSize.max,
                         children: [
+                          const Spacer(flex: 2),
                           Padding(
                             padding: const EdgeInsets.only(bottom: 4),
                             child: () {
@@ -697,7 +909,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                           if (isCastingThis) {
                             castService.togglePlayPause();
                           } else if (_isActive) {
-                            widget.player.togglePlayPause();
+                            widget.player.togglePlayPause(fromUi: true);
                           } else {
                             _startPlayback();
                           }
@@ -718,21 +930,36 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
-                                // Cover image
-                                _coverUrl != null
-                                    ? _isLocalCover
-                                        ? BlurPaddedCover(blurChild: Image.file(File(_coverUrl!), fit: BoxFit.cover,
+                                // Cover image - hidden while the transcript
+                                // has the cover.
+                                AnimatedBuilder(
+                                  animation: LyricsService.instance,
+                                  builder: (context, child) =>
+                                      LyricsService.instance
+                                              .coversArtFor(_lyricsKey)
+                                          ? Offstage(child: child)
+                                          : child!,
+                                  child: EinkCoverTone(child: coverUrl != null && coverIdentity != null
+                                    ? isLocalCover
+                                        ? BlurPaddedCover(blurChild: Image.file(File(coverUrl), fit: BoxFit.cover,
+                                            gaplessPlayback: true,
                                             errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-                                            enabled: !_rectangleCovers, child: Image.file(File(_coverUrl!), fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
+                                            enabled: !_rectangleCovers, child: Image.file(File(coverUrl), fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
+                                            gaplessPlayback: true,
                                             errorBuilder: (_, __, ___) => CoverPlaceholder(title: _title, author: _author)))
-                                        : BlurPaddedCover(blurChild: CachedNetworkImage(imageUrl: _coverUrl!, fit: BoxFit.cover,
+                                        : BlurPaddedCover(blurChild: StableCachedNetworkImage(imageUrl: coverUrl, cacheKey: coverIdentity, fit: BoxFit.cover,
                                               httpHeaders: mediaHeaders,
                                               errorWidget: (_, __, ___) => const SizedBox.shrink()),
-                                            enabled: !_rectangleCovers, child: CachedNetworkImage(imageUrl: _coverUrl!, fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
+                                            enabled: !_rectangleCovers, child: StableCachedNetworkImage(imageUrl: coverUrl, cacheKey: coverIdentity,
+                                              fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain,
                                               httpHeaders: mediaHeaders,
+                                              imageBuilder: (_, provider) {
+                                                _onCoverLoaded(provider, coverIdentity);
+                                                return Image(image: provider, fit: _rectangleCovers ? BoxFit.cover : BoxFit.contain);
+                                              },
                                               placeholder: (_, __) => CoverPlaceholder(title: _title, author: _author),
                                               errorWidget: (_, __, ___) => CoverPlaceholder(title: _title, author: _author)))
-                                    : CoverPlaceholder(title: _title, author: _author),
+                                    : CoverPlaceholder(title: _title, author: _author))),
                                                 // Casting overlay
                                 if (isCastingThis) ...[
                                   Positioned.fill(
@@ -765,9 +992,18 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                     ),
                                   ),
                                 ],
-                                // Play/pause overlay
+                                // Play/pause overlay - the tap still works
+                                // with the transcript up, but the button would
+                                // sit on the words.
                                 if (_coverPlayButton) Positioned.fill(
-                                  child: AnimatedContainer(
+                                  child: AnimatedBuilder(
+                                    animation: LyricsService.instance,
+                                    builder: (context, child) =>
+                                        LyricsService.instance
+                                                .coversArtFor(_lyricsKey)
+                                            ? Offstage(child: child)
+                                            : child!,
+                                    child: AnimatedContainer(
                                     duration: const Duration(milliseconds: 200),
                                     decoration: BoxDecoration(
                                       color: coverPlaying ? Colors.transparent : Colors.black.withValues(alpha: 0.25),
@@ -802,14 +1038,21 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                                             ),
                                     ),
                                   ),
-                                ),
+                                )),
+                                // Live transcript (lyrics mode)
+                                LyricsOverlay(
+                                    compact: true,
+                                    forKey: _lyricsKey,
+                                    surface: cs.surface,
+                                    onSurface: cs.onSurface),
                               ],
                             ),
                           ),
                         ),
                       ),
                       ),
-                      ]));
+                      const Spacer(flex: 2),
+                      ]);
                     },
                   ),
                   ),
@@ -817,7 +1060,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
 
           final scrubberBar = Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
-                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId, compact: compact),
+                  child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : (_chapters.isEmpty ? _title : _chapterName(chapterIdx))), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId, compact: compact),
                 );
 
           final controlsRow = Padding(
@@ -830,6 +1073,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
                     onStart: _startPlayback,
                     itemId: _itemId,
                     showPlayButton: !_coverPlayButton,
+                    libraryId: _resolveLibraryId(),
                   ),
                 );
 
@@ -951,6 +1195,54 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
     );
   }
 
+  void _openEbookReader() async {
+    var ebookFile = _ebookFile;
+    // A downloaded book's ebook may already sit in the reader cache - check
+    // that before any network retry, so offline Read opens instantly instead
+    // of waiting out a timeout. The reader opens from this same cached file
+    // either way.
+    ebookFile ??= await cachedEbookFileFor(_itemId);
+    if (ebookFile == null) {
+      // The initState fetch is one-shot and can fail silently (network blip),
+      // so give it another chance before declaring there's no ebook.
+      await _fetchChaptersIfNeeded();
+      ebookFile = _ebookFile;
+    }
+    if (!mounted) return;
+    if (ebookFile == null) {
+      showOverlayToast(context, AppLocalizations.of(context)!.noEbookFileFound, icon: Icons.menu_book_outlined);
+      return;
+    }
+    openEbookReader(context, itemId: _itemId, title: _title, ebookFile: ebookFile);
+  }
+
+  void _openReadAlong() async {
+    var ebookFile = _ebookFile;
+    ebookFile ??= await cachedEbookFileFor(_itemId);
+    if (ebookFile == null) {
+      await _fetchChaptersIfNeeded();
+      ebookFile = _ebookFile;
+    }
+    if (!mounted) return;
+    if (ebookFile == null) {
+      showOverlayToast(context, AppLocalizations.of(context)!.noEbookFileFound, icon: Icons.menu_book_outlined);
+      return;
+    }
+    openEbookReader(context, itemId: _itemId, title: _title, ebookFile: ebookFile,
+        startReadAlong: true);
+  }
+
+  void _findInEbook() async {
+    var ebookFile = _ebookFile;
+    ebookFile ??= await cachedEbookFileFor(_itemId);
+    if (ebookFile == null) {
+      await _fetchChaptersIfNeeded();
+      ebookFile = _ebookFile;
+    }
+    if (!mounted) return;
+    launchFindInEbook(context, itemId: _itemId, title: _title, ebookFile: ebookFile);
+  }
+
   int _currentChapterIndex() {
     final cast = ChromecastService();
     final chapters = _isCastingThis ? cast.castingChapters : (_isActive ? widget.player.chapters : _chapters);
@@ -1009,6 +1301,7 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
           initialCoverScheme: _coverScheme,
           initialBlurredCover: _blurredCover,
           initialChapters: _fetchedChapters,
+          initialEbookFile: _ebookFile,
           initialCardBackground: _cardBackground,
         ),
       ),
@@ -1029,9 +1322,11 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       coverUrl: _coverUrl, totalDuration: _effectiveDuration, chapters: _chapters,
       episodeId: _episodeId,
       episodeTitle: _recentEpisode?['title'] as String?,
+      libraryId: _resolveLibraryId(),
+      fromUi: true,
     );
     if (mounted) {
-      if (error != null) showErrorSnackBar(context, error);
+      if (error != null) showErrorToast(context, error);
       setState(() => _isStarting = false);
     }
   }
@@ -1080,6 +1375,11 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
       PlayerSettings.setCardButtonOrder(newOrder);
       PlayerSettings.setCardButtonVisibleCount(newCount);
     },
+    isEbookPdf: _ebookExt == 'pdf',
+    isEbookEpub: _ebookExt == 'epub',
+    onEbookTap: _openEbookReader,
+    onFindInEbookTap: _findInEbook,
+    onReadAlongTap: _openReadAlong,
   );
 
   int get _visibleButtonCount => _buttonVisibleCount;
@@ -1089,4 +1389,3 @@ class AbsorbingCardState extends State<AbsorbingCard> with AutomaticKeepAliveCli
   void _showMoreMenu(BuildContext context, Color accent, TextTheme tt) => _makeActions().showMoreMenu(accent, tt);
 
 }
-

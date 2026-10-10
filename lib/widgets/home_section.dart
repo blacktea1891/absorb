@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../l10n/app_localizations.dart';
+import 'cover_badges.dart';
 import '../providers/library_provider.dart';
 import '../services/download_service.dart';
 import 'absorbing_shared.dart';
@@ -9,6 +9,7 @@ import 'book_card.dart';
 import 'author_card.dart';
 import 'series_card.dart';
 import 'episode_list_sheet.dart';
+import 'books_sheet_shared.dart' show coverSizeScale;
 
 class HomeSection extends StatelessWidget {
   final String title;
@@ -18,6 +19,10 @@ class HomeSection extends StatelessWidget {
   final String sectionId;
   final VoidCallback? onTitleTap;
   final double coverAspectRatio;
+  final bool showSubtitles;
+  final bool selectionMode;
+  final Set<String> selectedItemIds;
+  final ValueChanged<Map<String, dynamic>>? onSelectionToggle;
 
   const HomeSection({
     super.key,
@@ -28,6 +33,10 @@ class HomeSection extends StatelessWidget {
     required this.sectionId,
     this.onTitleTap,
     this.coverAspectRatio = 1.0,
+    this.showSubtitles = false,
+    this.selectionMode = false,
+    this.selectedItemIds = const {},
+    this.onSelectionToggle,
   });
 
   @override
@@ -37,21 +46,61 @@ class HomeSection extends StatelessWidget {
 
     final isContinueListening = sectionId == 'continue-listening';
     final isPlaylistSection = sectionType == 'playlist';
+    final isCollectionSection = sectionType == 'collection';
     final isAuthorSection = sectionType == 'author' || sectionType == 'authors';
     final isSeriesSection = sectionType == 'series';
     final isEpisodeSection = sectionType == 'episode';
+    final sourcePlaylistId = isPlaylistSection
+        ? _sourceIdFromSectionId('playlist')
+        : null;
+    final sourceCollectionId = isCollectionSection
+        ? _sourceIdFromSectionId('collection')
+        : null;
+    final sourceCollectionName = sourceCollectionId == null
+        ? null
+        : _collectionNameFromTitle(title);
 
-    // Check if any entities have recentEpisode (podcast episode sections)
-    final hasEpisodeEntities = !isEpisodeSection && entities.isNotEmpty &&
-        entities.first is Map<String, dynamic> &&
-        (entities.first as Map<String, dynamic>)['recentEpisode'] != null;
-    final effectiveEpisode = isEpisodeSection || hasEpisodeEntities;
+    // A shelf of nothing but episodes keeps the episode layout. The Downloads
+    // shelf can mix episodes with books, and then it is sized for the books
+    // so their covers follow the cover size and the author line fits.
+    final onlyEpisodeEntities = !isEpisodeSection && entities.isNotEmpty &&
+        entities.every((e) =>
+            e is Map<String, dynamic> && e['recentEpisode'] != null);
+    final effectiveEpisode = isEpisodeSection || onlyEpisodeEntities;
 
     final bool isRectCover = coverAspectRatio < 1.0;
-    final double cardWidth =
-        isContinueListening ? 300 : (isAuthorSection ? 120 : 140);
-    final double cardHeight =
-        isContinueListening ? 120 : effectiveEpisode ? 200 : (isAuthorSection ? 170 : (isRectCover ? 260 : 200));
+    // Book and series covers follow the cover size setting like the library
+    // grid does; the wide continue card, authors and episodes keep their size.
+    final bool coverCard =
+        !isContinueListening && !effectiveEpisode && !isAuthorSection;
+    final double cardWidth = isContinueListening
+        ? 300
+        : isAuthorSection
+            ? 120
+            : coverCard
+                ? 140 * coverSizeScale()
+                : 140;
+    // Book cards grow by a line when subtitles are on; author and episode
+    // cards have no subtitle to show, so they stay as they are.
+    final bool subtitleLine =
+        showSubtitles && !isContinueListening && !effectiveEpisode && !isAuthorSection;
+    // The text under a cover card is measured from the theme and the system
+    // font size, so the author line is never cut off when the title wraps or
+    // a subtitle is shown.
+    final scaler = MediaQuery.textScalerOf(context);
+    double lineHeight(TextStyle? style) =>
+        scaler.scale((style?.fontSize ?? 12) * (style?.height ?? 1.4));
+    final double textBlock = 6 +
+        lineHeight(tt.labelMedium) * (isRectCover ? 1 : 2) +
+        lineHeight(tt.labelSmall) * (subtitleLine ? 2 : 1) +
+        6;
+    final double cardHeight = isContinueListening
+        ? 120
+        : effectiveEpisode
+            ? 200
+            : isAuthorSection
+                ? 170
+                : cardWidth / coverAspectRatio + textBlock;
 
     return Padding(
       padding: const EdgeInsets.only(top: 24),
@@ -102,12 +151,14 @@ class HomeSection extends StatelessWidget {
               itemCount: entities.length,
               itemBuilder: (context, index) {
                 var entity = entities[index];
+                String? sourcePlaylistEpisodeId;
 
                 // Playlist items nest actual item under 'libraryItem'
                 if (isPlaylistSection && entity is Map<String, dynamic>) {
                   final inner = entity['libraryItem'] as Map<String, dynamic>?;
                   if (inner != null) {
                     final episodeId = entity['episodeId'] as String?;
+                    sourcePlaylistEpisodeId = episodeId;
                     final episode = entity['episode'] as Map<String, dynamic>?;
                     entity = Map<String, dynamic>.from(inner);
                     if (episodeId != null && episode != null) {
@@ -134,7 +185,10 @@ class HomeSection extends StatelessWidget {
                 if (isEpisodeSection && entity is Map<String, dynamic>) {
                   return SizedBox(
                     width: cardWidth,
-                    child: _EpisodeCard(item: entity),
+                    child: _EpisodeCard(
+                      item: entity,
+                      sourcePlaylistId: sourcePlaylistId,
+                    ),
                   );
                 }
 
@@ -144,7 +198,10 @@ class HomeSection extends StatelessWidget {
                     entity['recentEpisode'] != null) {
                   return SizedBox(
                     width: cardWidth,
-                    child: _EpisodeCard(item: entity),
+                    child: _EpisodeCard(
+                      item: entity,
+                      sourcePlaylistId: sourcePlaylistId,
+                    ),
                   );
                 }
 
@@ -153,8 +210,22 @@ class HomeSection extends StatelessWidget {
                   child: BookCard(
                     item: entity,
                     showProgress: isContinueListening,
+                    showSubtitle: subtitleLine,
                     isWide: isContinueListening,
                     coverAspectRatio: isContinueListening ? 1.0 : coverAspectRatio,
+                    sourcePlaylistId: sourcePlaylistId,
+                    sourcePlaylistEpisodeId: sourcePlaylistEpisodeId,
+                    sourceCollectionId: sourceCollectionId,
+                    sourceCollectionName: sourceCollectionName,
+                    selectionMode: selectionMode,
+                    selected: entity is Map<String, dynamic> &&
+                        selectedItemIds.contains(entity['id'] as String?),
+                    onSelectionToggle:
+                        entity is Map<String, dynamic> &&
+                            entity['id'] is String &&
+                            onSelectionToggle != null
+                        ? () => onSelectionToggle!(entity as Map<String, dynamic>)
+                        : null,
                   ),
                 );
               },
@@ -163,6 +234,18 @@ class HomeSection extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String? _sourceIdFromSectionId(String type) {
+    final prefix = '$type:';
+    if (!sectionId.startsWith(prefix)) return null;
+    final id = sectionId.substring(prefix.length);
+    return id.isEmpty ? null : id;
+  }
+
+  String _collectionNameFromTitle(String value) {
+    const prefix = 'Server Collection - ';
+    return value.startsWith(prefix) ? value.substring(prefix.length) : value;
   }
 }
 
@@ -203,10 +286,23 @@ class _SnapScrollListState extends State<_SnapScrollList> {
 
     return NotificationListener<ScrollEndNotification>(
       onNotification: (notification) {
+        final maxExtent = _controller.position.maxScrollExtent;
         final offset = _controller.offset;
-        final targetIndex = (offset / itemExtent).round();
-        final targetOffset =
-            (targetIndex * itemExtent).clamp(0.0, _controller.position.maxScrollExtent);
+        double targetOffset;
+        if (maxExtent < itemExtent) {
+          // Short list that barely overflows: snapping to an item boundary would
+          // force the far end and cut off the first card. Rest at whichever end
+          // is closer so the first or last card stays fully visible.
+          targetOffset = offset < maxExtent / 2 ? 0.0 : maxExtent;
+        } else {
+          final targetIndex = (offset / itemExtent).round();
+          targetOffset = (targetIndex * itemExtent).toDouble();
+          // The last card can't left-align (no content after it), so snapping in
+          // the final stretch leaves it cut off the right edge. Rest at the true
+          // end instead so the last card stays fully visible.
+          if (targetOffset > maxExtent - itemExtent) targetOffset = maxExtent;
+          targetOffset = targetOffset.clamp(0.0, maxExtent);
+        }
         if ((offset - targetOffset).abs() > 1) {
           Future.microtask(() {
             if (_controller.hasClients) {
@@ -237,15 +333,18 @@ class _SnapScrollListState extends State<_SnapScrollList> {
 /// Shows the show cover with the episode title overlaid at the bottom.
 class _EpisodeCard extends StatelessWidget {
   final Map<String, dynamic> item;
+  final String? sourcePlaylistId;
 
-  const _EpisodeCard({required this.item});
+  const _EpisodeCard({
+    required this.item,
+    this.sourcePlaylistId,
+  });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final tt = Theme.of(context).textTheme;
     final lib = context.watch<LibraryProvider>();
-    final l = AppLocalizations.of(context)!;
 
     final itemId = item['id'] as String? ?? '';
     final media = item['media'] as Map<String, dynamic>? ?? {};
@@ -265,14 +364,28 @@ class _EpisodeCard extends StatelessWidget {
     return GestureDetector(
       onTap: () {
         if (episode != null) {
-          EpisodeDetailSheet.show(context, item, episode);
+          EpisodeDetailSheet.show(
+            context,
+            item,
+            episode,
+            sourcePlaylistId: sourcePlaylistId,
+          );
         } else {
-          EpisodeListSheet.show(context, item);
+          EpisodeListSheet.show(
+            context,
+            item,
+            sourcePlaylistId: sourcePlaylistId,
+          );
         }
       },
       // Long-press an episode card for its quick-actions sheet (shows stay as-is).
       onLongPress: episode == null ? null
-          : () => EpisodeDetailSheet.showQuick(context, item, episode),
+          : () => EpisodeDetailSheet.showQuick(
+                context,
+                item,
+                episode,
+                sourcePlaylistId: sourcePlaylistId,
+              ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -335,47 +448,10 @@ class _EpisodeCard extends StatelessWidget {
                   if (isFinished || isDownloaded)
                     Positioned(
                       left: 0, right: 0, bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.85),
-                              Colors.black.withValues(alpha: 0.0),
-                            ],
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isFinished) ...[
-                              Icon(Icons.check_circle_rounded,
-                                  size: 10, color: Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent[400] : Colors.green.shade700),
-                              const SizedBox(width: 3),
-                              Text(l.homeSectionDoneBadge,
-                                  style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent[400] : Colors.green.shade700)),
-                            ],
-                            if (isFinished && isDownloaded)
-                              const SizedBox(width: 6),
-                            if (isDownloaded) ...[
-                              Icon(Icons.download_done_rounded,
-                                  size: 10, color: cs.primary),
-                              const SizedBox(width: 3),
-                              Text(l.saved,
-                                  style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: cs.primary)),
-                            ],
-                          ],
-                        ),
+                      child: CoverStateBadges(
+                        isDownloaded: isDownloaded,
+                        isFinished: isFinished,
+                        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(12)),
                       ),
                     ),
                   // Subscribed bell

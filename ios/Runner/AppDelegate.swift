@@ -3,14 +3,28 @@ import AppIntents
 import Flutter
 import UIKit
 import AVFoundation
+import AVKit
+import CoreMedia
 import MediaPlayer
 import just_audio
+import os
 
 let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadlessExecution: true)
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var widgetChannel: FlutterMethodChannel?
+  private var volumeKeysChannel: FlutterMethodChannel?
+  private let volumeKeyWatcher = VolumeKeyWatcher()
+
+  // Native log lines emitted before Dart's channel handler registers, kept
+  // with their uptime so the flush can stamp when they happened. Flutter
+  // buffers only ONE pre-handler message per channel, so early lines
+  // (notably [NowPlayingPrimer]) otherwise overwrite each other and never
+  // reach the shared log.
+  private var pendingNativeLogs: [(Double, String)] = []
+  private var dartLogReady = false
+  private let launchUptime = ProcessInfo.processInfo.systemUptime
 
   override func application(
     _ application: UIApplication,
@@ -28,14 +42,17 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
 
     // Pre-configure the audio session category for playback so iOS knows this
     // app plays long-form audio (lock screen / Control Center controls) before
-    // the Flutter engine finishes initializing. Do NOT activate the session
-    // here: setActive(true) at launch interrupts other apps' audio (e.g.
-    // Spotify) the moment Absorb opens, before the user presses play. The
-    // playback paths (AbsorbAudioEngine / AbsorbPlayerCore / IOSQueueAdvancer)
-    // activate the session themselves when audio actually starts.
+    // the Flutter engine finishes initializing. Activating the session is left
+    // to [NowPlayingPrimer], which only does it when no other app is playing -
+    // activating unconditionally here would interrupt Spotify the moment
+    // Absorb opens. The playback paths (AbsorbAudioEngine / AbsorbPlayerCore /
+    // IOSQueueAdvancer) activate it themselves when audio actually starts.
+    // Same category, mode and route policy Dart's audio_session configure
+    // applies once it is up, so nothing flips the policy between launch and
+    // the first play.
     let session = AVAudioSession.sharedInstance()
     do {
-      try session.setCategory(.playback, mode: .spokenAudio)
+      try session.setCategory(.playback, mode: .spokenAudio, policy: .longFormAudio)
     } catch {
       print("[AppDelegate] Audio session setup failed: \(error)")
     }
@@ -52,9 +69,11 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
     // "log" method, which surfaces lines as `[WidgetDebug] [NativeCore] ...`
     // in absorb's in-app log viewer. No Mac/Xcode needed to verify behavior.
     AbsorbPlayerCore.logSink = { [weak self] line in
-      DispatchQueue.main.async {
-        self?.widgetChannel?.invokeMethod("log", arguments: ["msg": line])
-      }
+      self?.logToFlutter(line)
+    }
+
+    NowPlayingPrimer.logSink = { [weak self] line in
+      self?.logToFlutter(line)
     }
 
     // Same routing for the EQ tap's format diagnostics, so when a user
@@ -62,31 +81,24 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
     // PCM format the tap actually received (low-bitrate AAC m4b often
     // shows up here as mono / unusual sample rate).
     AudioEQProcessor.setFormatLogger { [weak self] line in
-      DispatchQueue.main.async {
-        self?.widgetChannel?.invokeMethod("log", arguments: ["msg": line])
-      }
+      self?.logToFlutter(line)
     }
     AbsorbAudioEQProcessor.setFormatLogger { [weak self] line in
-      DispatchQueue.main.async {
-        self?.widgetChannel?.invokeMethod("log", arguments: ["msg": line])
-      }
+      self?.logToFlutter(line)
     }
 
     IOSQueueAdvancer.logSink = { [weak self] line in
-      DispatchQueue.main.async {
-        self?.widgetChannel?.invokeMethod("log", arguments: ["msg": line])
-      }
+      self?.logToFlutter(line)
     }
 
     AbsorbAudioEngine.logSink = { [weak self] line in
-      DispatchQueue.main.async {
-        self?.widgetChannel?.invokeMethod("log", arguments: ["msg": line])
-      }
+      self?.logToFlutter(line)
     }
     AbsorbAudioBridge.logSink = { [weak self] line in
-      DispatchQueue.main.async {
-        self?.widgetChannel?.invokeMethod("log", arguments: ["msg": line])
-      }
+      self?.logToFlutter(line)
+    }
+    AudioWindowExtractor.logSink = { [weak self] line in
+      self?.logToFlutter(line)
     }
 
     // Register the native player core as an AppIntent dependency. The widget
@@ -105,6 +117,16 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
       AppDependencyManager.shared.add(dependency: core)
       AbsorbPlayerCore.logSink?("[NativeCore] Registered as AppIntent dependency")
     }
+
+    // Wire the native core's lock-screen / headphone command handlers now,
+    // at launch. They defer to Flutter while it's alive, but they must exist
+    // before the first remote command lands: when a headset press makes iOS
+    // cold-launch a killed Absorb into the background, didEnterBackground
+    // never fires (the app was never foreground) and Flutter's own handlers
+    // take about a second to register, so a play delivered in that window
+    // would land on nothing. Armed natively, it plays from the app-group
+    // stash and Flutter adopts the running engine when it finishes booting.
+    AbsorbPlayerCore.shared.armRemoteCommands()
 
     registerAudioSessionObservers()
 
@@ -156,12 +178,25 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
         let opts = AVAudioSession.InterruptionOptions(rawValue: optionsRaw)
         details.append("shouldResume=\(opts.contains(.shouldResume))")
       }
+      var routeDisconnected = false
       if #available(iOS 14.5, *) {
-        if let reasonRaw = note.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt {
-          details.append("reasonRaw=\(reasonRaw)")
+        if let r = note.userInfo?[AVAudioSessionInterruptionReasonKey] as? UInt {
+          details.append("reasonRaw=\(r)")
+          if #available(iOS 17.0, *) {
+            routeDisconnected =
+              AVAudioSession.InterruptionReason(rawValue: r) == .routeDisconnected
+          }
         }
       }
       self?.logToFlutter("[AudioSession] interruption \(details.joined(separator: " "))")
+      // routeDisconnected: the headphones left, so iOS tore the session down
+      // as an "interruption" that never gets an ended event - waiting for one
+      // leaves the Now Playing claim dead and the next headset press goes to
+      // Apple Music. There is no interrupter to yield to here, so Dart takes
+      // the claim back right away.
+      if typeName == "began", routeDisconnected {
+        self?.widgetChannel?.invokeMethod("reassertClaim", arguments: nil)
+      }
     }
 
     nc.addObserver(
@@ -197,11 +232,20 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
 
   /// Forwards a log line to the Dart LogService via the widget channel so it
   /// appears in the in-app log viewer (NSLog alone only shows in Xcode /
-  /// Console.app on a Mac).
+  /// Console.app on a Mac). Lines emitted before Dart signals "logReady" are
+  /// buffered and flushed then.
   private func logToFlutter(_ message: String) {
     NSLog("[WidgetDebug] %@", message)
     DispatchQueue.main.async { [weak self] in
-      self?.widgetChannel?.invokeMethod("log", arguments: ["msg": message])
+      guard let self else { return }
+      if self.dartLogReady {
+        self.widgetChannel?.invokeMethod("log", arguments: ["msg": message])
+      } else {
+        self.pendingNativeLogs.append((ProcessInfo.processInfo.systemUptime, message))
+        if self.pendingNativeLogs.count > 400 {
+          self.pendingNativeLogs.removeFirst(self.pendingNativeLogs.count - 400)
+        }
+      }
     }
   }
 
@@ -213,6 +257,7 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
       "com.barnabas.absorb.widget.playPause",
       "com.barnabas.absorb.widget.skipBack",
       "com.barnabas.absorb.widget.skipForward",
+      "com.barnabas.absorb.host.takeover",
     ]
     for name in names {
       CFNotificationCenterAddObserver(
@@ -222,12 +267,40 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
                 let rawName = name?.rawValue as String? else { return }
           NSLog("[WidgetDebug] AppDelegate received Darwin notification: %@", rawName)
           let appDelegate = Unmanaged<AppDelegate>.fromOpaque(observer).takeUnretainedValue()
+
+          // A foreground process claimed audio ownership. If that's not us,
+          // stop this process's engine so two streams can't overlap (#285).
+          // Ownership is arbitrated by pid: the owner reads its own pid back
+          // and ignores its own broadcast.
+          if rawName == "com.barnabas.absorb.host.takeover" {
+            DispatchQueue.main.async {
+              if absorbAudioOwnerPid() == Int(getpid()) { return }
+              if UIApplication.shared.applicationState == .active { return }
+              NSLog("[WidgetDebug] takeover: another process claimed audio, stopping this process's engine")
+              AbsorbPlayerCore.shared.yieldToForegroundOwner()
+            }
+            return
+          }
+
           let action: String
           switch rawName {
           case "com.barnabas.absorb.widget.playPause":   action = "playPause"
           case "com.barnabas.absorb.widget.skipBack":    action = "skipBack"
           case "com.barnabas.absorb.widget.skipForward": action = "skipForward"
           default: return
+          }
+          // Every live process receives this broadcast, so exactly one may
+          // act on it: the audio owner, and only via a Flutter that is
+          // actually responsive. Anything else would actuate in parallel -
+          // a stray background process's headless Flutter toggling next to
+          // the foreground app is how one widget tap produced two streams
+          // of the same book (#285), and a suspended-then-resumed Flutter
+          // replaying the action after the native core already handled it
+          // is how the play state got double-toggled.
+          let myPid = Int(getpid())
+          guard absorbAudioOwnerPid() == myPid, absorbFlutterAlive(pid: myPid) else {
+            NSLog("[WidgetDebug] AppDelegate dropping widget action \(action) (owner=\(absorbAudioOwnerPid()) me=\(myPid)) - the acting process's native core covers it")
+            return
           }
           // Re-activate the audio session as soon as the host app process
           // sees the notification, before the async hop to Flutter. The
@@ -252,6 +325,27 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
     NSLog("[WidgetDebug] AppDelegate registered %d Darwin notification observers", names.count)
   }
 
+  /// Mark this process as the foreground audio owner and tell any other process
+  /// (e.g. one a widget play intent launched in the background) to stop its
+  /// engine, so two streams can't overlap (#285). A no-op when this is the only
+  /// process. Called from SceneDelegate.sceneDidBecomeActive.
+  func claimAudioOwnershipAndNotifyOthers() {
+    let defaults = UserDefaults(suiteName: absorbAppGroup)
+    defaults?.set(Int(getpid()), forKey: "audio_owner_pid")
+    // Sweep heartbeat keys left by long-dead processes - each app launch
+    // writes its own pid-scoped key, so without this they pile up forever.
+    if let dict = defaults?.dictionaryRepresentation() {
+      let nowMs = Int(Date().timeIntervalSince1970 * 1000)
+      let myKey = "flutter_alive_at_\(getpid())"
+      for (key, value) in dict where key.hasPrefix("flutter_alive_at_") && key != myKey {
+        if let ts = value as? Int, nowMs - ts > 3_600_000 {
+          defaults?.removeObject(forKey: key)
+        }
+      }
+    }
+    postAbsorbDarwinNotification("com.barnabas.absorb.host.takeover")
+  }
+
   private func registerPlatformChannels() {
     let messenger = flutterEngine.binaryMessenger
 
@@ -264,7 +358,8 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
 
     // iOS audio output device switching is not implemented yet — iOS routes
     // through the system's MPVolumeView/AVRoutePicker rather than letting apps
-    // pick output devices directly. Stub these so the channel responds.
+    // pick output devices directly. Stub those, but do expose the AirPlay
+    // picker (the one piece the in-app button needs).
     let channel = FlutterMethodChannel(name: "com.absorb.audio_output",
                                        binaryMessenger: messenger)
     channel.setMethodCallHandler { (call, result) in
@@ -273,6 +368,71 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
         result([])
       case "setAudioOutputDevice", "resetAudioOutput":
         result(false)
+      case "showRoutePicker":
+        // There is no public API to present the AirPlay picker directly, so
+        // add a transient AVRoutePickerView to the key window and tap its
+        // button. The view is removed again shortly after.
+        DispatchQueue.main.async {
+          let scenes = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+          let host = scenes.flatMap { $0.windows }.first { $0.isKeyWindow }
+            ?? scenes.flatMap { $0.windows }.first
+          guard let window = host else { result(false); return }
+          let picker = AVRoutePickerView(frame: CGRect(x: -1000, y: -1000, width: 0, height: 0))
+          picker.prioritizesVideoDevices = false
+          window.addSubview(picker)
+          func findButton(_ view: UIView) -> UIButton? {
+            if let b = view as? UIButton { return b }
+            for sub in view.subviews { if let b = findButton(sub) { return b } }
+            return nil
+          }
+          var triggered = false
+          if let button = findButton(picker) {
+            button.sendActions(for: .touchUpInside)
+            triggered = true
+          }
+          DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            picker.removeFromSuperview()
+          }
+          result(triggered)
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    // Ebook reader: volume keys turn pages. Watching intercepts presses via
+    // an outputVolume observer and resets the level so volume never moves.
+    let volKeys = FlutterMethodChannel(name: "com.absorb.volume_keys",
+                                       binaryMessenger: messenger)
+    volumeKeysChannel = volKeys
+    volumeKeyWatcher.onPressed = { [weak self] direction in
+      self?.volumeKeysChannel?.invokeMethod("volumePressed", arguments: direction)
+    }
+    volKeys.setMethodCallHandler { [weak self] (call, result) in
+      switch call.method {
+      case "watch":
+        self?.volumeKeyWatcher.start()
+        result(true)
+      case "clearWatch":
+        self?.volumeKeyWatcher.stop()
+        result(true)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
+    // Auto scroll in the ebook reader keeps the screen on for as long as it
+    // runs; the reader releases it when the scroll stops or it closes.
+    let screenWakeChannel = FlutterMethodChannel(name: "com.absorb.screen_wake",
+                                                 binaryMessenger: messenger)
+    screenWakeChannel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "set":
+        let args = call.arguments as? [String: Any]
+        let on = args?["on"] as? Bool ?? false
+        UIApplication.shared.isIdleTimerDisabled = on
+        result(true)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -295,11 +455,96 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
       }
     }
 
+    // Bookmark clip export: extract a time window of a book and write a .m4a.
+    let clipChannel = FlutterMethodChannel(name: "com.absorb.clip",
+                                           binaryMessenger: messenger)
+    clipChannel.setMethodCallHandler { (call, result) in
+      guard call.method == "exportClip" else { result(FlutterMethodNotImplemented); return }
+      let args = call.arguments as? [String: Any]
+      guard let source = args?["source"] as? String,
+            let outPath = args?["outPath"] as? String else {
+        result(FlutterError(code: "CLIP_ARGS", message: "Missing source or outPath", details: nil))
+        return
+      }
+      let isLocal = args?["isLocal"] as? Bool ?? true
+      let headers = args?["headers"] as? [String: String]
+      let start = args?["startSeconds"] as? Double ?? 0
+      let duration = args?["durationSeconds"] as? Double ?? 60
+      AudioClipExporter.exportM4a(
+        source: source, isLocal: isLocal, headers: headers,
+        startSeconds: start, durationSeconds: duration, outPath: outPath
+      ) { ok, errMessage in
+        DispatchQueue.main.async {
+          if ok {
+            result(true)
+          } else {
+            result(FlutterError(code: "CLIP_FAILED", message: errMessage ?? "export failed", details: nil))
+          }
+        }
+      }
+    }
+
+    // Lock screen skip amounts. iOS bakes these into the command center's
+    // preferredIntervals rather than reading them per press, so Dart pushes the
+    // effective amounts here whenever they change.
+    let playerCoreChannel = FlutterMethodChannel(name: "com.absorb.player_core",
+                                                 binaryMessenger: messenger)
+    playerCoreChannel.setMethodCallHandler { (call, result) in
+      guard call.method == "setSkipIntervals" else { result(FlutterMethodNotImplemented); return }
+      let args = call.arguments as? [String: Any]
+      guard let forward = args?["forward"] as? Int,
+            let backward = args?["backward"] as? Int else {
+        result(FlutterError(code: "SKIP_ARGS", message: "Missing forward or backward", details: nil))
+        return
+      }
+      AbsorbPlayerCore.shared.setSkipIntervals(forward: forward, backward: backward)
+      result(true)
+    }
+
+    // On-device bookmark transcription: decode a window of a downloaded audio
+    // file into 16kHz mono WAV for Whisper. AVAssetReader does the resample +
+    // downmix for us; no ffmpeg ships in the app.
+    let transcriptionChannel = FlutterMethodChannel(name: "com.barnabas.absorb/transcription",
+                                                    binaryMessenger: messenger)
+    transcriptionChannel.setMethodCallHandler { (call, result) in
+      switch call.method {
+      case "extractWav":
+        let args = call.arguments as? [String: Any]
+        guard let sourcePath = args?["sourcePath"] as? String,
+              let outPath = args?["outPath"] as? String else {
+          result(FlutterError(code: "ARGS", message: "sourcePath and outPath are required", details: nil))
+          return
+        }
+        let start = (args?["startSeconds"] as? Double) ?? 0
+        let dur = (args?["durationSeconds"] as? Double) ?? 0
+        DispatchQueue.global(qos: .userInitiated).async {
+          let ok = AudioWindowExtractor.extractWav(
+            sourcePath: sourcePath, startSeconds: start, durationSeconds: dur, outPath: outPath)
+          DispatchQueue.main.async { result(ok) }
+        }
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     let widgetChannel = FlutterMethodChannel(name: "com.absorb.widget",
                                                binaryMessenger: messenger)
     self.widgetChannel = widgetChannel
-    widgetChannel.setMethodCallHandler { (call, result) in
+    widgetChannel.setMethodCallHandler { [weak self] (call, result) in
       switch call.method {
+      case "logReady":
+        // Dart's log listener is live - flush everything buffered since
+        // launch, stamped with seconds-after-launch so timing survives the
+        // batch delivery.
+        guard let self else { result(true); return }
+        self.dartLogReady = true
+        let pending = self.pendingNativeLogs
+        self.pendingNativeLogs = []
+        for (uptime, line) in pending {
+          let stamp = String(format: "%.1f", uptime - self.launchUptime)
+          self.widgetChannel?.invokeMethod("log", arguments: ["msg": "[+\(stamp)s] \(line)"])
+        }
+        result(true)
       case "getGroupContainerPath":
         if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.com.barnabas.absorb") {
           NSLog("[WidgetDebug] getGroupContainerPath resolved: %@", url.path)
@@ -337,6 +582,22 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
       switch call.method {
       case "isBluetoothAudioConnected":
         result(self?.isBluetoothAudioConnected() ?? false)
+
+      case "getMemoryInfo":
+        // The two numbers that matter for eviction: phys_footprint is what
+        // jetsam judges (RSS is not), and os_proc_available_memory is how
+        // much more this process may take before it is killed.
+        var vmInfo = task_vm_info_data_t()
+        var vmCount = mach_msg_type_number_t(
+          MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let kr = withUnsafeMutablePointer(to: &vmInfo) {
+          $0.withMemoryRebound(to: integer_t.self, capacity: Int(vmCount)) {
+            task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &vmCount)
+          }
+        }
+        let footprint: Int64 = kr == KERN_SUCCESS ? Int64(vmInfo.phys_footprint) : -1
+        let available = Int64(os_proc_available_memory())
+        result(["footprint": footprint, "available": available])
 
       case "getAudioDiagnostics":
         // Snapshot of AVAudioSession state for the "tap play, no sound"
@@ -381,22 +642,64 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
         ]
         result(info)
 
+      case "reclaimNowPlaying":
+        // Something else may have taken the Now Playing slot while Absorb sat
+        // paused. Activating the session and republishing metadata is not
+        // enough to get it back - only rendered audio moves the slot - so the
+        // reassert goes through the primer rather than doing it in Dart.
+        let reclaimReason = args?["reason"] as? String ?? "unknown"
+        result(NowPlayingPrimer.reclaim(reason: reclaimReason))
+
       case "primeNowPlaying":
         let title = args?["title"] as? String ?? ""
         let artist = args?["artist"] as? String ?? ""
         let duration = args?["duration"] as? Double ?? 0
         let elapsed = args?["elapsed"] as? Double ?? 0
-        var info: [String: Any] = [
-          MPMediaItemPropertyTitle: title,
-          MPMediaItemPropertyArtist: artist,
-          MPNowPlayingInfoPropertyPlaybackRate: 1.0,
-          MPNowPlayingInfoPropertyElapsedPlaybackTime: elapsed,
-        ]
+        // Merge into what is on the tile for the same book rather than
+        // replacing it: a full replace dropped the artwork audio_service had
+        // set, and audio_service only rewrites when its own copy changes, so
+        // the cover stayed missing on a locked phone until the next chapter.
+        // The subtitle is "Author · Book", so a match means the same book and
+        // its artwork is still right; anything else starts clean.
+        let existing = MPNowPlayingInfoCenter.default().nowPlayingInfo ?? [:]
+        let sameBook = (existing[MPMediaItemPropertyArtist] as? String) == artist
+        var info: [String: Any] = sameBook ? existing : [:]
+        info[MPMediaItemPropertyTitle] = title
+        info[MPMediaItemPropertyArtist] = artist
+        info[MPNowPlayingInfoPropertyPlaybackRate] = 1.0
+        info[MPNowPlayingInfoPropertyElapsedPlaybackTime] = elapsed
         if duration > 0 {
           info[MPMediaItemPropertyPlaybackDuration] = duration
+        } else {
+          info.removeValue(forKey: MPMediaItemPropertyPlaybackDuration)
         }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = info
         result(true)
+
+      case "defineWord":
+        // Reader dictionary: present the system dictionary (offline, uses the
+        // user's own downloaded dictionaries, any language). It has its own
+        // no-definition page, so present unconditionally.
+        let word = args?["word"] as? String ?? ""
+        if word.isEmpty {
+          result(false)
+        } else {
+          DispatchQueue.main.async {
+            let scene = UIApplication.shared.connectedScenes
+              .compactMap { $0 as? UIWindowScene }
+              .first { $0.activationState == .foregroundActive }
+            let window = scene?.windows.first { $0.isKeyWindow } ?? scene?.windows.first
+            guard var presenter = window?.rootViewController else {
+              result(false)
+              return
+            }
+            while let presented = presenter.presentedViewController {
+              presenter = presented
+            }
+            presenter.present(UIReferenceLibraryViewController(term: word), animated: true)
+            result(true)
+          }
+        }
 
       case "init":
         result([
@@ -461,4 +764,261 @@ let flutterEngine = FlutterEngine(name: "SharedEngine", project: nil, allowHeadl
     }
   }
 
+}
+
+/// Extracts a time window of an audiobook and exports it as an AAC .m4a clip
+/// via AVAssetExportSession, which copies the source's artwork so the clip keeps
+/// the book cover. iOS can't reliably export from a remote URL, so a streamed
+/// book is fetched to a temp file in Dart first and handed in as a local path -
+/// the native side here always works on a local file.
+enum AudioClipExporter {
+  static func exportM4a(
+    source: String,
+    isLocal: Bool,
+    headers: [String: String]?,
+    startSeconds: Double,
+    durationSeconds: Double,
+    outPath: String,
+    completion: @escaping (Bool, String?) -> Void
+  ) {
+    let asset: AVURLAsset
+    if isLocal {
+      asset = AVURLAsset(url: URL(fileURLWithPath: source))
+    } else {
+      guard let url = URL(string: source) else {
+        completion(false, "bad url")
+        return
+      }
+      var options: [String: Any] = [:]
+      if let headers = headers, !headers.isEmpty {
+        options["AVURLAssetHTTPHeaderFieldsKey"] = headers
+      }
+      asset = AVURLAsset(url: url, options: options)
+    }
+
+    let outURL = URL(fileURLWithPath: outPath)
+    try? FileManager.default.createDirectory(
+      at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+    // AVAssetExportSession refuses to overwrite an existing file.
+    try? FileManager.default.removeItem(at: outURL)
+
+    guard let export = AVAssetExportSession(
+      asset: asset, presetName: AVAssetExportPresetAppleM4A) else {
+      completion(false, "could not create export session")
+      return
+    }
+    export.outputURL = outURL
+    export.outputFileType = .m4a
+    let start = CMTime(seconds: max(0, startSeconds), preferredTimescale: 600)
+    let duration = CMTime(seconds: max(1, durationSeconds), preferredTimescale: 600)
+    export.timeRange = CMTimeRange(start: start, duration: duration)
+
+    export.exportAsynchronously {
+      switch export.status {
+      case .completed:
+        completion(true, nil)
+      default:
+        let message = export.error?.localizedDescription ?? "status \(export.status.rawValue)"
+        try? FileManager.default.removeItem(at: outURL)
+        completion(false, message)
+      }
+    }
+  }
+}
+
+/// Ebook reader page turns via the physical volume keys. Observes the audio
+/// session's outputVolume; a press away from the baseline fires a direction,
+/// then the level is snapped back through a hidden MPVolumeView slider (whose
+/// presence in the window also suppresses the system volume HUD). The user's
+/// real volume is saved on start and restored on stop.
+private final class VolumeKeyWatcher {
+  private var observation: NSKeyValueObservation?
+  private var volumeView: MPVolumeView?
+  private var baseline: Float = 0.5
+  private var savedVolume: Float?
+
+  var onPressed: ((String) -> Void)?
+
+  func start() {
+    guard observation == nil else { return }
+    let session = AVAudioSession.sharedInstance()
+    try? session.setActive(true)
+
+    let vv = MPVolumeView(frame: CGRect(x: -3000, y: -3000, width: 1, height: 1))
+    vv.clipsToBounds = true
+    let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+    let host = scenes.flatMap { $0.windows }.first { $0.isKeyWindow }
+      ?? scenes.flatMap { $0.windows }.first
+    host?.addSubview(vv)
+    volumeView = vv
+
+    savedVolume = session.outputVolume
+    // Snap the baseline to iOS's 1/16 volume steps, away from the extremes so
+    // both directions stay detectable at min/max volume.
+    baseline = (min(max(session.outputVolume, 0.25), 0.75) * 16).rounded() / 16
+
+    // Give the volume view a beat to land in the hierarchy before its slider
+    // will accept a value, then normalize to the baseline.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+      guard let self, self.observation != nil else { return }
+      self.setSystemVolume(self.baseline)
+    }
+
+    observation = session.observe(\.outputVolume, options: [.new]) { [weak self] _, change in
+      guard let self, let new = change.newValue else { return }
+      // Our own baseline resets land exactly on the baseline - ignore them.
+      if abs(new - self.baseline) < 0.01 { return }
+      let direction = new > self.baseline ? "up" : "down"
+      DispatchQueue.main.async {
+        self.onPressed?(direction)
+        self.setSystemVolume(self.baseline)
+      }
+    }
+  }
+
+  func stop() {
+    guard observation != nil else { return }
+    observation?.invalidate()
+    observation = nil
+    if let saved = savedVolume { setSystemVolume(saved) }
+    savedVolume = nil
+    let vv = volumeView
+    volumeView = nil
+    // Keep the view alive briefly so the restore above goes through.
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+      vv?.removeFromSuperview()
+    }
+  }
+
+  private func setSystemVolume(_ value: Float) {
+    guard let slider = volumeView?.subviews.compactMap({ $0 as? UISlider }).first else { return }
+    slider.value = value
+  }
+}
+/// Decodes a time window of a compressed audio file into the 16kHz mono 16-bit
+/// PCM WAV that whisper.cpp requires. AVAssetReader performs the sample-rate
+/// conversion and downmix via its output settings, so no ffmpeg is needed.
+/// Used by the opt-in bookmark transcription feature.
+enum AudioWindowExtractor {
+  static var logSink: ((String) -> Void)?
+
+  private static func log(_ line: String) {
+    NSLog("%@", line)
+    logSink?(line)
+  }
+
+  private static func describe(_ track: AVAssetTrack) -> String {
+    let descriptions = track.formatDescriptions as! [CMFormatDescription]
+    guard let first = descriptions.first,
+          let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(first)?.pointee else {
+      return "unknown format"
+    }
+    let id = asbd.mFormatID
+    let bytes = [UInt8((id >> 24) & 0xff), UInt8((id >> 16) & 0xff),
+                 UInt8((id >> 8) & 0xff), UInt8(id & 0xff)]
+    let codec = String(bytes: bytes, encoding: .ascii)?
+      .trimmingCharacters(in: .whitespaces) ?? "\(id)"
+    return "\(codec) \(Int(asbd.mSampleRate))Hz \(asbd.mChannelsPerFrame)ch"
+  }
+
+  static func extractWav(sourcePath: String, startSeconds: Double, durationSeconds: Double, outPath: String) -> Bool {
+    let asset = AVURLAsset(url: URL(fileURLWithPath: sourcePath))
+    guard let track = asset.tracks(withMediaType: .audio).first else {
+      log("[Transcribe] no audio track in \(sourcePath)")
+      return false
+    }
+    log("[Transcribe] decoding \(URL(fileURLWithPath: sourcePath).lastPathComponent): "
+        + "\(describe(track)), \(Int(startSeconds))s +\(Int(durationSeconds))s")
+
+    let reader: AVAssetReader
+    do {
+      reader = try AVAssetReader(asset: asset)
+    } catch {
+      log("[Transcribe] reader init failed: \(error.localizedDescription)")
+      return false
+    }
+
+    let start = CMTime(seconds: max(0, startSeconds), preferredTimescale: 1000)
+    let dur = CMTime(seconds: max(0, durationSeconds), preferredTimescale: 1000)
+    reader.timeRange = CMTimeRange(start: start, duration: dur)
+
+    let settings: [String: Any] = [
+      AVFormatIDKey: kAudioFormatLinearPCM,
+      AVSampleRateKey: 16000,
+      AVNumberOfChannelsKey: 1,
+      AVLinearPCMBitDepthKey: 16,
+      AVLinearPCMIsFloatKey: false,
+      AVLinearPCMIsBigEndianKey: false,
+      AVLinearPCMIsNonInterleaved: false,
+    ]
+    let output = AVAssetReaderTrackOutput(track: track, outputSettings: settings)
+    output.alwaysCopiesSampleData = false
+    guard reader.canAdd(output) else { return false }
+    reader.add(output)
+    guard reader.startReading() else {
+      log("[Transcribe] startReading failed: \(reader.error?.localizedDescription ?? "nil")")
+      return false
+    }
+
+    var pcm = Data()
+    while reader.status == .reading {
+      guard let sample = output.copyNextSampleBuffer() else { break }
+      if let block = CMSampleBufferGetDataBuffer(sample) {
+        let length = CMBlockBufferGetDataLength(block)
+        if length > 0 {
+          var chunk = Data(count: length)
+          chunk.withUnsafeMutableBytes { (ptr: UnsafeMutableRawBufferPointer) in
+            if let base = ptr.baseAddress {
+              _ = CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: length, destination: base)
+            }
+          }
+          pcm.append(chunk)
+        }
+      }
+      CMSampleBufferInvalidate(sample)
+    }
+
+    if reader.status == .failed {
+      log("[Transcribe] reader failed: \(reader.error?.localizedDescription ?? "nil")")
+      return false
+    }
+    if pcm.isEmpty { return false }
+    return writeWav(path: outPath, pcm16le: pcm, sampleRate: 16000)
+  }
+
+  private static func writeWav(path: String, pcm16le: Data, sampleRate: Int) -> Bool {
+    let channels = 1
+    let bitsPerSample = 16
+    let byteRate = sampleRate * channels * bitsPerSample / 8
+    let blockAlign = channels * bitsPerSample / 8
+    let dataSize = pcm16le.count
+
+    var header = Data()
+    func appendU32(_ v: UInt32) { var x = v.littleEndian; header.append(Data(bytes: &x, count: 4)) }
+    func appendU16(_ v: UInt16) { var x = v.littleEndian; header.append(Data(bytes: &x, count: 2)) }
+
+    header.append("RIFF".data(using: .ascii)!)
+    appendU32(UInt32(36 + dataSize))
+    header.append("WAVE".data(using: .ascii)!)
+    header.append("fmt ".data(using: .ascii)!)
+    appendU32(16)                       // PCM fmt chunk size
+    appendU16(1)                        // audio format = PCM
+    appendU16(UInt16(channels))
+    appendU32(UInt32(sampleRate))
+    appendU32(UInt32(byteRate))
+    appendU16(UInt16(blockAlign))
+    appendU16(UInt16(bitsPerSample))
+    header.append("data".data(using: .ascii)!)
+    appendU32(UInt32(dataSize))
+
+    var out = header
+    out.append(pcm16le)
+    do {
+      try out.write(to: URL(fileURLWithPath: path))
+      return true
+    } catch {
+      NSLog("[Transcribe] wav write failed: %@", error.localizedDescription)
+      return false
+    }
+  }
 }

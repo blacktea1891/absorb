@@ -9,21 +9,30 @@ import 'package:audio_session/audio_session.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'api_service.dart';
 import 'download_service.dart';
+import 'offline_source.dart';
 import 'playback_history_service.dart' hide PlaybackEvent;
 import 'progress_sync_service.dart';
+import 'local_session_service.dart';
 import 'sync_logic.dart';
+import 'transcription_service.dart';
 import 'sleep_timer_service.dart';
 import 'equalizer_service.dart';
+import 'external_audio_output_types.dart';
 import 'android_auto_service.dart';
 import 'chromecast_service.dart';
 import 'chapter_lookup.dart';
 import 'cold_start_play_policy.dart';
+import 'playback_error_policy.dart';
 import 'player_settings.dart';
 import 'session_cache.dart';
 import 'home_widget_service.dart';
 import 'bookmark_service.dart';
 import 'review_service.dart';
+import '../utils/episode_key.dart';
 export 'player_settings.dart';
+
+String playbackDownloadKey(String itemId, String? episodeId) =>
+    episodeKeyFor(itemId, episodeId);
 
 // ─── AudioHandler (runs in background, controls notification) ───
 
@@ -72,6 +81,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   // statics from the vendored audio_service Java side via MainActivity.kt.
   // Strip the call sites + the channel once #243 is closed.
   static const _absorbDiagChannel = MethodChannel('com.absorb.audio_diag');
+  static bool _diagMissingLogged = false;
 
   /// Fetch the raw diag snapshot from the Java side. Returns null on iOS or
   /// when the channel is unavailable. Used by click() to also read the
@@ -79,23 +89,88 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   static Future<Map<String, dynamic>?> _absorbDiagSnapshot() async {
     if (!Platform.isAndroid) return null;
     try {
-      return await _absorbDiagChannel.invokeMapMethod<String, dynamic>('snapshot');
+      return await _absorbDiagChannel.invokeMapMethod<String, dynamic>(
+        'snapshot',
+      );
+    } on MissingPluginException {
+      if (!_diagMissingLogged) {
+        _diagMissingLogged = true;
+        debugPrint('[AbsorbDiag] snapshot channel missing on this engine');
+      }
+      return null;
     } catch (e) {
       debugPrint('[AbsorbDiag] snapshot failed: $e');
       return null;
     }
   }
 
-  static void _logAbsorbDiagFromSnapshot(String tag, Map<String, dynamic>? snap) {
+  static void _logAbsorbDiagFromSnapshot(
+    String tag,
+    Map<String, dynamic>? snap,
+  ) {
     if (snap == null) return;
-    debugPrint('[AbsorbDiag] $tag: '
-        'keyCode=${snap['lastKeyCode']} keyAgeMs=${snap['lastKeyAgeMs']} '
-        'lastPlayCaller=${snap['lastPlayCaller']} playAgeMs=${snap['lastPlayCallerAgeMs']} '
-        'lastPauseCaller=${snap['lastPauseCaller']} pauseAgeMs=${snap['lastPauseCallerAgeMs']}');
+    debugPrint(
+      '[AbsorbDiag] $tag: '
+      'keyCode=${snap['lastKeyCode']} keyAgeMs=${snap['lastKeyAgeMs']} '
+      'lastPlayCaller=${snap['lastPlayCaller']} playAgeMs=${snap['lastPlayCallerAgeMs']} '
+      'lastPauseCaller=${snap['lastPauseCaller']} pauseAgeMs=${snap['lastPauseCallerAgeMs']} '
+      'carClientAgeMs=${snap['carClientAgeMs']} keyPkg=${snap['lastKeyPkg']} '
+      'route=[${snap['route']}] outputs=[${snap['outputs']}]',
+    );
   }
+
+  static bool _isCarPackage(String? pkg) =>
+      pkg != null &&
+      (pkg == 'com.google.android.projection.gearhead' ||
+          pkg.startsWith('com.android.car'));
+
+  /// Our own widget sends its play button through the media session like a
+  /// headset would; the package tells them apart.
+  static bool _isOwnPackage(String? pkg) =>
+      pkg != null && pkg.startsWith('com.barnabas.absorb');
 
   static Future<void> _logAbsorbDiag(String tag) async {
     _logAbsorbDiagFromSnapshot(tag, await _absorbDiagSnapshot());
+  }
+
+  /// How long after a car client (Android Auto / Automotive) last touched the
+  /// browse tree we still assume a car is attached. Long enough to span a
+  /// drive where the head unit connected once and never browsed again, short
+  /// enough that a headset press hours after the drive is taken at face value.
+  static const _carClientWindow = Duration(hours: 2);
+
+  /// Whether another app is playing on the music stream right now. A media
+  /// key that reaches us while we are paused and something else is audible
+  /// was meant for that something else - an earbud's wear detection pausing
+  /// a video, say. Android routes keys to the last media session, and video
+  /// apps often have none, so it lands here; playing on top of the video is
+  /// the last thing the user wants. Unknown reads as nothing playing.
+  static Future<bool> _otherAudioActive() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final active = await AndroidAudioManager().isMusicActive();
+      debugPrint('[Handler] other audio active=$active');
+      return active;
+    } catch (e) {
+      debugPrint('[Handler] isMusicActive failed: $e');
+      return false;
+    }
+  }
+
+  /// Whether a car client has touched the media browse tree recently, per the
+  /// Java-side stamp. The MEDIA_PAUSE-while-paused phantom (GH #243) only
+  /// exists on Android Auto, so this is what decides whether the click
+  /// resolver suppresses that keycode or honors it as a headset toggle.
+  /// Snapshot missing (iOS, channel unavailable) reads as no car.
+  static Future<bool> _carClientRecentlySeen() async {
+    final snap = await _absorbDiagSnapshot();
+    final age = snap?['carClientAgeMs'];
+    final seen =
+        age is int && age >= 0 && age < _carClientWindow.inMilliseconds;
+    debugPrint(
+      '[Handler] car client ${seen ? 'seen' : 'not seen'} (carClientAgeMs=$age)',
+    );
+    return seen;
   }
 
   /// Force-push current PlaybackState so the notification picks up
@@ -111,6 +186,17 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   AudioPlayerHandler() {
     _subscribePlaybackEvents();
+    // One line per ExoPlayer state transition (playerStateStream is already
+    // distinct). Tells "the app paused it" apart from "the audio pipeline
+    // stalled": a play/pause blip the app caused shows up as playing flips
+    // next to a Handler/Service/AudioSession line, a rebuffer shows as
+    // ready -> buffering -> ready, and a BT-link hiccup shows nothing here.
+    _player.playerStateStream.listen((s) {
+      debugPrint(
+        '[PlayerState] playing=${s.playing} state=${s.processingState.name} '
+        'pos=${(_player.position.inMilliseconds / 1000).toStringAsFixed(2)}s',
+      );
+    });
   }
 
   /// Subscribe to the player's playback event stream and forward state to
@@ -129,14 +215,58 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   bool _bookmarkSavedFlash = false;
   Timer? _bookmarkFlashTimer;
 
+  // Keep the media session in buffering while a queued item is taking over.
+  // Android maps AudioProcessingState.loading to STATE_CONNECTING, which does
+  // not show the buffering animation used for an in-progress media load.
+  bool _advanceBuffering = false;
+  DateTime? _advanceBufferingUntil;
+  Timer? _advanceBufferingMinimumTimer;
+
+  void setAdvanceBuffering(
+    bool value, {
+    Duration minimumDuration = Duration.zero,
+  }) {
+    _advanceBufferingMinimumTimer?.cancel();
+    _advanceBufferingMinimumTimer = null;
+    final changed = _advanceBuffering != value;
+    _advanceBuffering = value;
+    _advanceBufferingUntil = value ? DateTime.now().add(minimumDuration) : null;
+    if (value) _clearAdvanceBufferingIfReady();
+    if (!changed && !value) return;
+    refreshPlaybackState();
+  }
+
+  void _clearAdvanceBufferingIfReady({bool refresh = true}) {
+    if (!_advanceBuffering ||
+        _player.processingState != ProcessingState.ready) {
+      return;
+    }
+    final remaining =
+        _advanceBufferingUntil?.difference(DateTime.now()) ?? Duration.zero;
+    if (remaining > Duration.zero) {
+      _advanceBufferingMinimumTimer?.cancel();
+      _advanceBufferingMinimumTimer = Timer(remaining, () {
+        _advanceBufferingMinimumTimer = null;
+        _clearAdvanceBufferingIfReady();
+      });
+      return;
+    }
+    _advanceBuffering = false;
+    _advanceBufferingUntil = null;
+    if (refresh) refreshPlaybackState();
+  }
+
   void _subscribePlaybackEvents() {
-    _player.playbackEventStream.map(_transformEvent).listen(
-      (state) {
+    _player.playbackEventStream.listen(
+      (event) {
+        _clearAdvanceBufferingIfReady(refresh: false);
+        final state = _transformEvent(event);
         // Only push state on meaningful changes (play/pause, processing state)
         // or at most every 5 seconds for position updates
         final now = DateTime.now();
         final playingChanged = _player.playing != _lastPlaying;
-        final processingChanged = _player.processingState != _lastProcessingState;
+        final processingChanged =
+            _player.processingState != _lastProcessingState;
         final elapsed = now.difference(_lastPlaybackStateUpdate);
 
         if (playingChanged || processingChanged || elapsed.inSeconds >= 5) {
@@ -149,6 +279,14 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         _resubscribeCount = 0;
       },
       onError: (Object e, StackTrace st) {
+        if (PlaybackErrorPolicy.isSourceError(e)) {
+          debugPrint(
+            '[Player] playbackEvent source error - restarting stream: $e',
+          );
+          AudioPlayerService()._attemptStreamRetry(e);
+          return;
+        }
+
         final now = DateTime.now();
         // Reset counter if it's been more than 5 seconds since last error
         if (now.difference(_lastResubscribe).inSeconds > 5) {
@@ -158,42 +296,50 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         _resubscribeCount++;
 
         if (_resubscribeCount <= 3) {
-          debugPrint('[Player] playbackEvent error ($_resubscribeCount/3) - re-subscribing: $e');
+          debugPrint(
+            '[Player] playbackEvent error ($_resubscribeCount/3) - re-subscribing: $e',
+          );
           refreshPlaybackState();
           Future.delayed(const Duration(seconds: 1), _subscribePlaybackEvents);
         } else {
-          debugPrint('[Player] playbackEvent error - too many rapid failures, stopping re-subscribe: $e');
-          final errStr = e.toString();
-          if (errStr.contains('MediaCodecAudioRenderer') ||
-              errStr.contains('AudioTrack') ||
-              errStr.contains('Decoder') ||
-              errStr.contains('format_supported')) {
-            AudioPlayerService()._retryWithTranscode();
+          debugPrint(
+            '[Player] playbackEvent error - too many rapid failures, stopping re-subscribe: $e',
+          );
+          if (PlaybackErrorPolicy.shouldRetryWithTranscode(e)) {
+            final service = AudioPlayerService();
+            if (service._localSessionMode) {
+              service._recoverLocalPlayback(e);
+            } else {
+              service._retryWithTranscode();
+            }
           }
         }
       },
       onDone: () {
         _resubscribeCount++;
         if (_resubscribeCount <= 3) {
-          debugPrint('[Player] playbackEvent stream completed ($_resubscribeCount/3) - re-subscribing');
+          debugPrint(
+            '[Player] playbackEvent stream completed ($_resubscribeCount/3) - re-subscribing',
+          );
           refreshPlaybackState();
           Future.delayed(const Duration(seconds: 1), _subscribePlaybackEvents);
         } else {
-          debugPrint('[Player] playbackEvent stream completed - too many rapid re-subscribes, stopping');
+          debugPrint(
+            '[Player] playbackEvent stream completed - too many rapid re-subscribes, stopping',
+          );
         }
       },
     );
   }
 
-
   // The Android Auto speed button shows a pre-baked badge for the current rate.
-  // We snap to the nearest 0.05 within the baked range (0.5x..3.0x); every step
+  // We snap to the nearest 0.05 within the baked range (0.5x..5.0x); every step
   // has a generated ic_speed_*x drawable (rendered from Roboto Bold).
   String _speedBadgeIcon() {
     final speed = _service?.speed ?? _player.speed;
     var rate = (speed * 20).round() / 20; // nearest 0.05
     if (rate < 0.5) rate = 0.5;
-    if (rate > 3.0) rate = 3.0;
+    if (rate > 5.0) rate = 5.0;
     // 1.0 -> "1x", 1.2 -> "1_2x", 1.25 -> "1_25x" (matches the generated files).
     final s = rate
         .toStringAsFixed(2)
@@ -219,7 +365,11 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     // Base 3 controls (rewind | play | forward) feed both the phone
     // notification and Android Auto. compactIndices keeps the glanceable
     // notification to just these three.
-    final controls = <MediaControl>[rewindControl, playPause, fastForwardControl];
+    final controls = <MediaControl>[
+      rewindControl,
+      playPause,
+      fastForwardControl,
+    ];
     final compactIndices = const [0, 1, 2];
 
     // Extra Android Auto controls (custom actions). On Android 12 and below they
@@ -248,7 +398,9 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       // Bookmark icon/label briefly flip to a checkmark + "Saved" after a save,
       // as on-screen confirmation for Android Auto (the CarPlay banner equivalent).
       final bookmark = MediaControl.custom(
-        androidIcon: _bookmarkSavedFlash ? 'drawable/ic_check' : 'drawable/ic_bookmark',
+        androidIcon: _bookmarkSavedFlash
+            ? 'drawable/ic_check'
+            : 'drawable/ic_bookmark',
         label: _bookmarkSavedFlash ? 'Saved' : 'Bookmark',
         name: 'bookmark',
       );
@@ -277,13 +429,17 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
         if (Platform.isIOS) MediaAction.skipToPrevious,
       },
       androidCompactActionIndices: compactIndices,
-      processingState: const {
-        ProcessingState.idle: AudioProcessingState.idle,
-        ProcessingState.loading: AudioProcessingState.loading,
-        ProcessingState.buffering: AudioProcessingState.buffering,
-        ProcessingState.ready: AudioProcessingState.ready,
-        ProcessingState.completed: AudioProcessingState.completed,
-      }[_player.processingState]!,
+      processingState: () {
+        final mapped = const {
+          ProcessingState.idle: AudioProcessingState.idle,
+          ProcessingState.loading: AudioProcessingState.loading,
+          ProcessingState.buffering: AudioProcessingState.buffering,
+          ProcessingState.ready: AudioProcessingState.ready,
+          ProcessingState.completed: AudioProcessingState.completed,
+        }[_player.processingState]!;
+        if (_advanceBuffering) return AudioProcessingState.buffering;
+        return mapped;
+      }(),
       playing: _player.playing,
       updatePosition: _speedAdjustedPosition(),
       bufferedPosition: _player.bufferedPosition,
@@ -334,19 +490,25 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> play() async {
-    debugPrint('[Handler] play() called - routing to service (state=${_player.processingState.name})');
+    debugPrint(
+      '[Handler] play() called - routing to service (state=${_player.processingState.name})',
+    );
     await _logAbsorbDiag('play');
     final entryBt = await AudioPlayerService._isBluetoothAudioConnected();
     if (entryBt) AudioPlayerService._lastPlayedOnBtAt = DateTime.now();
-    debugPrint('[ClickDebug] play() entry: ${_clickDebugSnapshot(btNow: entryBt)}');
+    debugPrint(
+      '[ClickDebug] play() entry: ${_clickDebugSnapshot(btNow: entryBt)}',
+    );
     // Mirror the click() guard: a raw play() arriving within 5s of a
     // headphone/AA/BT disconnect is almost always the platform echoing a
     // resume command, not the user. Drop it so playback doesn't jump to
     // the phone speaker after the user unplugs or AA tears down.
     if (_noisyPauseAt != null) {
       final elapsed = DateTime.now().difference(_noisyPauseAt!).inMilliseconds;
-      if (elapsed < 5000) {
-        debugPrint('[Handler] Ignoring phantom play (${elapsed}ms after platform pause)');
+      if (elapsed < _noisyGuardMs) {
+        debugPrint(
+          '[Handler] Ignoring phantom play (${elapsed}ms after platform pause)',
+        );
         return;
       }
       _noisyPauseAt = null;
@@ -362,10 +524,13 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> pause() async {
+    _service?._markPauseRequested();
     debugPrint('[Handler] pause() called - routing to service');
     await _logAbsorbDiag('pause');
     final pauseEntryBt = await AudioPlayerService._isBluetoothAudioConnected();
-    debugPrint('[ClickDebug] pause() entry: ${_clickDebugSnapshot(btNow: pauseEntryBt)}');
+    debugPrint(
+      '[ClickDebug] pause() entry: ${_clickDebugSnapshot(btNow: pauseEntryBt)}',
+    );
     _lastHandlerPauseAt = DateTime.now();
     // Android Auto disconnect can dispatch both a MediaButton click and a
     // pause() action simultaneously. The click's 400ms debounce timer would
@@ -389,6 +554,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       final btJustWent = lastBt != null && !pauseEntryBt;
       if (btJustWent) {
         _noisyPauseAt = DateTime.now();
+        _noisyGuardMs = 5000;
       }
     }
     if (_service != null) {
@@ -426,11 +592,17 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     // Alpha: stack trace tells us who is calling stop() so we can decide if
     // any caller deserves a true teardown. Strip [Handler] stop trace before
     // beta.
-    debugPrint('[Handler] stop() - keeping MediaSession alive '
-        '(playing=${_player.playing}, processingState=${_player.processingState.name}, '
-        'hasService=${_service != null})');
+    debugPrint(
+      '[Handler] stop() - keeping MediaSession alive '
+      '(playing=${_player.playing}, processingState=${_player.processingState.name}, '
+      'hasService=${_service != null})',
+    );
     debugPrint('[Handler] stop() trace:\n${StackTrace.current}');
-    try { await _player.stop(); } catch (e) { debugPrint('[Handler] stop() player.stop error: $e'); }
+    try {
+      await _player.stop();
+    } catch (e) {
+      debugPrint('[Handler] stop() player.stop error: $e');
+    }
   }
 
   /// Called when the user swipes the app away from recents.
@@ -457,11 +629,15 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> fastForward() async {
     debugPrint('[Handler] fastForward() - seeking forward');
+    final skipAmount = await PlayerSettings.getEffectiveForwardSkip(
+      libraryId: _service?.currentLibraryId,
+    );
+    debugPrint(
+      '[SkipDebug] fastForward: lib=${_service?.currentLibraryId} amount=${skipAmount}s',
+    );
     if (_service != null) {
-      final skipAmount = await PlayerSettings.getForwardSkip();
       await _service!.skipForward(skipAmount);
     } else {
-      final skipAmount = await PlayerSettings.getForwardSkip();
       final adjusted = (skipAmount * _player.speed).round();
       await _player.seek(_player.position + Duration(seconds: adjusted));
     }
@@ -470,11 +646,15 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> rewind() async {
     debugPrint('[Handler] rewind() - seeking back');
+    final skipAmount = await PlayerSettings.getEffectiveBackSkip(
+      libraryId: _service?.currentLibraryId,
+    );
+    debugPrint(
+      '[SkipDebug] rewind: lib=${_service?.currentLibraryId} amount=${skipAmount}s',
+    );
     if (_service != null) {
-      final skipAmount = await PlayerSettings.getBackSkip();
       await _service!.skipBackward(skipAmount);
     } else {
-      final skipAmount = await PlayerSettings.getBackSkip();
       final adjusted = (skipAmount * _player.speed).round();
       var pos = _player.position - Duration(seconds: adjusted);
       if (pos < Duration.zero) pos = Duration.zero;
@@ -494,12 +674,17 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   int _clickCount = 0;
   DateTime? _hardwareButtonTime; // cooldown after hardware next/prev
   DateTime? _noisyPauseAt; // suppress clicks for a window after BT disconnect
+  int _noisyGuardMs = 5000;
   // Keycode of the media button event that arrived at the most recent click().
   // Read from the [AbsorbDiag] snapshot at click arrival and consumed by the
   // 400ms resolver to honor PAUSE/PLAY intent instead of blindly toggling -
   // Android Auto sends KEYCODE_MEDIA_PAUSE when the user switches to Radio,
   // and the old toggle path bounced it back as a phantom resume (GH #243).
   int? _lastClickKeyCode;
+  String? _lastClickKeyPkg;
+  // When the debounce-free resume last fired, so a second press arriving just
+  // after it is still read as a double-press skip rather than a fresh click.
+  DateTime? _fastPathPlayAt;
   // True while the click resolver is synchronously calling pause()/play().
   // pause() uses this to skip stamping _noisyPauseAt for click-driven pauses,
   // so legit user pause-then-play flows are not blocked by the disconnect guard.
@@ -531,7 +716,9 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     }
     int sinceForegroundMs = -1;
     if (AudioPlayerService._lastForegroundAt != null) {
-      sinceForegroundMs = now.difference(AudioPlayerService._lastForegroundAt!).inMilliseconds;
+      sinceForegroundMs = now
+          .difference(AudioPlayerService._lastForegroundAt!)
+          .inMilliseconds;
     }
     int sinceNoisyPauseMs = -1;
     if (_noisyPauseAt != null) {
@@ -541,10 +728,11 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     // Variant-3 fingerprint: raw pause fires within 5s of a click-initiated
     // play while still playing in background. Flag it so the pause log line
     // is self-describing without having to cross-reference timestamps.
-    final phantomSuspect = sincePrevPlayMs >= 0
-        && sincePrevPlayMs < 5000
-        && _player.playing
-        && (backgrounded ?? false);
+    final phantomSuspect =
+        sincePrevPlayMs >= 0 &&
+        sincePrevPlayMs < 5000 &&
+        _player.playing &&
+        (backgrounded ?? false);
     // AA-disconnect fingerprint: BT/AA was the audio route within the last
     // 10 min, isn't anymore, and the click came in while bg + not playing.
     int sinceBtMs = -1;
@@ -554,10 +742,8 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     if (btNow == null) {
       aaDisconnect = 'unknown';
     } else {
-      final fired = lastBt != null
-          && !btNow
-          && sinceBtMs >= 0
-          && sinceBtMs < 600000;
+      final fired =
+          lastBt != null && !btNow && sinceBtMs >= 0 && sinceBtMs < 600000;
       aaDisconnect = fired ? 'true' : 'false';
     }
     return 'bg=$backgrounded, sincePrevPauseMs=$sincePrevPauseMs, '
@@ -574,7 +760,9 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   @override
   Future<void> click([MediaButton button = MediaButton.media]) async {
-    debugPrint('[Handler] click(button=$button) count=${_clickCount + 1} playing=${_player.playing}');
+    debugPrint(
+      '[Handler] click(button=$button) count=${_clickCount + 1} playing=${_player.playing}',
+    );
     final diagSnap = await _absorbDiagSnapshot();
     _logAbsorbDiagFromSnapshot('click', diagSnap);
     // Pre-fetch BT-route state so the snapshot can fill in the AA-disconnect
@@ -582,7 +770,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     final btNow = await AudioPlayerService._isBluetoothAudioConnected();
     final snapshot = _clickDebugSnapshot(btNow: btNow);
     debugPrint('[ClickDebug] click arrival (button=$button): $snapshot');
-    _service?._logEvent(PlaybackEventType.clickDebounce, detail: 'button=$button | $snapshot');
+    _service?._logEvent(
+      PlaybackEventType.clickDebounce,
+      detail: 'button=$button | $snapshot',
+    );
 
     if (button != MediaButton.media) {
       // Hardware next/prev button — set cooldown to ignore phantom media click
@@ -599,9 +790,13 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
     // Ignore phantom media click that follows hardware next/prev within 500ms
     if (_hardwareButtonTime != null) {
-      final elapsed = DateTime.now().difference(_hardwareButtonTime!).inMilliseconds;
+      final elapsed = DateTime.now()
+          .difference(_hardwareButtonTime!)
+          .inMilliseconds;
       if (elapsed < 500) {
-        debugPrint('[Handler] Ignoring phantom media click (${elapsed}ms after hardware button)');
+        debugPrint(
+          '[Handler] Ignoring phantom media click (${elapsed}ms after hardware button)',
+        );
         _hardwareButtonTime = null;
         return;
       }
@@ -611,8 +806,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     // Suppress phantom play commands within 5s of a BT/auto disconnect
     if (_noisyPauseAt != null) {
       final elapsed = DateTime.now().difference(_noisyPauseAt!).inMilliseconds;
-      if (elapsed < 5000) {
-        debugPrint('[Handler] Ignoring phantom click (${elapsed}ms after noisy pause)');
+      if (elapsed < _noisyGuardMs) {
+        debugPrint(
+          '[Handler] Ignoring phantom click (${elapsed}ms after noisy pause)',
+        );
         return;
       }
       _noisyPauseAt = null;
@@ -628,13 +825,18 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     if (bg && !_player.playing && lastBt != null && !btNow) {
       final ageMs = DateTime.now().difference(lastBt).inMilliseconds;
       if (ageMs < 600000) {
-        debugPrint('[Handler] Ignoring phantom click after AA/BT disconnect '
-            '(${ageMs}ms since last BT-on, btNow=false, bg=true, playing=false)');
-        _service?._logEvent(PlaybackEventType.clickDebounce,
-            detail: 'phantom AA/BT click suppressed | sinceBtMs=$ageMs');
+        debugPrint(
+          '[Handler] Ignoring phantom click after AA/BT disconnect '
+          '(${ageMs}ms since last BT-on, btNow=false, bg=true, playing=false)',
+        );
+        _service?._logEvent(
+          PlaybackEventType.clickDebounce,
+          detail: 'phantom AA/BT click suppressed | sinceBtMs=$ageMs',
+        );
         // Re-arm the 5s noisy guard so a follow-up click in the same
         // burst is also ignored, matching the BT-disconnect suppression flow.
         _noisyPauseAt = DateTime.now();
+        _noisyGuardMs = 5000;
         return;
       }
     }
@@ -649,7 +851,49 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       final kc = diagSnap['lastKeyCode'];
       if (age is int && age >= 0 && age < 500 && kc is int && kc != 0) {
         _lastClickKeyCode = kc;
+        final pkg = diagSnap['lastKeyPkg'];
+        _lastClickKeyPkg = pkg is String ? pkg : null;
       }
+    }
+
+    // Second half of the fast path below: a press landing right after an
+    // instant resume is the double-press the debounce would normally have
+    // caught, so honour it as a skip. We are already playing by now, which is
+    // exactly the state a double-press-to-skip expects.
+    final fastPlay = _fastPathPlayAt;
+    if (fastPlay != null &&
+        DateTime.now().difference(fastPlay) < const Duration(milliseconds: 600)) {
+      _fastPathPlayAt = null;
+      debugPrint('[Handler] -> second press after instant play -> SKIP FORWARD');
+      await fastForward();
+      return;
+    }
+
+    // Resume from an explicit MEDIA_PLAY does not wait for the multi-press
+    // window. The 400ms timer is punctual while audio runs - every pause press
+    // resolves in ~407ms - but once paused the process gets throttled and the
+    // same timer fired 7-8 SECONDS late (measured 2026-08-13, with total log
+    // silence in the gap). The keypress itself always arrives instantly.
+    //
+    // Deliberately play-only: pause never had the latency, and pausing
+    // instantly would eat the second press of a double-press-to-skip, which is
+    // the gesture people use while listening. PLAY_PAUSE (85) and HEADSETHOOK
+    // stay on the debounce too - for a single-button remote the second press is
+    // genuinely ambiguous until the window closes.
+    if (_clickCount == 0 &&
+        !(_clickTimer?.isActive ?? false) &&
+        _lastClickKeyCode == 126 &&
+        !_player.playing) {
+      _lastClickKeyCode = null;
+      _inClickResolver = true;
+      try {
+        debugPrint('[Handler] -> MEDIA_PLAY while paused, no debounce -> PLAY');
+        await play();
+      } finally {
+        _inClickResolver = false;
+      }
+      _fastPathPlayAt = DateTime.now();
+      return;
     }
 
     _clickCount++;
@@ -657,11 +901,24 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     _clickTimer = Timer(const Duration(milliseconds: 400), () async {
       final count = _clickCount;
       _clickCount = 0;
-      debugPrint('[Handler] click resolved: count=$count playing=${_player.playing}');
+      debugPrint(
+        '[Handler] click resolved: count=$count playing=${_player.playing}',
+      );
       final resolveBt = await AudioPlayerService._isBluetoothAudioConnected();
-      debugPrint('[ClickDebug] click resolve (count=$count): ${_clickDebugSnapshot(btNow: resolveBt)}');
+      debugPrint(
+        '[ClickDebug] click resolve (count=$count): ${_clickDebugSnapshot(btNow: resolveBt)}',
+      );
       switch (count) {
         case 1:
+          // Sleep-timer snooze (GH #333): during the wind-down window a
+          // single press resets the timer instead of pausing. Sits after all
+          // the phantom guards so a spurious AA/BT click can't reset it, and
+          // inside the resolver so double/triple presses still skip.
+          if (await SleepTimerService().snoozeFromMediaButton()) {
+            _lastClickKeyCode = null;
+            debugPrint('[Handler] → single press consumed by sleep timer snooze');
+            break;
+          }
           _inClickResolver = true;
           try {
             // Honor the actual keycode the system dispatched when we can.
@@ -675,26 +932,70 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
             const keycodeMediaPlay = 126;
             const keycodeMediaPause = 127;
             final kc = _lastClickKeyCode;
+            final pkg = _lastClickKeyPkg;
             _lastClickKeyCode = null;
+            _lastClickKeyPkg = null;
+            final sincePause = _lastHandlerPauseAt == null
+                ? null
+                : DateTime.now().difference(_lastHandlerPauseAt!);
+            // A key that reaches us while something else is audible was
+            // probably meant for that something else (an earbud pausing a
+            // video) - unless we paused a moment ago, in which case the
+            // user is toggling us back and the other sound is beside the
+            // point. A beta tester with a car link could not resume from
+            // his headset or his widget for two hours because of this.
+            Future<bool> meantForOtherAudio() async {
+              if (_isOwnPackage(pkg)) return false;
+              if (sincePause != null && sincePause < const Duration(minutes: 3)) {
+                return false;
+              }
+              return _otherAudioActive();
+            }
             if (kc == keycodeMediaPause) {
               if (_player.playing) {
                 debugPrint('[Handler] → single press (MEDIA_PAUSE) → PAUSE');
                 await pause();
+              } else if (_isCarPackage(pkg) ||
+                  (pkg == null && await _carClientRecentlySeen())) {
+                // A car never means play with a pause key: Android Auto
+                // repeats MEDIA_PAUSE right after we pause (#243), and sends
+                // it again when the head unit switches to its radio, which
+                // started the book back up over the radio. Its own play
+                // button comes in as a play command, not this key.
+                debugPrint(
+                  '[Handler] -> single press (MEDIA_PAUSE while paused, car, '
+                  '${sincePause?.inMilliseconds ?? -1}ms after pausing) -> no-op',
+                );
+              } else if (await meantForOtherAudio()) {
+                debugPrint(
+                  '[Handler] -> single press (MEDIA_PAUSE while paused, other audio active) -> no-op',
+                );
               } else {
-                debugPrint('[Handler] → single press (MEDIA_PAUSE while paused) → no-op (suppressed phantom toggle to PLAY)');
+                // Some BT headsets (Shokz seen in the wild) send MEDIA_PAUSE
+                // for a play press when their idea of our state went stale.
+                debugPrint(
+                  '[Handler] -> single press (MEDIA_PAUSE while paused, pkg=$pkg) -> PLAY',
+                );
+                await play();
               }
             } else if (kc == keycodeMediaPlay) {
               if (!_player.playing) {
                 debugPrint('[Handler] → single press (MEDIA_PLAY) → PLAY');
                 await play();
               } else {
-                debugPrint('[Handler] → single press (MEDIA_PLAY while playing) → no-op');
+                debugPrint(
+                  '[Handler] → single press (MEDIA_PLAY while playing) → no-op',
+                );
               }
             } else if (_player.playing) {
               debugPrint('[Handler] → single press → PAUSE');
               await pause();
+            } else if (await meantForOtherAudio()) {
+              debugPrint(
+                '[Handler] -> single press while paused, other audio active -> no-op',
+              );
             } else {
-              debugPrint('[Handler] → single press → PLAY');
+              debugPrint('[Handler] → single press (pkg=$pkg) → PLAY');
               await play();
             }
           } finally {
@@ -715,9 +1016,11 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   }
 
   /// Cancel any pending media-button click so a BT disconnect doesn't
-  /// accidentally resume playback on the phone speaker.
-  void cancelPendingClick() {
+  /// accidentally resume playback on the phone speaker. [guardMs] is how long
+  /// a play that follows is treated as the platform echoing a resume.
+  void cancelPendingClick({int guardMs = 5000}) {
     _noisyPauseAt = DateTime.now();
+    _noisyGuardMs = guardMs;
     if (_clickTimer?.isActive ?? false) {
       debugPrint('[Handler] Cancelling pending click (noisy pause)');
       _clickTimer!.cancel();
@@ -729,7 +1032,10 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   Future<void> setSpeed(double speed) => _player.setSpeed(speed);
 
   @override
-  Future<dynamic> customAction(String name, [Map<String, dynamic>? extras]) async {
+  Future<dynamic> customAction(
+    String name, [
+    Map<String, dynamic>? extras,
+  ]) async {
     debugPrint('[Handler] customAction($name)');
     switch (name) {
       case 'nextChapter':
@@ -768,18 +1074,17 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
 
   /// Save a bookmark at the current position, mirroring the in-app car-mode
   /// button (chapter title as the label, pushed to the server via the API).
+  /// A podcast episode is bookmarked under its own key, which keeps it on the
+  /// device - ABS bookmarks have nowhere to put an episode id.
   Future<bool> _bookmarkCurrentPosition() async {
     final svc = _service;
     if (svc == null) return false;
-    // Podcasts don't support bookmarks - the button stays for a consistent car
-    // layout but does nothing on an episode.
-    if (svc.currentEpisodeId != null) return false;
     final itemId = svc.currentItemId;
     if (itemId == null) return false;
     final pos = svc.position.inMilliseconds / 1000.0;
     final chTitle = svc.currentChapter?['title'] as String?;
     await BookmarkService().addBookmark(
-      itemId: itemId,
+      itemId: playbackDownloadKey(itemId, svc.currentEpisodeId),
       positionSeconds: pos,
       title: (chTitle != null && chTitle.isNotEmpty) ? chTitle : 'Bookmark',
       api: svc.currentApi,
@@ -835,12 +1140,54 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   final _autoService = AndroidAutoService();
 
   @override
-  Future<List<MediaItem>> getChildren(String parentMediaId,
-      [Map<String, dynamic>? options]) async {
+  Future<List<MediaItem>> getChildren(
+    String parentMediaId, [
+    Map<String, dynamic>? options,
+  ]) async {
     debugPrint('[Handler] getChildren($parentMediaId)');
+    if (Platform.isAndroid) unawaited(_maybeAutoplayOnCarConnect());
     // Don't await refresh() here — getChildrenOf() handles it:
     // downloads are populated instantly, server data loads in background.
     return _autoService.getChildrenOf(parentMediaId);
+  }
+
+  DateTime? _lastCarBrowseSeen;
+
+  /// GH #371: opt-in autoplay when Android Auto connects with nothing loaded.
+  ///
+  /// A browse request alone isn't a car - Bluetooth stereos browse over AVRCP
+  /// too - so this trusts the Java-side gearhead stamp, and only a stamp a few
+  /// seconds old counts as "the car just connected". A book already loaded
+  /// means the session is alive and Android Auto's own resume setting owns the
+  /// warm case (and it keeps a deliberate mid-drive pause from being undone by
+  /// a later browse). Browses during the same drive keep refreshing
+  /// [_lastCarBrowseSeen], so only a fresh stamp after a quiet gap fires.
+  Future<void> _maybeAutoplayOnCarConnect() async {
+    try {
+      final service = _service;
+      if (service == null) return;
+      final snap = await _absorbDiagSnapshot();
+      final age = snap?['carClientAgeMs'];
+      final carFresh = age is int && age >= 0 && age < 15000;
+      if (!carFresh) return;
+      final now = DateTime.now();
+      final last = _lastCarBrowseSeen;
+      _lastCarBrowseSeen = now;
+      final isNewConnection =
+          last == null || now.difference(last) > const Duration(minutes: 5);
+      if (!isNewConnection) return;
+      if (service.hasBook) return;
+      if (!await PlayerSettings.getAutoplayOnCarConnect()) return;
+      // Let the browse tree and session setup settle before starting audio.
+      await Future.delayed(const Duration(milliseconds: 1500));
+      if (service.hasBook || service.isPlaying) return;
+      final restore = AudioPlayerService.onColdStartPlayRequested;
+      if (restore == null) return;
+      debugPrint('[AutoPlay] Android Auto connected - resuming last played');
+      await restore();
+    } catch (e) {
+      debugPrint('[AutoPlay] car-connect autoplay failed: $e');
+    }
   }
 
   @override
@@ -850,22 +1197,28 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
   }
 
   @override
-  Future<List<MediaItem>> search(String query,
-      [Map<String, dynamic>? extras]) async {
+  Future<List<MediaItem>> search(
+    String query, [
+    Map<String, dynamic>? extras,
+  ]) async {
     debugPrint('[Handler] search("$query")');
     return _autoService.search(query);
   }
 
   @override
-  Future<void> prepareFromMediaId(String mediaId,
-      [Map<String, dynamic>? extras]) async {
+  Future<void> prepareFromMediaId(
+    String mediaId, [
+    Map<String, dynamic>? extras,
+  ]) async {
     debugPrint('[Handler] prepareFromMediaId($mediaId)');
     await _playFromAutoMediaId(mediaId);
   }
 
   @override
-  Future<void> playFromMediaId(String mediaId,
-      [Map<String, dynamic>? extras]) async {
+  Future<void> playFromMediaId(
+    String mediaId, [
+    Map<String, dynamic>? extras,
+  ]) async {
     debugPrint('[Handler] playFromMediaId($mediaId)');
     await _playFromAutoMediaId(mediaId);
   }
@@ -904,7 +1257,9 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
     if (entry == null) {
       final ds = DownloadService();
       if (ds.isDownloaded(absId)) {
-        debugPrint('[Handler] Item not in AA cache but downloaded locally: $absId');
+        debugPrint(
+          '[Handler] Item not in AA cache but downloaded locally: $absId',
+        );
         final dl = ds.getInfo(absId);
         double duration = 0;
         List<dynamic> chapters = [];
@@ -924,6 +1279,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
           chapters: chapters,
           episodeId: episodeId,
           showId: showId,
+          libraryId: dl.libraryId,
         );
       }
     }
@@ -954,6 +1310,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
                 chapters: ep['chapters'] as List<dynamic>? ?? [],
                 episodeId: episodeId,
                 showId: showId,
+                libraryId: response['libraryId'] as String?,
               );
             }
           } else {
@@ -964,6 +1321,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
               duration: (media?['duration'] as num?)?.toDouble() ?? 0,
               coverUrl: AndroidAutoService.localCoverUri(absId),
               chapters: media?['chapters'] as List<dynamic>? ?? [],
+              libraryId: response['libraryId'] as String?,
             );
           }
         }
@@ -977,7 +1335,9 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       return;
     }
 
-    debugPrint('[Handler] Android Auto play: "${entry.title}" by ${entry.author}');
+    debugPrint(
+      '[Handler] Android Auto play: "${entry.title}" by ${entry.author}',
+    );
 
     // Always generate a fresh HTTP cover URL for Now Playing — api is
     // available here, so use it directly rather than relying on the cached
@@ -995,6 +1355,7 @@ class AudioPlayerHandler extends BaseAudioHandler with SeekHandler {
       startTime: entry.currentTime ?? 0,
       episodeId: entry.episodeId,
       episodeTitle: entry.episodeId != null ? entry.title : null,
+      libraryId: entry.libraryId,
     );
   }
 }
@@ -1025,9 +1386,11 @@ class AudioPlayerService extends ChangeNotifier {
   // natively (no fresh setAudioSource in background, so iOS keeps granting
   // audio output). The map must contain at least: itemId, title, author,
   // duration, and either localPaths or audioTracks.
-  static Future<Map<String, dynamic>?> Function(String currentItemId)? _onPeekNextItemCallback;
+  static Future<Map<String, dynamic>?> Function(String currentItemId)?
+  _onPeekNextItemCallback;
   static void setOnPeekNextItemCallback(
-      Future<Map<String, dynamic>?> Function(String)? cb) {
+    Future<Map<String, dynamic>?> Function(String)? cb,
+  ) {
     _onPeekNextItemCallback = cb;
   }
 
@@ -1053,7 +1416,9 @@ class AudioPlayerService extends ChangeNotifier {
     // Drop the stale completion instead.
     final loaded = _instance._currentItemId;
     if (loaded != null) {
-      debugPrint('[Player] Dropping stale book-finished drain (player has item=$loaded, buffered key=$pending)');
+      debugPrint(
+        '[Player] Dropping stale book-finished drain (player has item=$loaded, buffered key=$pending)',
+      );
       return;
     }
 
@@ -1063,8 +1428,11 @@ class AudioPlayerService extends ChangeNotifier {
 
   /// Called when a new item starts playing. Used by LibraryProvider to trigger
   /// rolling downloads for the next items in a series/podcast.
-  static void Function(String key)? _onPlayStartedCallback;
-  static void setOnPlayStartedCallback(void Function(String key)? cb) {
+  static Future<void> Function(String key, double duration)?
+      _onPlayStartedCallback;
+  static void setOnPlayStartedCallback(
+    Future<void> Function(String key, double duration)? cb,
+  ) {
     _onPlayStartedCallback = cb;
   }
 
@@ -1078,7 +1446,9 @@ class AudioPlayerService extends ChangeNotifier {
   /// Called when playback state changes (playing/paused). Used by
   /// LibraryProvider for battery-saving socket lifecycle.
   static void Function(bool isPlaying)? _onPlaybackStateChangedCallback;
-  static void setOnPlaybackStateChangedCallback(void Function(bool isPlaying)? cb) {
+  static void setOnPlaybackStateChangedCallback(
+    void Function(bool isPlaying)? cb,
+  ) {
     _onPlaybackStateChangedCallback = cb;
   }
 
@@ -1099,10 +1469,17 @@ class AudioPlayerService extends ChangeNotifier {
   String? _currentAuthor;
   String? _currentCoverUrl;
   double _totalDuration = 0;
+  // The item's metadata duration as passed to playItem. _totalDuration gets
+  // replaced by the playback session's track-sum once a stream opens, and the
+  // two can disagree by minutes when the server's metadata is off - but the
+  // in-app cards display the metadata number, so time surfaces that need to
+  // match them (the iOS widget) read this instead.
+  double _metaDuration = 0;
   List<dynamic> _chapters = [];
   ApiService? _api;
   ApiService? get currentApi => _api;
   String? _playbackSessionId;
+
   /// Phase 1.7: latest streaming URLs (with auth token already in the
   /// query string) and custom HTTP headers needed by reverse proxies like
   /// Cloudflare Access. Stashed to the iOS app group on each player update
@@ -1112,6 +1489,22 @@ class AudioPlayerService extends ChangeNotifier {
   List<String> get activeStreamUrls => _activeStreamUrls;
   Map<String, String> get activeStreamHeaders => _activeStreamHeaders;
   bool _isOfflineMode = false;
+
+  /// True while the current play started from downloaded files and is reporting
+  /// to the server via the client-owned LOCAL session model (GH #276/#280)
+  /// instead of a live `/play` session. Position still syncs via /me/progress.
+  bool _localSessionMode = false;
+
+  // Set when a loadOnly playItem skipped starting the local session; the
+  // first real play() begins it, so listening time still gets recorded.
+  ({
+    String progressKey,
+    String itemId,
+    String? episodeId,
+    double duration,
+    String title,
+    String author,
+  })? _pendingLoadOnlySession;
 
   /// Externally-pushed signal that the server is currently unreachable.
   /// AuthProvider mirrors `serverReachable` here on each ping result so we
@@ -1144,8 +1537,37 @@ class AudioPlayerService extends ChangeNotifier {
   Map<String, dynamic>? _preloadedNextBook;
   bool _autoQueueAdvancing = false;
   Timer? _bgSaveTimer;
+  Timer? _advanceBufferingBackstop;
   Timer? _pauseStopTimer;
   static const _pauseStopTimeout = Duration(minutes: 10);
+  // A streamed book's cover isn't in the content-provider cache on first play,
+  // so the notification's first art request races the on-demand fetch and the
+  // OS caches the empty result against the fixed cover URI. We re-push the
+  // MediaItem once with a cache-busting URI so the OS re-requests it after the
+  // cover has been fetched. Tracks the item already scheduled for this.
+  String? _coverRepushItem;
+  Timer? _coverRepushTimer;
+
+  void _beginAdvanceBuffering() {
+    if (!Platform.isAndroid) return;
+    _handler?.setAdvanceBuffering(
+      true,
+      minimumDuration: const Duration(milliseconds: 900),
+    );
+    _advanceBufferingBackstop?.cancel();
+    _advanceBufferingBackstop = Timer(const Duration(seconds: 30), () {
+      _advanceBufferingBackstop = null;
+      _handler?.setAdvanceBuffering(false);
+    });
+  }
+
+  void _endAdvanceBuffering() {
+    if (!Platform.isAndroid) return;
+    _advanceBufferingBackstop?.cancel();
+    _advanceBufferingBackstop = null;
+    _handler?.setAdvanceBuffering(false);
+  }
+
   /// Last known position in seconds — used to detect end→0 position jumps.
   double _lastKnownPositionSec = 0;
   // ── Stream error retry tracking ──
@@ -1166,6 +1588,16 @@ class AudioPlayerService extends ChangeNotifier {
   List<double> _trackStartOffsets = []; // [0, dur0, dur0+dur1, ...]
   List<double> get trackStartOffsets => _trackStartOffsets;
   int _currentTrackIndex = 0;
+
+  // When a downloaded file decodes shorter than the book's metadata duration
+  // (an incomplete or corrupt download), this holds the real playable length
+  // in seconds. Seeks are clamped to it, and the truncation-end position is
+  // never saved over a further-along stored position. null = file looks fine.
+  // GH #278: a half-downloaded book otherwise clamped every resume back to the
+  // file's end (50% of the book) and saved that over the user's real progress.
+  double? _shortLocalDurationSec;
+  // Ignore small encoder/container rounding when comparing decoded vs metadata.
+  static const double _kLocalTruncationMarginSec = 60.0;
   int _lastNotifiedChapterIndex = -1;
   int _lastChapterCheckSec = -1;
   StreamSubscription? _indexSub;
@@ -1199,27 +1631,23 @@ class AudioPlayerService extends ChangeNotifier {
       _notifChapterMode = v;
       // Re-push MediaItem + PlaybackState so notification updates immediately
       if (_currentItemId != null) {
-        _pushMediaItem(_mediaItemKey, _currentTitle ?? '', _currentAuthor ?? '',
-            _currentCoverUrl, _totalDuration,
-            chapter: _lastNotifiedChapterIndex >= 0 && _chapters.isNotEmpty
-                ? (_chapters[_lastNotifiedChapterIndex] as Map<String, dynamic>)['title'] as String?
-                : null);
+        _pushMediaItem(
+          _mediaItemKey,
+          _currentTitle ?? '',
+          _currentAuthor ?? '',
+          _currentCoverUrl,
+          _totalDuration,
+          chapter: _lastNotifiedChapterIndex >= 0 && _chapters.isNotEmpty
+              ? (_chapters[_lastNotifiedChapterIndex]
+                        as Map<String, dynamic>)['title']
+                    as String?
+              : null,
+        );
         _handler?.refreshPlaybackState();
       }
     });
     // Update cached skip amounts so notification icons stay in sync
-    PlayerSettings.getForwardSkip().then((v) {
-      if (_handler != null && v != _handler!._cachedForwardSkip) {
-        _handler!._cachedForwardSkip = v;
-        _handler!.refreshPlaybackState();
-      }
-    });
-    PlayerSettings.getBackSkip().then((v) {
-      if (_handler != null && v != _handler!._cachedBackSkip) {
-        _handler!._cachedBackSkip = v;
-        _handler!.refreshPlaybackState();
-      }
-    });
+    _syncNotifSkipCache();
     PlayerSettings.getMediaControlsSpeedBookmark().then((v) {
       if (_handler != null && v != _handler!._cachedNotifSpeedBookmark) {
         _handler!._cachedNotifSpeedBookmark = v;
@@ -1232,6 +1660,116 @@ class AudioPlayerService extends ChangeNotifier {
         _handler!.refreshPlaybackState();
       }
     });
+    if (Platform.isAndroid) {
+      PlayerSettings.getDuckBriefInterruptions().then((v) async {
+        if (v == _duckBriefInterruptions) return;
+        final previousVolume = _volumeBeforeInterruptionDuck;
+        _volumeBeforeInterruptionDuck = null;
+        _clearDuckWatchdog();
+        if (previousVolume != null) {
+          await _player?.setVolume(previousVolume);
+        }
+        await _configureAudioSession();
+      });
+    }
+  }
+
+  static const _playerCoreChannel = MethodChannel('com.absorb.player_core');
+  static const _audioServiceClientChannel = MethodChannel(
+    'com.ryanheise.audio_service.client.methods',
+  );
+
+  /// Point the iOS lock screen skip buttons at [forward] / [backward] seconds.
+  /// Unlike Android, iOS doesn't ask how far to skip on each press - it reads
+  /// the amounts off MPRemoteCommandCenter, which audio_service writes once at
+  /// startup and the native core armed with the defaults, so changing the
+  /// setting never reached the lock screen. Tell both, since they write the
+  /// same properties and whoever goes last wins.
+  static Future<void> _pushIosSkipIntervals(int forward, int backward) async {
+    try {
+      await _playerCoreChannel.invokeMethod('setSkipIntervals', {
+        'forward': forward,
+        'backward': backward,
+      });
+    } catch (e) {
+      debugPrint('[SkipDebug] native core setSkipIntervals failed: $e');
+    }
+    try {
+      await _audioServiceClientChannel.invokeMethod('updateSkipIntervals', {
+        'fastForwardInterval': forward * 1000,
+        'rewindInterval': backward * 1000,
+      });
+    } catch (e) {
+      debugPrint('[SkipDebug] audio_service updateSkipIntervals failed: $e');
+    }
+  }
+
+  /// Refresh the notification's cached skip labels with the amounts for the
+  /// current library. Called on settings changes and whenever the loaded
+  /// item changes.
+  void _syncNotifSkipCache() {
+    final libId = _currentLibraryId;
+    final fwdFuture = PlayerSettings.getEffectiveForwardSkip(libraryId: libId);
+    final backFuture = PlayerSettings.getEffectiveBackSkip(libraryId: libId);
+    fwdFuture.then((v) {
+      debugPrint(
+        '[SkipDebug] notif cache: lib=$libId fwd=${v}s (was ${_handler?._cachedForwardSkip})',
+      );
+      if (_handler != null && v != _handler!._cachedForwardSkip) {
+        _handler!._cachedForwardSkip = v;
+        _handler!.refreshPlaybackState();
+      }
+    });
+    backFuture.then((v) {
+      if (_handler != null && v != _handler!._cachedBackSkip) {
+        _handler!._cachedBackSkip = v;
+        _handler!.refreshPlaybackState();
+      }
+    });
+    if (Platform.isIOS) {
+      unawaited(
+        Future.wait([fwdFuture, backFuture])
+            .then((v) => _pushIosSkipIntervals(v[0], v[1])),
+      );
+    }
+  }
+
+  /// Fill in a missing library id for the playing item so per-library skip
+  /// amounts apply outside the in-app UI too (notification, headset, home
+  /// widget, Android Auto). Lean shelf items and merged-library podcast
+  /// entries often arrive without one; try download metadata synchronously,
+  /// then the server.
+  void _resolveMissingLibraryId(String itemId, String? episodeId) {
+    if (itemId.isEmpty) return;
+    if (_currentLibraryId != null && _currentLibraryId!.isNotEmpty) return;
+    final key = episodeId != null ? '$itemId-$episodeId' : itemId;
+    final fromDownload = DownloadService().getInfo(key).libraryId;
+    if (fromDownload != null && fromDownload.isNotEmpty) {
+      debugPrint(
+        '[SkipDebug] libraryId resolved from download metadata: $fromDownload',
+      );
+      _currentLibraryId = fromDownload;
+      return;
+    }
+    final api = _api;
+    if (api == null) return;
+    unawaited(() async {
+      try {
+        final item = await api.getLibraryItem(itemId);
+        final libId = item?['libraryId'] as String?;
+        if (libId == null || libId.isEmpty) return;
+        // Only adopt if this item is still the one playing and nothing else
+        // resolved the library in the meantime (e.g. the play session).
+        if (_currentItemId != itemId) return;
+        if (_currentLibraryId != null && _currentLibraryId!.isNotEmpty) return;
+        debugPrint('[SkipDebug] libraryId resolved from server: $libId');
+        _currentLibraryId = libId;
+        _syncNotifSkipCache();
+        notifyListeners();
+      } catch (e) {
+        debugPrint('[SkipDebug] libraryId lookup failed: $e');
+      }
+    }());
   }
 
   /// The last seek target in seconds (absolute book position).
@@ -1263,7 +1801,11 @@ class AudioPlayerService extends ChangeNotifier {
   final _history = PlaybackHistoryService();
 
   /// Log a playback event to history.
-  void _logEvent(PlaybackEventType type, {String? detail, double? overridePosition}) {
+  void _logEvent(
+    PlaybackEventType type, {
+    String? detail,
+    double? overridePosition,
+  }) {
     if (_currentItemId == null) return;
     _history.log(
       itemId: _currentItemId!,
@@ -1277,7 +1819,8 @@ class AudioPlayerService extends ChangeNotifier {
     final h = d.inHours;
     final m = d.inMinutes % 60;
     final s = d.inSeconds % 60;
-    if (h > 0) return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+    if (h > 0)
+      return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
     return '$m:${s.toString().padLeft(2, '0')}';
   }
 
@@ -1286,21 +1829,65 @@ class AudioPlayerService extends ChangeNotifier {
   String? get currentAuthor => _currentAuthor;
   String? get currentCoverUrl => _currentCoverUrl;
   double get totalDuration => _totalDuration;
+  double get displayDuration =>
+      _metaDuration > 0 ? _metaDuration : _totalDuration;
   List<dynamic> get chapters => _chapters;
+
+  /// GH #298: how every "now playing" surface (lock screen, CarPlay, Android
+  /// Auto, home widget) labels the current item — the chapter goes on the
+  /// primary line and the book sits beside the author ("Author · Book").
+  /// Chapterless content (podcasts, books with no chapters) keeps the
+  /// book/episode on the primary line.
+  static ({String title, String subtitle}) nowPlayingLabels(
+    String primaryTitle,
+    String author,
+    String? chapter,
+  ) {
+    final ch = chapter?.trim() ?? '';
+    if (ch.isEmpty) return (title: primaryTitle, subtitle: author);
+    final a = author.trim();
+    final String subtitle;
+    if (a.isEmpty) {
+      subtitle = primaryTitle;
+    } else if (primaryTitle.isEmpty) {
+      subtitle = a;
+    } else {
+      subtitle = '$a · $primaryTitle';
+    }
+    return (title: ch, subtitle: subtitle);
+  }
+
+  /// Chapter-aware primary line for the current item (GH #298).
+  String get nowPlayingTitle => nowPlayingLabels(
+    _currentTitle ?? '',
+    _currentAuthor ?? '',
+    currentChapter?['title'] as String?,
+  ).title;
+
+  /// Chapter-aware secondary line ("Author · Book") for the current item.
+  String get nowPlayingSubtitle => nowPlayingLabels(
+    _currentTitle ?? '',
+    _currentAuthor ?? '',
+    currentChapter?['title'] as String?,
+  ).subtitle;
 
   void updateChapters(List<dynamic> chapters) {
     _chapters = chapters;
     _handler?.updateChaptersQueue(chapters);
     notifyListeners();
   }
+
   bool get hasBook => _currentItemId != null;
+
   /// True when a loaded item is in an active session - playing OR paused.
   /// stop() drops the engine to idle while keeping _currentItemId, so this is
   /// false for a stopped session even though [hasBook] stays true.
   bool get hasActiveSession =>
       _currentItemId != null &&
-      (_player?.processingState ?? ProcessingState.idle) != ProcessingState.idle;
+      (_player?.processingState ?? ProcessingState.idle) !=
+          ProcessingState.idle;
   bool get isPlaying => _player?.playing ?? false;
+
   /// True while [playItem] is setting up a new audio source.
   bool _isLoadingNewItem = false;
   bool get isLoadingNewItem => _isLoadingNewItem;
@@ -1309,13 +1896,15 @@ class AudioPlayerService extends ChangeNotifier {
     final s = _player?.processingState;
     return s == ProcessingState.loading || s == ProcessingState.buffering;
   }
+
   bool get isOfflineMode => _isOfflineMode;
   double get volume => _player?.volume ?? 1.0;
   Future<void> setVolume(double v) async => _player?.setVolume(v);
 
   static const _eqChannelForDiag = MethodChannel('com.absorb.equalizer');
-  static const _queueAdvancerChannel = MethodChannel('com.absorb.queue_advancer');
-
+  static const _queueAdvancerChannel = MethodChannel(
+    'com.absorb.queue_advancer',
+  );
   void _resetPreBufferState() {
     _activeConcatSource = null;
     _currentBookTrackCount = 0;
@@ -1350,7 +1939,9 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<void> _preloadNextBookAsync(
-      Future<Map<String, dynamic>?> Function(String) cb, String currentId) async {
+    Future<Map<String, dynamic>?> Function(String) cb,
+    String currentId,
+  ) async {
     try {
       final next = await cb(currentId);
       if (next == null) {
@@ -1368,10 +1959,32 @@ class AudioPlayerService extends ChangeNotifier {
       final progressKey = next['episodeId'] != null
           ? '$nextItemId-${next['episodeId']}'
           : nextItemId;
+      double localS = 0;
       final saved = await _progressSync.getLocal(progressKey);
       if (saved != null && !(saved['isFinished'] as bool? ?? false)) {
-        startS = (saved['currentTime'] as num?)?.toDouble() ?? 0;
+        localS = (saved['currentTime'] as num?)?.toDouble() ?? 0;
       }
+      startS = localS;
+      // Local storage can be empty or behind when the progress lives on the
+      // server (another device, fresh install). Server-ahead wins, same as
+      // the playItem position pick.
+      double serverS = 0;
+      if (_api != null && !_isOfflineMode) {
+        try {
+          final server = await _api!
+              .getItemProgress(progressKey)
+              .timeout(const Duration(seconds: 5), onTimeout: () => null);
+          final serverTime = (server?['currentTime'] as num?)?.toDouble() ?? 0;
+          final serverFinished = server?['isFinished'] as bool? ?? false;
+          if (!serverFinished) serverS = serverTime;
+          if (serverS > startS) startS = serverS;
+        } catch (_) {}
+      }
+      debugPrint(
+        '[PreBuffer] Resume pick for $progressKey: '
+        'local=${localS.toStringAsFixed(1)}s server=${serverS.toStringAsFixed(1)}s '
+        '-> start=${startS.toStringAsFixed(1)}s',
+      );
       next['startS'] = startS;
 
       // Build audio source for the next item.
@@ -1381,14 +1994,18 @@ class AudioPlayerService extends ChangeNotifier {
 
       List<AudioSource>? nextTrackSources;
       if (localPaths != null && localPaths.isNotEmpty) {
-        nextTrackSources =
-            localPaths.map((p) => AudioSource.file(p) as AudioSource).toList();
+        nextTrackSources = localPaths.map((p) => localAudioSource(p)).toList();
       } else if (audioTracks != null && audioTracks.isNotEmpty) {
         nextTrackSources = audioTracks
-            .map((t) => AudioSource.uri(
-                  Uri.parse((t as Map<String, dynamic>)['url'] as String),
-                  headers: audioHeaders,
-                ) as AudioSource)
+            .map(
+              (t) =>
+                  AudioSource.uri(
+                        Uri.parse((t as Map<String, dynamic>)['url'] as String),
+                        headers: audioHeaders,
+                        options: mp3ExtractorOptions(),
+                      )
+                      as AudioSource,
+            )
             .toList();
       }
       if (nextTrackSources == null || nextTrackSources.isEmpty) {
@@ -1396,7 +2013,9 @@ class AudioPlayerService extends ChangeNotifier {
         return;
       }
       if (nextTrackSources.length != 1) {
-        debugPrint('[PreBuffer] Next item is multi-track, skipping (MVP supports single-track only)');
+        debugPrint(
+          '[PreBuffer] Next item is multi-track, skipping (MVP supports single-track only)',
+        );
         return;
       }
 
@@ -1409,13 +2028,16 @@ class AudioPlayerService extends ChangeNotifier {
           source,
           startPositionS: startS,
           totalDurationS: (next['duration'] as num?)?.toDouble() ?? 0,
+          itemId: nextItemId,
         );
         if (!ok) {
           debugPrint('[PreBuffer] Native setNextSource failed');
           return;
         }
         _preloadedNextBook = next;
-        debugPrint('[PreBuffer] Pre-loaded native: ${next['title']} ($nextItemId) start=${startS.toStringAsFixed(1)}s');
+        debugPrint(
+          '[PreBuffer] Pre-loaded native: ${next['title']} ($nextItemId) start=${startS.toStringAsFixed(1)}s',
+        );
         return;
       }
 
@@ -1428,11 +2050,21 @@ class AudioPlayerService extends ChangeNotifier {
         await concat.add(s);
       }
       _preloadedNextBook = next;
-      debugPrint('[PreBuffer] Pre-loaded next item: ${next['title']} ($nextItemId)');
+      debugPrint(
+        '[PreBuffer] Pre-loaded next item: ${next['title']} ($nextItemId) '
+        'start=${startS.toStringAsFixed(1)}s',
+      );
 
       if (Platform.isIOS) {
         // Legacy native queue advancer kick (flag-off path).
-        unawaited(_primeNativeQueueAdvancer(next, localPaths, audioTracks, audioHeaders));
+        unawaited(
+          _primeNativeQueueAdvancer(
+            next,
+            localPaths,
+            audioTracks,
+            audioHeaders,
+          ),
+        );
       }
     } catch (e, st) {
       debugPrint('[PreBuffer] Failed: $e\n$st');
@@ -1442,10 +2074,11 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   Future<bool> _primeNativeQueueAdvancer(
-      Map<String, dynamic> next,
-      List<String>? localPaths,
-      List<dynamic>? audioTracks,
-      Map<String, String>? audioHeaders) async {
+    Map<String, dynamic> next,
+    List<String>? localPaths,
+    List<dynamic>? audioTracks,
+    Map<String, String>? audioHeaders,
+  ) async {
     try {
       String? url;
       bool isLocal = false;
@@ -1466,12 +2099,23 @@ class AudioPlayerService extends ChangeNotifier {
 
       final startS = (next['startS'] as num?)?.toDouble() ?? 0;
 
+      // GH #298: label the pre-buffered next book like the lock screen — its
+      // chapter at the resume point as title, "Author · Book" beneath.
+      final nextLabels = nowPlayingLabels(
+        (next['title'] as String?) ?? '',
+        (next['author'] as String?) ?? '',
+        _chapterTitleAt(
+          (next['chapters'] as List<dynamic>?) ?? const [],
+          startS,
+        ),
+      );
+
       final ok = await _queueAdvancerChannel.invokeMethod<bool>('prepareNext', {
         'url': url,
         'isLocal': isLocal,
         'headers': audioHeaders ?? <String, String>{},
-        'title': next['title'] ?? '',
-        'artist': next['author'] ?? '',
+        'title': nextLabels.title,
+        'artist': nextLabels.subtitle,
         'durationS': (next['duration'] as num?)?.toDouble() ?? 0,
         'coverPath': coverPath,
         'startS': startS,
@@ -1489,19 +2133,27 @@ class AudioPlayerService extends ChangeNotifier {
     if (next == null) return;
     if (_autoQueueAdvancing) return;
     _autoQueueAdvancing = true;
+    _beginAdvanceBuffering();
     debugPrint('[PreBuffer] Auto-queue advanced to ${next['title']}');
+    final oldTrackCount = _currentBookTrackCount;
 
     final oldItemId = _currentItemId;
     final oldEpisodeId = _currentEpisodeId;
-    final oldKey = oldEpisodeId != null ? '$oldItemId-$oldEpisodeId' : oldItemId;
+    final oldKey = oldEpisodeId != null
+        ? '$oldItemId-$oldEpisodeId'
+        : oldItemId;
 
     // Promote next book's metadata to current state
     _currentItemId = next['itemId'] as String?;
     _currentEpisodeId = next['episodeId'] as String?;
+    _currentLibraryId = next['libraryId'] as String?;
+    _resolveMissingLibraryId(_currentItemId ?? '', _currentEpisodeId);
+    _syncNotifSkipCache();
     _currentTitle = next['title'] as String?;
     _currentAuthor = next['author'] as String?;
     _currentCoverUrl = next['coverUrl'] as String?;
     _totalDuration = (next['duration'] as num?)?.toDouble() ?? 0;
+    _metaDuration = _totalDuration;
     _chapters = (next['chapters'] as List<dynamic>?) ?? [];
     _handler?.updateChaptersQueue(_chapters);
     _trackStartOffsets = [0.0, _totalDuration];
@@ -1509,6 +2161,12 @@ class AudioPlayerService extends ChangeNotifier {
     _playbackSessionId = null;
     final startS = (next['startS'] as num?)?.toDouble() ?? 0;
     _lastKnownPositionSec = startS;
+    final newKey = _currentEpisodeId != null
+        ? '$_currentItemId-$_currentEpisodeId'
+        : _currentItemId;
+    debugPrint(
+      '[PreBuffer] Promoted $oldKey -> $newKey start=${startS.toStringAsFixed(1)}s',
+    );
     _lastNotifiedChapterIndex = -1;
     _currentBookTrackCount = 1;
     _preloadedNextBook = null;
@@ -1516,17 +2174,28 @@ class AudioPlayerService extends ChangeNotifier {
 
     // Push new media item to update Now Playing / lock screen
     final initChapter = _initChapterInfo(startS);
-    _pushMediaItem(_currentItemId!, _currentTitle ?? '', _currentAuthor ?? '',
-        _currentCoverUrl, _totalDuration,
-        chapter: initChapter);
-    unawaited(_primeNowPlaying(
+    _pushMediaItem(
+      _currentItemId!,
+      _currentTitle ?? '',
+      _currentAuthor ?? '',
+      _currentCoverUrl,
+      _totalDuration,
+      chapter: initChapter,
+    );
+    unawaited(
+      _primeNowPlaying(
         title: _currentTitle ?? '',
         artist: _currentAuthor ?? '',
         duration: _totalDuration,
-        elapsed: startS));
+        elapsed: startS,
+        chapter: initChapter,
+      ),
+    );
 
     if (Platform.isIOS) {
       unawaited(_iosAutoAdvanceKick());
+    } else {
+      unawaited(_finalizeAndroidAutoAdvance(oldTrackCount, startS));
     }
 
     // Notify LibraryProvider via auto-queue-specific callback (skipAutoAdvance
@@ -1543,6 +2212,39 @@ class AudioPlayerService extends ChangeNotifier {
     _autoQueueAdvancing = false;
   }
 
+  /// ExoPlayer walks into the pre-buffered book at position 0 with the
+  /// finished item's tracks still in front of it in the concat, so absolute
+  /// seeks map into the dead item (and clamp at its end) and the saved resume
+  /// position is never applied. Drop the old tracks so the book becomes
+  /// index 0, restore single-file offsets, and jump to where the user left it.
+  Future<void> _finalizeAndroidAutoAdvance(
+    int oldTrackCount,
+    double startS,
+  ) async {
+    try {
+      final concat = _activeConcatSource;
+      if (concat != null &&
+          oldTrackCount > 0 &&
+          concat.length > oldTrackCount) {
+        await concat.removeRange(0, oldTrackCount);
+        debugPrint(
+          '[PreBuffer] Dropped $oldTrackCount finished track(s); concat now ${concat.length}',
+        );
+      }
+      _trackStartOffsets = [0.0];
+      _currentTrackIndex = 0;
+      if (startS > 0) {
+        await _seekAbsolute(startS);
+        clearSeekTarget();
+        debugPrint(
+          '[PreBuffer] Resumed advanced book at ${startS.toStringAsFixed(1)}s',
+        );
+      }
+    } catch (e) {
+      debugPrint('[PreBuffer] Android advance finalize failed: $e');
+    }
+  }
+
   // Set when native commitAdvance swaps in a foreign AVPlayerItem. just_audio
   // sees _index = -1 from then on; we need to rebuild its source the next
   // time the app is foregrounded so position and pause work normally.
@@ -1557,9 +2259,10 @@ class AudioPlayerService extends ChangeNotifier {
     }
     if (_isBackgrounded) {
       try {
-        final ok = await _queueAdvancerChannel.invokeMethod<bool>('commitAdvance', {
-          'speed': speed,
-        });
+        final ok = await _queueAdvancerChannel.invokeMethod<bool>(
+          'commitAdvance',
+          {'speed': speed},
+        );
         if (ok == true) {
           _iosResyncPending = true;
           debugPrint('[QueueAdvance] native commit succeeded, resync armed');
@@ -1589,12 +2292,16 @@ class AudioPlayerService extends ChangeNotifier {
     }
     double startS = 0;
     try {
-      final pos = await _queueAdvancerChannel.invokeMethod<double>('getPositionS');
+      final pos = await _queueAdvancerChannel.invokeMethod<double>(
+        'getPositionS',
+      );
       if (pos != null && pos > 0) startS = pos;
     } catch (e) {
       debugPrint('[QueueAdvance] getPositionS failed: $e');
     }
-    debugPrint('[QueueAdvance] Resyncing just_audio for $itemId at ${startS.toStringAsFixed(1)}s');
+    debugPrint(
+      '[QueueAdvance] Resyncing just_audio for $itemId at ${startS.toStringAsFixed(1)}s',
+    );
     try {
       await playItem(
         api: api,
@@ -1607,10 +2314,209 @@ class AudioPlayerService extends ChangeNotifier {
         startTime: startS,
         forceStartTime: true,
         episodeId: _currentEpisodeId,
+        libraryId: _currentLibraryId,
       );
     } catch (e) {
       debugPrint('[QueueAdvance] resync playItem failed: $e');
     }
+  }
+
+  /// iOS: re-take the Now Playing claim after something may have knocked it
+  /// out while paused - a stretch suspended in the background where an
+  /// interruption came and went unseen, the user opening another app that
+  /// played something, or the headphones being stowed. iOS deactivates the
+  /// session for the interrupter, and a paused app that never re-activates
+  /// quietly falls out of Now Playing candidacy: the next headset press then
+  /// goes to Apple Music instead.
+  ///
+  /// Deliberately NOT called when an interruption ends while paused. Plenty
+  /// of apps deactivate their session on pause, which arrives here as an
+  /// interruption ending, and claiming at that moment would take the headset
+  /// away from the app the user just paused. The foreground and
+  /// route-disconnect calls pick the claim back up the next time the user
+  /// comes back to Absorb.
+  ///
+  /// Re-activating and republishing metadata is NOT enough on its own. iOS
+  /// only hands the slot to an app that has actually rendered audio, which is
+  /// what build 249 got wrong and 251 fixed with a silent blip - so the claim
+  /// goes through the native primer rather than being done here. Doing it in
+  /// Dart looked like it worked, because setActive succeeds either way.
+  ///
+  /// Only runs when nothing else is audibly playing: the claim matters
+  /// exactly when the next press should reach this app, and grabbing it out
+  /// from under an app mid-playback would be rude. The primer re-checks that
+  /// and activates the session itself, so nothing is activated from Dart and
+  /// the guard and the activation stay together with no gap between them.
+  Future<void> reassertIosClaimWhilePaused(String reason) async {
+    if (!Platform.isIOS || !hasBook || isPlaying) return;
+    try {
+      final info = await _eqChannelForDiag
+          .invokeMethod<Map<dynamic, dynamic>>('getAudioDiagnostics');
+      if (info?['isOtherAudioPlaying'] == true ||
+          info?['secondaryAudioShouldBeSilencedHint'] == true) {
+        debugPrint(
+          '[AudioSession] claim reassert skipped ($reason) - other audio is playing',
+        );
+        return;
+      }
+      // Publish this book before the blip, so the slot we take back shows the
+      // right title rather than whatever the app that stole it left behind.
+      _handler?.refreshPlaybackState();
+      final started = await _eqChannelForDiag.invokeMethod<bool>(
+        'reclaimNowPlaying',
+        {'reason': reason},
+      );
+      debugPrint(
+        '[AudioSession] claim reassert ($reason): blip started=$started',
+      );
+    } catch (e) {
+      debugPrint('[AudioSession] claim reassert failed ($reason): $e');
+    }
+  }
+
+  /// iOS: a headset press can cold-launch the app into the background with
+  /// the native core already driving the shared engine (its remote commands
+  /// arm at app launch). Dart then boots with no book loaded, so
+  /// audio_service publishes a blank Now Playing over the native core's and
+  /// every later press defers to a player that knows nothing - the lock
+  /// screen shows audio running with no title, cover or progress. Adopt
+  /// instead: restore the last-played item at the engine's own live position,
+  /// which re-publishes full metadata and puts Dart in charge of the audio
+  /// that is already running. Called once from main.dart after init.
+  Future<void> adoptBackgroundEngineIfRunning() async {
+    if (!Platform.isIOS) return;
+    if (_currentItemId != null) return;
+    final player = _player;
+    if (player == null) return;
+    try {
+      var state = await player.engineState();
+      // A press-launched process races this check twice over: Dart init can
+      // get here before the native core has even LOADED the engine (a field
+      // log had this check lose by two milliseconds), and a stream then
+      // buffers for a while before isPlaying flips. Deciding on the first
+      // read left Dart bookless under live audio. So poll: a press-loaded
+      // engine shows up within the first second, and once it is loaded, give
+      // the buffer the rest of the budget. On a normal launch nothing ever
+      // loads and this waits out the budget then does nothing - harmless,
+      // since the primer has the lock screen and the command center routes
+      // any early press to the cold-start restore.
+      var waited = 0;
+      while ((state == null || !state.isLoaded || !state.isPlaying) &&
+          waited < 4000) {
+        await Future.delayed(const Duration(milliseconds: 500));
+        waited += 500;
+        // Dart started something itself while this waited - a card tap, a
+        // CarPlay autoplay, a headset press routed through the handler. That
+        // is Dart's own playback, not an orphaned engine: the restore below
+        // is the play/pause toggle, and calling it now would pause it.
+        if (_currentItemId != null) return;
+        state = await player.engineState();
+      }
+      if (_currentItemId != null) return;
+      if (state != null && state.isLoaded && state.isPlaying) {
+        debugPrint(
+          '[Player] boot: native engine already playing at '
+          '${state.globalPositionS.toStringAsFixed(1)}s with no book loaded - adopting'
+          '${waited > 0 ? " (waited ${waited}ms for the stream to start)" : ""}',
+        );
+        if (state.globalPositionS > 0) {
+          await HomeWidgetService().stashLivePosition(state.globalPositionS);
+        }
+        final restore = AudioPlayerService.onColdStartPlayRequested;
+        if (restore != null) await restore();
+        return;
+      }
+      // Idle engine: leave the player empty. The book only loads when the
+      // user actually plays - an early headset press still works because the
+      // handler routes play-with-nothing-loaded to the cold-start restore.
+      // (This used to load the last played book paused as a press target,
+      // which put an unasked-for book in the player on every launch.)
+    } catch (e) {
+      debugPrint('[Player] boot engine adopt failed: $e');
+    }
+  }
+
+  /// iOS foreground reconciliation after a possible widget-driven session.
+  ///
+  /// The shared engine (AbsorbAudioEngine) persists across Flutter suspension,
+  /// so when the user tapped the widget while we were suspended the engine kept
+  /// playing the same book. On resume we must NOT reload it - that restarts the
+  /// stream. Instead, if the engine is still on our current book, adopt its
+  /// playing-state, track index, and global position. If the engine has been
+  /// stopped or holds a different book, leave the existing paths to handle it
+  /// (the idle-on-resume re-init in play(), or a fresh playItem).
+  Future<void> _iosReconcileEngineOnForeground() async {
+    if (!Platform.isIOS) return;
+    final player = _player;
+    final itemId = _currentItemId;
+    if (player == null || itemId == null) return;
+    final state = await player.engineState();
+    if (state == null) return;
+    // Engine isn't on our book (stopped, disposed, or swapped) - nothing to
+    // adopt; the normal play()/idle-reinit path will rebuild if needed.
+    if (!state.isLoaded || state.itemId != itemId) {
+      debugPrint(
+        '[Player] iOS resume: engine not on current book '
+        '(engine=${state.itemId} loaded=${state.isLoaded}) - skipping adopt',
+      );
+      return;
+    }
+    // Sync our track index to whatever track the engine actually reached while
+    // we were suspended, so absolute-position math is correct.
+    if (_trackStartOffsets.length > 1) {
+      final clamped = state.trackIndex.clamp(0, _trackStartOffsets.length - 2);
+      if (clamped != _currentTrackIndex) {
+        debugPrint(
+          '[Player] iOS resume: track index $_currentTrackIndex -> $clamped (from engine)',
+        );
+        _currentTrackIndex = clamped;
+      }
+    }
+    // Adopt the engine's playing-state without issuing a new command, then let
+    // the handler re-publish so the lock screen / notification reflect reality.
+    final wasPlaying = isPlaying;
+    player.adoptPlayingState(state.isPlaying);
+    debugPrint(
+      '[Player] iOS resume: adopted engine state playing=${state.isPlaying} '
+      '(was $wasPlaying) global=${state.globalPositionS.toStringAsFixed(1)}s',
+    );
+    // Persist the adopted position only when the engine actually moved on
+    // while Flutter was suspended (a widget or lock screen session), so a
+    // later save can't overwrite it with a stale value. A paused engine
+    // sitting where Dart left it has nothing new to say: saving it anyway
+    // re-stamped a stale position as fresh on every foreground, which blocked
+    // pulling another device's newer progress and, after a session-start
+    // rewind, pushed the server a few seconds backwards per relaunch.
+    if (state.globalPositionS > _lastKnownPositionSec + 1.0) {
+      _lastKnownPositionSec = state.globalPositionS;
+      await _saveProgressLocal(
+        Duration(milliseconds: (state.globalPositionS * 1000).round()),
+      );
+    }
+    // The engine may have crossed chapters while Dart was suspended (a widget
+    // or headset session driven by the native core). Chapter detection runs
+    // off position ticks and a paused engine emits none, so the lock screen
+    // kept the old chapter clamped at its end with no progress while the book
+    // was chapters ahead. Work out the chapter for the adopted position and
+    // republish.
+    // Use this service's own position, which adds the track offset: when Dart
+    // drives the engine one track at a time, the engine's "global" position is
+    // the position within the current track (160s into track 25, not 11026s
+    // into the book), and the chapter for that number is the wrong one.
+    final adoptedItemId = _currentItemId;
+    if (adoptedItemId != null) {
+      final chapterTitle = _initChapterInfo(position.inMilliseconds / 1000.0);
+      _pushMediaItem(
+        adoptedItemId,
+        _currentTitle ?? '',
+        _currentAuthor ?? '',
+        _currentCoverUrl,
+        _totalDuration,
+        chapter: chapterTitle,
+      );
+    }
+    _handler?.refreshPlaybackState();
+    notifyListeners();
   }
 
   Future<void> _primeNowPlaying({
@@ -1618,16 +2524,21 @@ class AudioPlayerService extends ChangeNotifier {
     required String artist,
     required double duration,
     required double elapsed,
+    String? chapter,
   }) async {
     if (!Platform.isIOS) return;
+    // GH #298: match the lock screen — chapter as title, "Author · Book" beneath.
+    final labels = nowPlayingLabels(title, artist, chapter);
     try {
       await _eqChannelForDiag.invokeMethod('primeNowPlaying', {
-        'title': title,
-        'artist': artist,
+        'title': labels.title,
+        'artist': labels.subtitle,
         'duration': duration,
         'elapsed': elapsed,
       });
-      debugPrint('[Player] primeNowPlaying title="$title" elapsed=${elapsed.toStringAsFixed(1)}');
+      debugPrint(
+        '[Player] primeNowPlaying title="${labels.title}" elapsed=${elapsed.toStringAsFixed(1)}',
+      );
     } catch (e) {
       debugPrint('[Player] primeNowPlaying failed: $e');
     }
@@ -1638,6 +2549,14 @@ class AudioPlayerService extends ChangeNotifier {
   /// we can tell apart "player thinks it's playing but no audio reaches
   /// speakers" from "player is buffering forever" from "wrong output
   /// route" etc.
+  /// The system's record of how the last process ended, for deaths the log
+  /// itself cannot see coming.
+  static Future<void> _reportPreviousExit() async {
+    final snap = await AudioPlayerHandler._absorbDiagSnapshot();
+    final info = snap?['lastExit'];
+    if (info != null) debugPrint('[Init] Previous process exit: $info');
+  }
+
   Future<void> _logAudioDiagnostics(String stage) async {
     try {
       final p = _player;
@@ -1657,14 +2576,26 @@ class AudioPlayerService extends ChangeNotifier {
         'ep=$_currentEpisodeId',
       ];
 
+      if (Platform.isAndroid) {
+        // Which output the sound is actually leaving through. A player that
+        // advances with nothing audible and a Bluetooth route here means the
+        // audio went to a device the listener was not wearing.
+        final snap = await AudioPlayerHandler._absorbDiagSnapshot();
+        if (snap != null) {
+          pieces.add('route=[${snap['route']}]');
+          pieces.add('outputs=[${snap['outputs']}]');
+          pieces.add('musicVol=${snap['musicVolume']}');
+        }
+      }
+
       if (Platform.isIOS) {
         try {
           final info = await _eqChannelForDiag
               .invokeMethod<Map<dynamic, dynamic>>('getAudioDiagnostics');
           if (info != null) {
-            final outputs = (info['outputs'] as List?)
-                    ?.map((o) =>
-                        '${(o as Map)["type"]}:${o["name"]}')
+            final outputs =
+                (info['outputs'] as List?)
+                    ?.map((o) => '${(o as Map)["type"]}:${o["name"]}')
                     .join(',') ??
                 '?';
             pieces.addAll([
@@ -1698,9 +2629,18 @@ class AudioPlayerService extends ChangeNotifier {
   /// position-stuck-at-0" is a classic no-sound fingerprint).
   void _scheduleAudioDiagnostics(String startStage) {
     _logAudioDiagnostics('$startStage:t0');
-    Future.delayed(const Duration(seconds: 1), () => _logAudioDiagnostics('$startStage:t1s'));
-    Future.delayed(const Duration(seconds: 3), () => _logAudioDiagnostics('$startStage:t3s'));
-    Future.delayed(const Duration(seconds: 10), () => _logAudioDiagnostics('$startStage:t10s'));
+    Future.delayed(
+      const Duration(seconds: 1),
+      () => _logAudioDiagnostics('$startStage:t1s'),
+    );
+    Future.delayed(
+      const Duration(seconds: 3),
+      () => _logAudioDiagnostics('$startStage:t3s'),
+    );
+    Future.delayed(
+      const Duration(seconds: 10),
+      () => _logAudioDiagnostics('$startStage:t10s'),
+    );
   }
 
   Stream<Duration> get positionStream =>
@@ -1734,7 +2674,8 @@ class AudioPlayerService extends ChangeNotifier {
   Stream<Duration> get absolutePositionStream {
     if (_player == null) return const Stream.empty();
     return _player!.positionStream.map((trackRelative) {
-      if (_trackStartOffsets.length <= 1) return trackRelative; // single file, no offset
+      if (_trackStartOffsets.length <= 1)
+        return trackRelative; // single file, no offset
       final trackIdx = _currentTrackIndex;
       final offsetMs = (_trackStartOffsets[trackIdx] * 1000).round();
       final absolute = trackRelative + Duration(milliseconds: offsetMs);
@@ -1760,54 +2701,140 @@ class AudioPlayerService extends ChangeNotifier {
 
   /// Phase 1.7: snapshot the URLs and HTTP headers used to build the
   /// streaming AudioSource so the iOS native widget core can hit the same
-  /// endpoints if Flutter dies. Token is already in the URL; custom headers
-  /// (Cloudflare Access etc.) ride along for reverse-proxy auth.
-  void _captureStreamUrls(List<dynamic> audioTracks, ApiService api) {
+  /// endpoints if Flutter dies. Auth is in the URL (session id or token);
+  /// custom headers (Cloudflare Access etc.) ride along for reverse-proxy auth.
+  void _captureStreamUrls(
+    List<dynamic> audioTracks,
+    ApiService api, {
+    String? sessionId,
+    int? playMethod,
+  }) {
     final urls = <String>[];
     for (final t in audioTracks) {
       final track = t as Map<String, dynamic>;
       final contentUrl = track['contentUrl'] as String? ?? '';
       if (contentUrl.isEmpty) continue;
-      urls.add(api.buildTrackUrl(contentUrl));
+      urls.add(api.buildTrackUrl(
+        contentUrl,
+        sessionId: sessionId,
+        trackIndex: (track['index'] as num?)?.toInt(),
+        playMethod: playMethod,
+      ));
+    }
+    if (urls.isNotEmpty) {
+      final u = Uri.parse(urls.first);
+      final form = u.path.contains('/public/session/')
+          ? 'public session'
+          : (u.queryParameters.containsKey('token') ? 'tokened' : 'other');
+      debugPrint('[Player] Stream URL form: $form (${u.path})');
     }
     _activeStreamUrls = urls;
-    _activeStreamHeaders = Map<String, String>.from(api.mediaHeaders);
+    _activeStreamHeaders = Map<String, String>.from(api.playbackSessionHeaders);
   }
 
   /// Subscribe to track index changes for multi-file playback.
   void _subscribeTrackIndex() {
     _indexSub?.cancel();
     if (_player == null) return;
-    _indexSub = _player!.currentIndexStream.listen((index) {
-      if (index == null) return;
-      // Pre-buffer auto-advance: if the queue has grown past the current
-      // book's tracks and AVQueuePlayer has stepped into the pre-loaded
-      // next book's range, fire the book transition.
-      if (_currentBookTrackCount > 0 &&
-          index >= _currentBookTrackCount &&
-          _preloadedNextBook != null) {
-        debugPrint('[PreBuffer] currentIndex=$index crossed book boundary at $_currentBookTrackCount');
-        _onAutoQueueAdvanced();
+    _indexSub = _player!.currentIndexStream.listen(
+      (index) {
+        if (index == null) return;
+        // Pre-buffer auto-advance: if the queue has grown past the current
+        // book's tracks and AVQueuePlayer has stepped into the pre-loaded
+        // next book's range, fire the book transition.
+        if (_currentBookTrackCount > 0 &&
+            index >= _currentBookTrackCount &&
+            _preloadedNextBook != null) {
+          debugPrint(
+            '[PreBuffer] currentIndex=$index crossed book boundary at $_currentBookTrackCount',
+          );
+          _onAutoQueueAdvanced();
+          return;
+        }
+        // Within-book multi-track advance (existing behavior).
+        if (_trackStartOffsets.length > 1) {
+          final clamped = index.clamp(0, _trackStartOffsets.length - 2);
+          if (clamped != _currentTrackIndex) {
+            _lastIndexAdvanceTime = DateTime.now();
+            _pendingTrackAdvanceRefresh = true;
+            debugPrint(
+              '[Player] Track index advance: $_currentTrackIndex -> $clamped',
+            );
+          }
+          _currentTrackIndex = clamped;
+        }
+      },
+      onError: (Object e, StackTrace st) {
+        debugPrint('[Player] Index stream error: $e');
+      },
+    );
+  }
+
+  static const _startSeekStall = Duration(seconds: 7);
+  static const _maxStartSeekRetries = 2;
+
+  /// The first seek of a streamed start. When the server refuses the range
+  /// request the seek sits in buffering with nothing loaded, and a start that
+  /// awaits it never reaches play() - Play then does nothing until something
+  /// else seeks. A fresh seek unsticks it, so send one; if it still hasn't
+  /// landed, let the start carry on and the player keeps loading on its own.
+  Future<void> _seekForStart(double seconds, int generation) async {
+    for (var attempt = 0; ; attempt++) {
+      final landed = await _seekAbsolute(seconds)
+          .then((_) => true)
+          .timeout(_startSeekStall, onTimeout: () => false);
+      if (landed || _player == null || _startSuperseded(generation)) return;
+      final ahead = _player!.bufferedPosition - _player!.position;
+      if (ahead > const Duration(seconds: 2) ||
+          attempt >= _maxStartSeekRetries) {
+        debugPrint(
+          '[Player] Start seek to ${seconds.toStringAsFixed(1)}s still pending '
+          '(buffered ahead ${ahead.inMilliseconds}ms) - starting anyway',
+        );
         return;
       }
-      // Within-book multi-track advance (existing behavior).
-      if (_trackStartOffsets.length > 1) {
-        final clamped = index.clamp(0, _trackStartOffsets.length - 2);
-        if (clamped != _currentTrackIndex) {
-          _lastIndexAdvanceTime = DateTime.now();
-          _pendingTrackAdvanceRefresh = true;
-          debugPrint('[Player] Track index advance: $_currentTrackIndex -> $clamped');
-        }
-        _currentTrackIndex = clamped;
-      }
-    }, onError: (Object e, StackTrace st) {
-      debugPrint('[Player] Index stream error: $e');
-    });
+      debugPrint(
+        '[Player] Start seek to ${seconds.toStringAsFixed(1)}s stalled with '
+        'nothing buffered - seeking again (${attempt + 1}/$_maxStartSeekRetries)',
+      );
+    }
   }
 
   /// Seek to an absolute book position, handling multi-file offset conversion.
   Future<void> _seekAbsolute(double absoluteSeconds) async {
     if (_player == null) return;
+
+    // A seek already interrupts audio, so if a fresh session is waiting this
+    // is the free moment to swap the source onto its tokenless URLs - the
+    // rebuild lands directly at the target instead of seeking the old source.
+    // The same free moment takes a finished download first: the files load
+    // straight at the target and the stream is left behind.
+    if (_pendingLocalSwapKey != null) {
+      final resume = _player!.playing;
+      if (await _applyPendingLocalSwap(
+        seekToSeconds: absoluteSeconds,
+        resumeAfter: resume,
+      )) {
+        return;
+      }
+    }
+    if (_pendingSessionUpgrade != null) {
+      final resume = _player!.playing;
+      if (await _applyPendingSessionUpgrade(
+        seekToSeconds: absoluteSeconds,
+        resumeAfter: resume,
+      )) {
+        return;
+      }
+    }
+
+    // Incomplete download: there's no audio past the decoded end, so clamp the
+    // target there instead of letting the player report a phantom position
+    // beyond the file (which would then get saved/bookmarked). GH #278.
+    if (_shortLocalDurationSec != null &&
+        absoluteSeconds > _shortLocalDurationSec!) {
+      absoluteSeconds = _shortLocalDurationSec!;
+    }
 
     // Record seek target so UI can snap immediately
     _lastSeekTargetSeconds = absoluteSeconds;
@@ -1815,7 +2842,9 @@ class AudioPlayerService extends ChangeNotifier {
 
     if (_trackStartOffsets.length <= 1) {
       // Single file — seek directly
-      await _player!.seek(Duration(milliseconds: (absoluteSeconds * 1000).round()));
+      await _player!.seek(
+        Duration(milliseconds: (absoluteSeconds * 1000).round()),
+      );
       notifyListeners();
       return;
     }
@@ -1825,9 +2854,17 @@ class AudioPlayerService extends ChangeNotifier {
       final trackEnd = _trackStartOffsets[i + 1];
       if (absoluteSeconds < trackEnd || i == _trackStartOffsets.length - 2) {
         final localOffset = absoluteSeconds - trackStart;
+        debugPrint(
+          '[Player] Seek ${absoluteSeconds.toStringAsFixed(1)}s -> track $i '
+          'at ${localOffset.toStringAsFixed(1)}s '
+          '(${_trackStartOffsets.length - 1} tracks)',
+        );
         // Update index BEFORE seeking so positionStream events use the right offset
         _currentTrackIndex = i;
-        await _player!.seek(Duration(milliseconds: (localOffset * 1000).round()), index: i);
+        await _player!.seek(
+          Duration(milliseconds: (localOffset * 1000).round()),
+          index: i,
+        );
         notifyListeners();
         return;
       }
@@ -1897,10 +2934,18 @@ class AudioPlayerService extends ChangeNotifier {
       // Initialize cached skip amounts so notification icons show the correct values
       _handler!._cachedForwardSkip = fwdSkip;
       _handler!._cachedBackSkip = backSkip;
+      // Nothing is loaded yet so there's no library override to apply; the
+      // per-library amounts follow from _syncNotifSkipCache once an item does.
+      if (Platform.isIOS) {
+        unawaited(_pushIosSkipIntervals(fwdSkip, backSkip));
+      }
       _handler!._cachedNotifSpeedBookmark =
           await PlayerSettings.getMediaControlsSpeedBookmark();
       _handler!._cachedLockSeekBar = await PlayerSettings.getLockSeekBar();
       debugPrint('[Player] AudioService initialized');
+      if (Platform.isIOS) unawaited(_reportPreviousBackgroundDeath());
+      if (Platform.isAndroid) unawaited(_reportPreviousExit());
+      unawaited(TranscriptionService.instance.reportInterruptedRun());
       // Configure streaming cache if enabled
       final cacheSizeMb = await PlayerSettings.getStreamingCacheSizeMb();
       debugPrint('[Player] Streaming cache setting: $cacheSizeMb MB');
@@ -1913,7 +2958,8 @@ class AudioPlayerService extends ChangeNotifier {
         }
       }
       // Load notification chapter progress setting and watch for changes
-      _instance._notifChapterMode = await PlayerSettings.getNotificationChapterProgress();
+      _instance._notifChapterMode =
+          await PlayerSettings.getNotificationChapterProgress();
       PlayerSettings.settingsChanged.addListener(_instance._onSettingsChanged);
       // Configure audio session for audiobook playback
       await _configureAudioSession();
@@ -1932,21 +2978,40 @@ class AudioPlayerService extends ChangeNotifier {
   // speaker). With two outputs connected at once (e.g. car stereo + earbuds),
   // dropping one just reroutes to the other and never fires it, so the book
   // plays on silently. Watching device removal covers that gap.
-  static const Set<AudioDeviceType> _externalOutputTypes = {
-    AudioDeviceType.bluetoothA2dp,
-    AudioDeviceType.bluetoothSco,
-    AudioDeviceType.bluetoothLe,
-    AudioDeviceType.wiredHeadset,
-    AudioDeviceType.wiredHeadphones,
-    AudioDeviceType.usbAudio,
-    AudioDeviceType.hearingAid,
-    AudioDeviceType.carAudio,
-  };
   // Set true when BT/headphones disconnect so the interruption handler
   // won't auto-resume playback onto the phone speaker.
   static bool _noisyPause = false;
   // Whether BT audio was connected when the current interruption began.
   static bool _wasOnBluetooth = false;
+  static bool _duckBriefInterruptions = false;
+  static double? _volumeBeforeInterruptionDuck;
+  // Safety net for a duck whose matching "end" event never arrives - a known
+  // flaky spot on Android, more so over Bluetooth where focus changes route
+  // through an extra AVRCP arbitration layer. A duck is supposed to be brief
+  // (a notification chime, a voice prompt); if it's still down after this
+  // long with nothing having restored it, force it back rather than leaving
+  // playback parked at 35% volume for the rest of the session.
+  static Timer? _duckWatchdogTimer;
+  static const _duckWatchdogTimeout = Duration(seconds: 4);
+
+  static void _armDuckWatchdog() {
+    _duckWatchdogTimer?.cancel();
+    _duckWatchdogTimer = Timer(_duckWatchdogTimeout, () {
+      final stuckVolume = _volumeBeforeInterruptionDuck;
+      if (stuckVolume == null) return;
+      _volumeBeforeInterruptionDuck = null;
+      debugPrint(
+        '[AudioSession] Duck watchdog: no end event after '
+        '${_duckWatchdogTimeout.inSeconds}s - forcing volume back to $stuckVolume',
+      );
+      unawaited(_instance._player?.setVolume(stuckVolume));
+    });
+  }
+
+  static void _clearDuckWatchdog() {
+    _duckWatchdogTimer?.cancel();
+    _duckWatchdogTimer = null;
+  }
   // Last time the app entered the foreground. Used by [ClickDebug] to see
   // whether a MediaSession click's 400ms debounce window overlapped with
   // an app-foreground event — the fingerprint of an Android Auto disconnect
@@ -1965,7 +3030,9 @@ class AudioPlayerService extends ChangeNotifier {
   /// Check if BT audio (A2DP/SCO) is currently connected via native AudioManager.
   static Future<bool> _isBluetoothAudioConnected() async {
     try {
-      final result = await _eqChannel.invokeMethod<bool>('isBluetoothAudioConnected');
+      final result = await _eqChannel.invokeMethod<bool>(
+        'isBluetoothAudioConnected',
+      );
       return result ?? false;
     } catch (e) {
       debugPrint('[AudioSession] BT check failed: $e');
@@ -1973,33 +3040,42 @@ class AudioPlayerService extends ChangeNotifier {
     }
   }
 
+  /// Public view of the BT check, for callers that need to compensate for
+  /// the delay Bluetooth adds between the playhead and your ears.
+  static Future<bool> isBluetoothAudioConnected() =>
+      _isBluetoothAudioConnected();
+
   /// True when BT/headphones just disconnected — callers can check before
   /// starting new playback to avoid blasting audio on the phone speaker.
   static bool get wasNoisyPause => _noisyPause;
 
   static Future<void> _configureAudioSession() async {
     final session = await AudioSession.instance;
+    _duckBriefInterruptions =
+        Platform.isAndroid && await PlayerSettings.getDuckBriefInterruptions();
 
-    await session.configure(AudioSessionConfiguration(
-      // iOS: playback category — no duckOthers so iOS properly recognises this
-      // app as the Now Playing app and shows lock screen / Control Center controls.
-      avAudioSessionCategory: AVAudioSessionCategory.playback,
-      avAudioSessionMode: AVAudioSessionMode.spokenAudio,
-      avAudioSessionRouteSharingPolicy:
-          AVAudioSessionRouteSharingPolicy.longFormAudio,
-      avAudioSessionCategoryOptions: Platform.isIOS
-          ? AVAudioSessionCategoryOptions.none
-          : AVAudioSessionCategoryOptions.duckOthers,
-      // Android: speech content type enables OS voice-intelligibility
-      // processing so audiobooks play at normal listening levels. Matches the
-      // reference ABS Android client.
-      androidAudioAttributes: AndroidAudioAttributes(
-        contentType: AndroidAudioContentType.speech,
-        usage: AndroidAudioUsage.media,
+    await session.configure(
+      AudioSessionConfiguration(
+        // iOS: playback category — no duckOthers so iOS properly recognises this
+        // app as the Now Playing app and shows lock screen / Control Center controls.
+        avAudioSessionCategory: AVAudioSessionCategory.playback,
+        avAudioSessionMode: AVAudioSessionMode.spokenAudio,
+        avAudioSessionRouteSharingPolicy:
+            AVAudioSessionRouteSharingPolicy.longFormAudio,
+        avAudioSessionCategoryOptions: Platform.isIOS
+            ? AVAudioSessionCategoryOptions.none
+            : AVAudioSessionCategoryOptions.duckOthers,
+        // Android: speech content type enables OS voice-intelligibility
+        // processing so audiobooks play at normal listening levels. Matches the
+        // reference ABS Android client.
+        androidAudioAttributes: AndroidAudioAttributes(
+          contentType: AndroidAudioContentType.speech,
+          usage: AndroidAudioUsage.media,
+        ),
+        androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
+        androidWillPauseWhenDucked: !_duckBriefInterruptions,
       ),
-      androidAudioFocusGainType: AndroidAudioFocusGainType.gain,
-      androidWillPauseWhenDucked: true,
-    ));
+    );
     // Don't activate the session here — defer to first playback.
     // Activating during init creates a stale MediaSession that Android
     // can garbage-collect after hours in background, leaving bluetooth /
@@ -2007,89 +3083,176 @@ class AudioPlayerService extends ChangeNotifier {
     // play() and startLocalPlayback() call setActive(true) before playing.
 
     _interruptSub?.cancel();
-    _interruptSub = session.interruptionEventStream.listen((event) async {
-      try {
-        final service = _instance;
+    _interruptSub = session.interruptionEventStream.listen(
+      (event) async {
+        try {
+          final service = _instance;
 
-        if (event.begin) {
-          if (service.isPlaying) {
-            debugPrint('[AudioSession] Interrupted (${event.type}) — pausing');
-            _wasOnBluetooth = await _isBluetoothAudioConnected();
-            if (_wasOnBluetooth) _lastPlayedOnBtAt = DateTime.now();
-            debugPrint('[AudioSession] Was on BT: $_wasOnBluetooth');
-            // Pause the underlying player directly, not service.pause(), to keep
-            // the interruption lightweight (service.pause() also saves and syncs,
-            // which a transient duck doesn't need). Still stamp _lastPauseTime so
-            // resume runs auto-rewind per the user's settings: calls and nav
-            // prompts rewind like a manual pause, gated by activationDelay.
-            await service._player?.pause();
-            service._lastPauseTime = DateTime.now();
-            service._wasPlayingBeforeInterrupt = true;
-          }
-        } else {
-          // Don't auto-resume if the pause was caused by BT/headphone disconnect.
-          // Some devices fire interruption-end AFTER becoming-noisy, which would
-          // resume playback on the phone speaker.
-          if (_noisyPause) {
-            debugPrint('[AudioSession] Interruption ended after noisy — skipping resume');
-            service._wasPlayingBeforeInterrupt = false;
-            return;
-          }
-          if (service._wasPlayingBeforeInterrupt) {
-            service._wasPlayingBeforeInterrupt = false;
-            await Future.delayed(const Duration(milliseconds: 600));
-            // Re-check: another event (like becoming-noisy) might have fired
-            // during the delay.
-            if (_noisyPause) return;
-            // Don't double-resume: Assistant may already have called play().
-            if (service._player?.playing == true) return;
-            // If we were on BT when interrupted, check if BT is still connected.
-            // Some car head units never send AUDIO_BECOMING_NOISY on disconnect,
-            // so _noisyPause alone is not enough.
-            if (_wasOnBluetooth) {
-              final stillOnBt = await _isBluetoothAudioConnected();
-              debugPrint('[AudioSession] Interruption ended — was BT, still BT: $stillOnBt');
-              if (!stillOnBt) {
-                debugPrint('[AudioSession] BT disconnected during interruption — skipping resume');
-                _noisyPause = true;
-                return;
+          if (event.begin) {
+            if (event.type == AudioInterruptionType.duck &&
+                _duckBriefInterruptions) {
+              if (service.isPlaying && _volumeBeforeInterruptionDuck == null) {
+                final currentVolume = service._player?.volume ?? 1.0;
+                _volumeBeforeInterruptionDuck = currentVolume;
+                await service._player?.setVolume(
+                  (currentVolume * 0.35).clamp(0.0, 1.0).toDouble(),
+                );
+                _armDuckWatchdog();
+                debugPrint(
+                  '[AudioSession] Interrupted (${event.type}) — ducking',
+                );
               }
-              _lastPlayedOnBtAt = DateTime.now();
+              return;
             }
-            debugPrint('[AudioSession] Interruption ended — resuming');
-            await service.play(logDetail: 'Auto-resumed after interruption');
+
+            final duckedVolume = _volumeBeforeInterruptionDuck;
+            if (duckedVolume != null) {
+              _volumeBeforeInterruptionDuck = null;
+              _clearDuckWatchdog();
+              await service._player?.setVolume(duckedVolume);
+            }
+            if (service.isPlaying) {
+              debugPrint(
+                '[AudioSession] Interrupted (${event.type}) — pausing',
+              );
+              _wasOnBluetooth = await _isBluetoothAudioConnected();
+              if (_wasOnBluetooth) _lastPlayedOnBtAt = DateTime.now();
+              debugPrint('[AudioSession] Was on BT: $_wasOnBluetooth');
+              // Pause the underlying player directly, not service.pause(), to keep
+              // the interruption lightweight (service.pause() also saves and syncs,
+              // which a transient duck doesn't need). Still stamp _lastPauseTime so
+              // resume runs auto-rewind per the user's settings: calls and nav
+              // prompts rewind like a manual pause, gated by activationDelay.
+              await service._player?.pause();
+              service._lastPauseTime = DateTime.now();
+              // Android reports a permanent focus loss (another app or the
+              // car's own source took the audio for good) as `unknown`; calls
+              // and nav prompts come as transient `pause`/`duck`. Only a
+              // transient one should come back by itself - resuming after a
+              // permanent one talked over the radio the user switched to.
+              final permanentLoss = Platform.isAndroid &&
+                  event.type == AudioInterruptionType.unknown;
+              service._wasPlayingBeforeInterrupt = !permanentLoss;
+              if (permanentLoss) {
+                debugPrint(
+                  '[AudioSession] Permanent focus loss - not resuming on its own',
+                );
+              }
+              // The notification reads the player directly, but the home
+              // widget, cards and watch only refresh on notify - without this
+              // the widget kept showing "playing" and ticking its clock
+              // through the whole interruption.
+              service.notifyListeners();
+            }
+          } else {
+            if (event.type == AudioInterruptionType.duck &&
+                _duckBriefInterruptions) {
+              final previousVolume = _volumeBeforeInterruptionDuck;
+              _volumeBeforeInterruptionDuck = null;
+              _clearDuckWatchdog();
+              if (previousVolume != null) {
+                await service._player?.setVolume(previousVolume);
+                debugPrint(
+                  '[AudioSession] Interruption ended — volume restored',
+                );
+              }
+              return;
+            }
+
+            // iOS says whether the interrupter wants us back: shouldResume is
+            // set after a call, Siri or an alarm, and clear when the user
+            // started another app's audio. audio_session surfaces that as
+            // type `pause` (resume) versus `unknown` (don't). Resuming over a
+            // clear flag would cut off the app the user had just chosen - it
+            // only failed to because the activation was refused while that
+            // app still held the audio.
+            if (Platform.isIOS &&
+                event.type == AudioInterruptionType.unknown &&
+                service._wasPlayingBeforeInterrupt) {
+              debugPrint(
+                '[AudioSession] Interruption ended without shouldResume - staying paused',
+              );
+              service._wasPlayingBeforeInterrupt = false;
+              return;
+            }
+            // Don't auto-resume if the pause was caused by BT/headphone disconnect.
+            // Some devices fire interruption-end AFTER becoming-noisy, which would
+            // resume playback on the phone speaker.
+            if (_noisyPause) {
+              debugPrint(
+                '[AudioSession] Interruption ended after noisy — skipping resume',
+              );
+              service._wasPlayingBeforeInterrupt = false;
+              return;
+            }
+            if (service._wasPlayingBeforeInterrupt) {
+              service._wasPlayingBeforeInterrupt = false;
+              await Future.delayed(const Duration(milliseconds: 600));
+              // Re-check: another event (like becoming-noisy) might have fired
+              // during the delay.
+              if (_noisyPause) return;
+              // Don't double-resume: Assistant may already have called play().
+              if (service._player?.playing == true) return;
+              // If we were on BT when interrupted, check if BT is still connected.
+              // Some car head units never send AUDIO_BECOMING_NOISY on disconnect,
+              // so _noisyPause alone is not enough.
+              if (_wasOnBluetooth) {
+                final stillOnBt = await _isBluetoothAudioConnected();
+                debugPrint(
+                  '[AudioSession] Interruption ended — was BT, still BT: $stillOnBt',
+                );
+                if (!stillOnBt) {
+                  debugPrint(
+                    '[AudioSession] BT disconnected during interruption — skipping resume',
+                  );
+                  _noisyPause = true;
+                  return;
+                }
+                _lastPlayedOnBtAt = DateTime.now();
+              }
+              debugPrint('[AudioSession] Interruption ended — resuming');
+              await service.play(logDetail: 'Auto-resumed after interruption');
+            }
           }
+        } catch (e) {
+          debugPrint('[AudioSession] Interruption handler error: $e');
         }
-      } catch (e) {
-        debugPrint('[AudioSession] Interruption handler error: $e');
-      }
-    }, onError: (e) {
-      debugPrint('[AudioSession] Interruption stream error - re-subscribing: $e');
-      _configureAudioSession();
-    });
+      },
+      onError: (e) {
+        debugPrint(
+          '[AudioSession] Interruption stream error - re-subscribing: $e',
+        );
+        _configureAudioSession();
+      },
+    );
 
     // Headphones unplugged / BT disconnected — pause, no auto-resume
     _noisySub?.cancel();
-    _noisySub = session.becomingNoisyEventStream.listen((_) async {
-      try {
-        final service = _instance;
-        debugPrint('[AudioSession] Becoming noisy — pausing');
-        debugPrint('[ClickDebug] becoming-noisy fired: bg=${service._isBackgrounded}, playing=${service.isPlaying}');
-        _noisyPause = true;
-        service._wasPlayingBeforeInterrupt = false;
-        // Cancel any pending media-button click from the BT disconnect so the
-        // delayed click handler doesn't resume playback on the phone speaker.
-        _handler?.cancelPendingClick();
-        if (service.isPlaying) {
-          await service.pause();
+    _noisySub = session.becomingNoisyEventStream.listen(
+      (_) async {
+        try {
+          final service = _instance;
+          debugPrint('[AudioSession] Becoming noisy — pausing');
+          debugPrint(
+            '[ClickDebug] becoming-noisy fired: bg=${service._isBackgrounded}, playing=${service.isPlaying}',
+          );
+          _noisyPause = true;
+          service._wasPlayingBeforeInterrupt = false;
+          // Cancel any pending media-button click from the BT disconnect so the
+          // delayed click handler doesn't resume playback on the phone speaker.
+          _handler?.cancelPendingClick();
+          if (service.isPlaying) {
+            await service.pause();
+          }
+        } catch (e) {
+          debugPrint('[AudioSession] Noisy handler error: $e');
         }
-      } catch (e) {
-        debugPrint('[AudioSession] Noisy handler error: $e');
-      }
-    }, onError: (e) {
-      debugPrint('[AudioSession] Noisy stream error - re-subscribing: $e');
-      _configureAudioSession();
-    });
+      },
+      onError: (e) {
+        debugPrint('[AudioSession] Noisy stream error - re-subscribing: $e');
+        _configureAudioSession();
+      },
+    );
 
     // Pause when an output route we could be playing through disappears, even
     // if another output stays connected - the silent-playback case becomingNoisy
@@ -2098,32 +3261,64 @@ class AudioPlayerService extends ChangeNotifier {
     // you weren't actually listening on, undone with a single tap on play.
     _devicesSub?.cancel();
     if (Platform.isAndroid) {
-      _devicesSub = session.devicesChangedEventStream.listen((event) async {
-        try {
-          final service = _instance;
-          if (!service.isPlaying) return;
-          final lost = event.devicesRemoved
-              .where((d) => d.isOutput && _externalOutputTypes.contains(d.type))
-              .toSet();
-          if (lost.isEmpty) return;
-          // Settle re-check: some devices briefly drop and re-add a route when
-          // playback starts. Only pause if the output is genuinely gone.
-          await Future.delayed(const Duration(milliseconds: 500));
-          if (!service.isPlaying) return;
-          final current = await session.getDevices(includeInputs: false);
-          if (!lost.any((d) => !current.contains(d))) return;
-          debugPrint('[AudioSession] Output route removed while playing - pausing');
-          _noisyPause = true;
-          service._wasPlayingBeforeInterrupt = false;
-          _handler?.cancelPendingClick();
-          if (service.isPlaying) await service.pause();
-        } catch (e) {
-          debugPrint('[AudioSession] Device-change handler error: $e');
-        }
-      }, onError: (e) {
-        debugPrint('[AudioSession] Device-change stream error - re-subscribing: $e');
-        _configureAudioSession();
-      });
+      _devicesSub = session.devicesChangedEventStream.listen(
+        (event) async {
+          try {
+            final service = _instance;
+            if (!service.isPlaying) return;
+            final lost = event.devicesRemoved
+                .where(
+                  (d) =>
+                      d.isOutput && externalAudioOutputTypes.contains(d.type),
+                )
+                .toSet();
+            if (lost.isEmpty) return;
+            debugPrint(
+              '[AudioSession] Output route removed: '
+              '${lost.map((d) => '${d.type.name} "${d.name}"').join(', ')}',
+            );
+            // Settle re-check: some devices drop and re-add a route when
+            // playback starts or the link hiccups. Only pause if it stays gone.
+            await Future.delayed(const Duration(seconds: 2));
+            if (!service.isPlaying) return;
+            final current = await session.getDevices(includeInputs: false);
+            if (!lost.any((d) => !current.contains(d))) {
+              debugPrint('[AudioSession] Output route came back - keeping playback');
+              return;
+            }
+            // Android Auto carries the audio itself, over USB or WiFi. The
+            // Bluetooth link to the head unit or a helmet runs beside it and
+            // can drop and come back every few minutes without the audio ever
+            // stopping, and pausing on those drops stopped the book every
+            // 2-3 minutes on a motorcycle head unit (#369). If Android Auto
+            // goes away for real it sends its own pause.
+            if (await AudioPlayerHandler._carClientRecentlySeen()) {
+              debugPrint(
+                '[AudioSession] Output route removed while playing - car client seen, keeping playback',
+              );
+              return;
+            }
+            debugPrint(
+              '[AudioSession] Output route removed while playing - pausing',
+            );
+            _noisyPause = true;
+            service._wasPlayingBeforeInterrupt = false;
+            // Short guard: this pause is ours, not a platform disconnect, so
+            // a Play a couple of seconds later is the user. The full 5s threw
+            // those away and Play looked dead (#369).
+            _handler?.cancelPendingClick(guardMs: 1500);
+            if (service.isPlaying) await service.pause();
+          } catch (e) {
+            debugPrint('[AudioSession] Device-change handler error: $e');
+          }
+        },
+        onError: (e) {
+          debugPrint(
+            '[AudioSession] Device-change stream error - re-subscribing: $e',
+          );
+          _configureAudioSession();
+        },
+      );
     }
   }
 
@@ -2134,12 +3329,112 @@ class AudioPlayerService extends ChangeNotifier {
   static void onAppBackgrounded() {
     _instance._isBackgrounded = true;
     debugPrint('[ClickDebug] App backgrounded');
+    if (Platform.isIOS) _trimMemoryForBackground();
+  }
+
+  /// iOS: a paused app in the background has no audio keeping it alive, is
+  /// suspended within seconds, and is a jetsam candidate whenever memory gets
+  /// tight. When iOS evicts it, the audio session goes with it, and any app
+  /// Absorb interrupted earlier is told to resume - it starts playing and owns
+  /// Now Playing from then on. Nothing keeps a paused app alive for hours, so
+  /// the lever is footprint: drop the decoded covers (up to 100MB) on the way
+  /// out. They reload lazily on return, and the screen is off meanwhile.
+  static void _trimMemoryForBackground() {
+    final cache = PaintingBinding.instance.imageCache;
+    final beforeMb = cache.currentSizeBytes ~/ 1048576;
+    cache.clear();
+    cache.clearLiveImages();
+    final rssMb = ProcessInfo.currentRss ~/ 1048576;
+    unawaited(_logBackgroundMemory(rssMb, beforeMb));
+  }
+
+  static const _bgMarkerKey = 'ios_bg_marker';
+
+  /// iOS memory figures from the native side: `footprint` is what jetsam
+  /// judges (phys_footprint, not RSS) and `available` is how much more the
+  /// process may take before it is killed. Both in MB, -1 when unavailable.
+  static Future<({int footprintMb, int availableMb})> iosMemoryInfo() async {
+    try {
+      final info = await _eqChannelForDiag
+          .invokeMethod<Map<dynamic, dynamic>>('getMemoryInfo');
+      int mb(dynamic v) {
+        final n = (v as num?)?.toInt() ?? -1;
+        return n < 0 ? -1 : n ~/ 1048576;
+      }
+      return (
+        footprintMb: mb(info?['footprint']),
+        availableMb: mb(info?['available']),
+      );
+    } catch (_) {
+      return (footprintMb: -1, availableMb: -1);
+    }
+  }
+
+  /// Log the footprint on the way out and leave a marker that the next
+  /// foreground clears. If a later launch still finds it, the process never
+  /// came back from the background: iOS ended it there (or the user swiped
+  /// it away).
+  static Future<void> _logBackgroundMemory(int rssMb, int droppedMb) async {
+    final m = await iosMemoryInfo();
+    final playing = _instance.isPlaying;
+    debugPrint('[Memory] Backgrounded: footprint=${m.footprintMb}MB '
+        'available=${m.availableMb}MB rss=${rssMb}MB playing=$playing, '
+        'dropped ${droppedMb}MB of decoded covers');
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(
+        _bgMarkerKey,
+        '${DateTime.now().millisecondsSinceEpoch}|${m.footprintMb}|'
+        '${m.availableMb}|$playing',
+      );
+    } catch (_) {}
+  }
+
+  static Future<void> _logForegroundMemory() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_bgMarkerKey);
+    } catch (_) {}
+    final m = await iosMemoryInfo();
+    debugPrint('[Memory] Foregrounded: footprint=${m.footprintMb}MB '
+        'available=${m.availableMb}MB');
+  }
+
+  static Future<void> _reportPreviousBackgroundDeath() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_bgMarkerKey);
+      if (raw == null) return;
+      await prefs.remove(_bgMarkerKey);
+      final parts = raw.split('|');
+      final at = int.tryParse(parts[0]) ?? 0;
+      final ago = DateTime.now()
+          .difference(DateTime.fromMillisecondsSinceEpoch(at))
+          .inMinutes;
+      String part(int i) => parts.length > i ? parts[i] : '?';
+      debugPrint('[Memory] Previous process ended in the background, '
+          '${ago}min after it went there (or was swiped away): '
+          'footprint=${part(1)}MB available=${part(2)}MB playing=${part(3)}');
+    } catch (_) {}
+  }
+
+  /// Flutter forwards iOS memory warnings here (and drops its image cache on
+  /// its own). Logging them with the numbers says how close to the edge the
+  /// app was, before jetsam makes the decision for it.
+  static void onMemoryPressure() {
+    if (!Platform.isIOS) return;
+    unawaited(() async {
+      final m = await iosMemoryInfo();
+      debugPrint('[Memory] iOS memory warning: footprint=${m.footprintMb}MB '
+          'available=${m.availableMb}MB');
+    }());
   }
 
   static Future<void> onAppForegrounded() async {
     final service = _instance;
     service._isBackgrounded = false;
     _lastForegroundAt = DateTime.now();
+    if (Platform.isIOS) unawaited(_logForegroundMemory());
     // Relative timing on foreground arrival is the second half of the
     // AA-disconnect fingerprint (variant 3): raw pause, then foreground
     // within ~2s. Log sincePrevPauseMs / sincePrevPlayMs so the disconnect
@@ -2149,32 +3444,49 @@ class AudioPlayerService extends ChangeNotifier {
     int sincePrevPlayMs = -1;
     if (handler != null) {
       if (handler._lastHandlerPauseAt != null) {
-        sincePrevPauseMs = _lastForegroundAt!.difference(handler._lastHandlerPauseAt!).inMilliseconds;
+        sincePrevPauseMs = _lastForegroundAt!
+            .difference(handler._lastHandlerPauseAt!)
+            .inMilliseconds;
       }
       if (handler._lastHandlerPlayAt != null) {
-        sincePrevPlayMs = _lastForegroundAt!.difference(handler._lastHandlerPlayAt!).inMilliseconds;
+        sincePrevPlayMs = _lastForegroundAt!
+            .difference(handler._lastHandlerPlayAt!)
+            .inMilliseconds;
       }
     }
-    final aaDisconnectSuspect = sincePrevPauseMs >= 0 && sincePrevPauseMs < 3000;
-    debugPrint('[ClickDebug] App foregrounded: sincePrevPauseMs=$sincePrevPauseMs, '
-        'sincePrevPlayMs=$sincePrevPlayMs, aaDisconnectSuspect=$aaDisconnectSuspect');
-    service._positionSyncFailures = 0; // retry on foreground
+    final aaDisconnectSuspect =
+        sincePrevPauseMs >= 0 && sincePrevPauseMs < 3000;
+    debugPrint(
+      '[ClickDebug] App foregrounded: sincePrevPauseMs=$sincePrevPauseMs, '
+      'sincePrevPlayMs=$sincePrevPlayMs, aaDisconnectSuspect=$aaDisconnectSuspect',
+    );
+    service.resetServerSyncBackoff();
     if (Platform.isIOS && service._iosResyncPending) {
       unawaited(service._iosForegroundResyncIfNeeded());
     }
+    // After a widget-driven session the shared engine may have kept playing
+    // (or advanced) while Flutter was suspended. Adopt its live state rather
+    // than reloading - reloading would restart the same stream (bug #285).
+    if (Platform.isIOS && service.hasBook) {
+      await service._iosReconcileEngineOnForeground();
+    }
     if (!service.hasBook) return;
     final sessionAlive = service._playbackSessionId != null;
-    debugPrint('[MediaSession] Foregrounded - refreshing (playing=${service.isPlaying}, session=$sessionAlive, item=${service._currentItemId})');
+    debugPrint(
+      '[MediaSession] Foregrounded - refreshing (playing=${service.isPlaying}, session=$sessionAlive, item=${service._currentItemId})',
+    );
     // Alpha: when session=false, the playback session was closed (pause
     // timeout) and likely handler.stop() ran too. Log handler state so we
     // can see whether the MediaSession is recoverable. Strip before beta.
     if (!sessionAlive && handler != null) {
       try {
         final ps = handler.playbackState.value;
-        debugPrint('[MediaSession] Recovery diagnostic: handlerPlaying=${ps.playing}, '
-            'processingState=${ps.processingState.name}, '
-            'playerPlaying=${handler.player.playing}, '
-            'playerProcessing=${handler.player.processingState.name}');
+        debugPrint(
+          '[MediaSession] Recovery diagnostic: handlerPlaying=${ps.playing}, '
+          'processingState=${ps.processingState.name}, '
+          'playerPlaying=${handler.player.playing}, '
+          'playerProcessing=${handler.player.processingState.name}',
+        );
       } catch (e) {
         debugPrint('[MediaSession] Recovery diagnostic error: $e');
       }
@@ -2183,8 +3495,10 @@ class AudioPlayerService extends ChangeNotifier {
     service.notifyListeners();
     // Flush overdue server sync
     if (service.isPlaying && service._currentItemId != null) {
-      final sinceSync = DateTime.now().difference(service._lastServerSync).inSeconds;
-      if (sinceSync > 60) {
+      final sinceSync = DateTime.now()
+          .difference(service._lastServerSync)
+          .inSeconds;
+      if (sinceSync > 20) {
         service._syncToServer(service.position);
       }
     }
@@ -2195,14 +3509,25 @@ class AudioPlayerService extends ChangeNotifier {
     // playing we don't need focus; the MediaSession refresh below doesn't
     // require it, and play()/startLocalPlayback reacquire focus themselves.
     if (service.isPlaying) {
-      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+      try {
+        (await AudioSession.instance).setActive(true);
+      } catch (_) {}
+    } else if (Platform.isIOS && service.hasBook) {
+      // Paused with a book loaded: an interruption while iOS had this app
+      // suspended may have silently dropped the Now Playing claim. The
+      // Android concern above (activation grabbing focus and pausing other
+      // apps) doesn't apply - the reassert has its own other-audio guard.
+      await service.reassertIosClaimWhilePaused('foreground');
     }
     // Re-push playback state so the system re-registers the MediaSession
     _handler?.refreshPlaybackState();
     // Re-push media item so notification metadata is fresh
     if (service._currentItemId != null && service._currentTitle != null) {
-      final chapterTitle = service._lastNotifiedChapterIndex >= 0 && service._chapters.isNotEmpty
-          ? (service._chapters[service._lastNotifiedChapterIndex] as Map<String, dynamic>)['title'] as String?
+      final chapterTitle =
+          service._lastNotifiedChapterIndex >= 0 && service._chapters.isNotEmpty
+          ? (service._chapters[service._lastNotifiedChapterIndex]
+                    as Map<String, dynamic>)['title']
+                as String?
           : null;
       service._pushMediaItem(
         service._mediaItemKey,
@@ -2218,6 +3543,13 @@ class AudioPlayerService extends ChangeNotifier {
 
   String? _currentEpisodeId;
   String? get currentEpisodeId => _currentEpisodeId;
+
+  // Which ABS library the currently-loaded item belongs to, so per-library
+  // skip overrides (see PlayerSettings.getSkipOverride) can resolve. Set
+  // wherever _currentItemId/_currentEpisodeId are (playItem + queue advance);
+  // null when the caller didn't have it available (falls back to global skip).
+  String? _currentLibraryId;
+  String? get currentLibraryId => _currentLibraryId;
 
   /// MediaSession / AA item id. Podcast episodes use the compound
   /// `parentId-episodeId` key so AA doesn't treat them as a separate item
@@ -2241,7 +3573,21 @@ class AudioPlayerService extends ChangeNotifier {
     bool forceStartTime = false,
     String? episodeId,
     String? episodeTitle,
+    String? libraryId,
+    // Started from the app's own screen. Only those wait (briefly, capped)
+    // for the server's saved position before audio; plays from Android
+    // Auto, the widget, headphones or a cold-start restore begin at the
+    // phone's own position immediately. See play().
+    bool fromUi = false,
+    // Load the item into the player at its resume position but leave it
+    // paused, with no playback session: a headset press then always has a
+    // live target and the live transcript can build its runway, without
+    // deciding for the user that audio starts now. Downloaded items only -
+    // a streamed item plays normally.
+    bool loadOnly = false,
   }) async {
+    _pauseRequested = false;
+    _playFromUi = fromUi;
     if (_handler == null) {
       debugPrint('[Player] Handler not yet initialized, waiting…');
       await _initCompleter.future;
@@ -2254,9 +3600,11 @@ class AudioPlayerService extends ChangeNotifier {
     // Alpha: catalog every playItem caller so we can find the phantom
     // resume that fires after an AA disconnect without going through
     // Handler.play() / Service.play(). Strip before next beta.
-    debugPrint('[PlayItemEntry] itemId=$itemId episodeId=$episodeId '
-        'startTime=$startTime forceStartTime=$forceStartTime\n'
-        'Caller:\n${StackTrace.current}');
+    debugPrint(
+      '[PlayItemEntry] itemId=$itemId episodeId=$episodeId '
+      'startTime=$startTime forceStartTime=$forceStartTime fromUi=$fromUi\n'
+      'Caller:\n${StackTrace.current}',
+    );
 
     // Don't start local playback while casting
     final cast = ChromecastService();
@@ -2265,51 +3613,123 @@ class AudioPlayerService extends ChangeNotifier {
       return null;
     }
 
+    _beginAdvanceBuffering();
+
+    final playbackGeneration = ++_playbackGeneration;
+
     // Stop old audio immediately so it doesn't keep playing while the new
     // source is loading (avoids briefly hearing the previous book).
     await _player?.pause();
+
+    // Podcast episodes arrive two ways: episode-shaped (title = the episode)
+    // and show-shaped continue/queue entries (title = the show, episodeTitle =
+    // the episode, author often blank). Normalise to episode-as-title +
+    // show-as-artist so the episode shows everywhere — notification, lock
+    // screen, Android Auto, and the server listening session.
+    if (episodeId != null &&
+        episodeTitle != null &&
+        episodeTitle.isNotEmpty &&
+        episodeTitle != title) {
+      if (author.isEmpty) author = title; // `title` is the show name here
+      title = episodeTitle;
+    }
 
     _isLoadingNewItem = true;
     _api = api;
     _currentItemId = itemId;
     _currentEpisodeId = episodeId;
+    _currentLibraryId = libraryId;
+    debugPrint(
+      '[SkipDebug] playItem libraryId=$libraryId (item=$itemId ep=$episodeId)',
+    );
+    _resolveMissingLibraryId(itemId, episodeId);
+    _syncNotifSkipCache();
+    // Reset local-session mode for every new play; _playFromLocal re-enables it
+    // for downloaded items. Without this it leaks from a prior downloaded play
+    // into a following streaming play and misroutes the listening time.
+    _localSessionMode = false;
+    _pendingLoadOnlySession = null;
     _currentEpisodeTitle = episodeTitle;
     _currentTitle = title;
     _currentAuthor = author;
     _currentCoverUrl = coverUrl;
     _totalDuration = totalDuration;
+    _metaDuration = totalDuration;
     _chapters = chapters;
+    _shortLocalDurationSec = null; // re-evaluated per source in _playFromLocal
     _handler?.updateChaptersQueue(chapters);
     // New book = fresh session — clear any auto sleep dismissal
     SleepTimerService().resetDismiss();
 
     // Progress key: compound for episodes, plain for books
-    final progressKey = episodeId != null ? '$itemId-$episodeId' : itemId;
+    final progressKey = playbackDownloadKey(itemId, episodeId);
 
     // Notify rolling download listener that a new item is playing
-    _onPlayStartedCallback?.call(progressKey);
+    try {
+      await _onPlayStartedCallback?.call(progressKey, totalDuration);
+    } catch (e) {
+      debugPrint('[Player] Playback-start preparation failed: $e');
+    }
 
     // Check for local saved position (skip if startTime was forced).
     // Always prefer the local position when it's further ahead - the
     // caller's startTime may be stale (e.g. Android Auto browse tree
     // entry cached before the user listened further).
-    final localPos = await _progressSync.getSavedPosition(progressKey);
+    final localProgressAtStart = await _progressSync.getLocal(progressKey);
+    final localPos =
+        (localProgressAtStart?['currentTime'] as num?)?.toDouble() ?? 0;
+    var localTimestampAtStart =
+        (localProgressAtStart?['timestamp'] as num?)?.toInt() ?? 0;
     if (localPos > 0 && !forceStartTime) {
       if (startTime == 0 || localPos > startTime + 1.0) {
-        debugPrint('[Player] Resuming from local position: ${localPos}s (caller startTime was ${startTime}s)');
+        debugPrint(
+          '[Player] Resuming from local position: ${localPos}s (caller startTime was ${startTime}s)',
+        );
         startTime = localPos;
       }
     }
 
-    // Phase 1.6: if the iOS native player core was driving while Flutter was
-    // dead, it stamped a fresher `np_position_s` to the app group. Pick that
-    // up so opening absorb after a widget-tap session shows the right spot.
-    if (Platform.isIOS && !forceStartTime) {
-      final nativePos = await HomeWidgetService()
-          .getNativeNowPlayingPosition(itemId, episodeId);
-      if (nativePos != null && nativePos > startTime + 1.0) {
-        debugPrint('[Player] Resuming from native widget position: ${nativePos}s (was ${startTime}s)');
-        startTime = nativePos;
+    // The widget stash is independent of the scoped SharedPreferences cache.
+    // That matters on Android Auto cold starts, where a long-lived headless
+    // engine can have an older browse entry and an older preferences snapshot.
+    if (!forceStartTime) {
+      final stashedPos = await HomeWidgetService().getStashedNowPlayingPosition(
+        itemId,
+        episodeId,
+      );
+      final newerStashedPos = HomeWidgetService.newerStashedNowPlayingPosition(
+        startTime,
+        stashedPos,
+      );
+      if (newerStashedPos != null) {
+        debugPrint(
+          '[Player] Resuming from stashed widget position: ${newerStashedPos}s (was ${startTime}s)',
+        );
+        startTime = newerStashedPos;
+        localTimestampAtStart = DateTime.now().millisecondsSinceEpoch;
+      }
+      // iOS: the shared engine may be playing this very item right now (the
+      // native core started it from a headset press and Dart never adopted
+      // it). Its position is the live truth - the stash was written once at
+      // press time and local progress stopped at the last pause, so resuming
+      // from either threw away everything listened since. The stash match
+      // above ties the engine's content to this episode; the engine itself
+      // only knows the library item.
+      if (Platform.isIOS && (episodeId == null || stashedPos != null)) {
+        try {
+          final engine = await _player?.engineState();
+          if (engine != null &&
+              engine.isLoaded &&
+              engine.itemId == itemId &&
+              engine.globalPositionS > startTime + 1.0) {
+            debugPrint(
+              '[Player] Resuming from live engine position: '
+              '${engine.globalPositionS.toStringAsFixed(1)}s (was ${startTime}s)',
+            );
+            startTime = engine.globalPositionS;
+            localTimestampAtStart = DateTime.now().millisecondsSinceEpoch;
+          }
+        } catch (_) {}
       }
     }
 
@@ -2338,14 +3758,30 @@ class AudioPlayerService extends ChangeNotifier {
     // Check if downloaded — play locally
     String? result;
     if (_downloadService.isDownloaded(progressKey)) {
-      result = await _playFromLocal(progressKey, title, author, coverUrl,
-          totalDuration, chapters, startTime, forceStartTime);
+      result = await _playFromLocal(
+        progressKey,
+        title,
+        author,
+        coverUrl,
+        totalDuration,
+        chapters,
+        startTime,
+        forceStartTime,
+        loadOnly,
+        playbackGeneration,
+      );
     } else {
       // Check manual offline — don't stream from server
       final prefs = await SharedPreferences.getInstance();
       final manualOffline = prefs.getBool('manual_offline_mode') ?? false;
+      if (_startSuperseded(playbackGeneration)) {
+        return _abandonStart(null, null, 'before choosing a stream path');
+      }
       if (manualOffline) {
-        debugPrint('[Player] Manual offline — cannot stream non-downloaded item');
+        debugPrint(
+          '[Player] Manual offline — cannot stream non-downloaded item',
+        );
+        _endAdvanceBuffering();
         _clearState();
         return 'This item isn\'t downloaded and offline mode is on';
       }
@@ -2355,87 +3791,239 @@ class AudioPlayerService extends ChangeNotifier {
         episodeId: episodeId,
       );
       if (cachedSession != null) {
-        result = await _playFromSessionCache(api, itemId, title, author,
-            coverUrl, totalDuration, chapters, startTime, cachedSession,
-            forceStartTime);
-        // Fall through to normal server path if cache was stale/invalid
-        if (result == 'cache-miss') {
-          result = await _playFromServer(api, itemId, title, author, coverUrl,
-              totalDuration, chapters, startTime, forceStartTime);
+        // Race the real session against the cache. When the server answers
+        // inside the window (LAN, good WiFi) the play starts through the
+        // fresh path with tokenless session URLs - immune to token expiry -
+        // and its saved position; only a slow server falls back to the
+        // instant cached start. An app-screen play waits the full position
+        // cap since that is its one chance to pick up another device's
+        // progress before audio; everything else keeps the short window.
+        // The in-flight POST is handed to the background refresh either way
+        // so a second session is never opened.
+        final pendingSession = episodeId != null
+            ? api.startEpisodePlaybackSession(itemId, episodeId)
+            : api.startPlaybackSession(itemId);
+        final raceWindow =
+            fromUi ? _serverPositionCheckCap : _sessionRaceWindow;
+        Map<String, dynamic>? racedSession;
+        try {
+          racedSession = await pendingSession.timeout(raceWindow);
+        } catch (_) {
+          racedSession = null;
+        }
+        if (racedSession != null) {
+          debugPrint(
+            '[Player] Session answered within the race window - using fresh path',
+          );
+          result = await _playFromServer(
+            api,
+            itemId,
+            title,
+            author,
+            coverUrl,
+            totalDuration,
+            chapters,
+            startTime,
+            forceStartTime: forceStartTime,
+            preFetchedSession: racedSession,
+            generation: playbackGeneration,
+          );
+        } else {
+          result = await _playFromSessionCache(
+            api,
+            itemId,
+            title,
+            author,
+            coverUrl,
+            totalDuration,
+            chapters,
+            startTime,
+            cachedSession,
+            localTimestampAtStart,
+            playbackGeneration,
+            forceStartTime,
+            pendingSession,
+          );
+          // Fall through to normal server path if cache was stale/invalid.
+          // The cached path never consumed the in-flight POST on this route,
+          // so hand its result over instead of opening a second session.
+          if (result == 'cache-miss') {
+            Map<String, dynamic>? lateSession;
+            try {
+              lateSession = await pendingSession;
+            } catch (_) {}
+            result = await _playFromServer(
+              api,
+              itemId,
+              title,
+              author,
+              coverUrl,
+              totalDuration,
+              chapters,
+              startTime,
+              forceStartTime: forceStartTime,
+              preFetchedSession: lateSession,
+              generation: playbackGeneration,
+            );
+          }
         }
       } else {
         // No cache - stream from server
-        result = await _playFromServer(api, itemId, title, author, coverUrl,
-            totalDuration, chapters, startTime, forceStartTime);
+        result = await _playFromServer(
+          api,
+          itemId,
+          title,
+          author,
+          coverUrl,
+          totalDuration,
+          chapters,
+          startTime,
+          forceStartTime: forceStartTime,
+          generation: playbackGeneration,
+        );
       }
     }
+
+    // A start that lost leaves the loading flags to the one that won, which
+    // may still be loading.
+    if (_startSuperseded(playbackGeneration)) return null;
 
     _isLoadingNewItem = false;
+    if (result != null) _endAdvanceBuffering();
     notifyListeners();
 
-    // Session-start rewind: rewind by maxRewind when starting a new session
-    if (result == null && !forceStartTime) {
-      final rewindSettings = await AutoRewindSettings.load();
-      if (rewindSettings.enabled && rewindSettings.sessionStartRewind) {
-        final rewindSeconds = rewindSettings.maxRewind;
-        if (rewindSeconds > 0.5 && _player != null) {
-          final currentAbsolutePos = position.inMilliseconds / 1000.0;
-          // Scale by speed so the listener gets the same perceived amount of
-          // re-orientation time regardless of playback speed - at 1.5x a 2s
-          // setting covers 3s of book content (= 2s of real listening time).
-          final currentSpeed = _player!.speed;
-          var newPosSeconds = currentAbsolutePos - (rewindSeconds * currentSpeed);
-          if (newPosSeconds < 0) newPosSeconds = 0;
-          if (rewindSettings.chapterBarrier && _chapters.isNotEmpty) {
-            for (final ch in _chapters) {
-              final start = (ch['start'] as num?)?.toDouble() ?? 0;
-              final end = (ch['end'] as num?)?.toDouble() ?? 0;
-              if (currentAbsolutePos >= start && currentAbsolutePos < end) {
-                if (newPosSeconds < start) newPosSeconds = start;
-                break;
-              }
-            }
-          }
-          await _seekAbsolute(newPosSeconds);
-          // Use actual book-time delta so chapter barrier caps are reflected.
-          final actualDelta = currentAbsolutePos - newPosSeconds;
-          _lastAutoRewindAmount = actualDelta;
-          final detail = currentSpeed == 1.0
-              ? '${rewindSeconds.toStringAsFixed(1)}s (session start)'
-              : '${rewindSeconds.toStringAsFixed(1)}s (${actualDelta.toStringAsFixed(1)}s at ${currentSpeed.toStringAsFixed(2)}x, session start)';
-          _logEvent(PlaybackEventType.autoRewind, detail: detail);
-          debugPrint(
-              '[Player] Session-start rewind ${rewindSeconds.toStringAsFixed(1)}s '
-              '(${actualDelta.toStringAsFixed(1)}s at ${currentSpeed.toStringAsFixed(2)}x)');
-        }
-      }
-    }
-
-    // Auto-navigate to Absorbing tab when an episode starts playing
-    if (result == null && episodeId != null) {
-      _onEpisodePlayStartedCallback?.call();
+    if (result == null && playbackGeneration == _playbackGeneration) {
+      _onPlaybackStateChangedCallback?.call(true);
+      // Auto-navigate to Absorbing tab when an episode starts playing.
+      if (episodeId != null) _onEpisodePlayStartedCallback?.call();
     }
     return result;
   }
 
-  /// Hot-swap from streaming to local files without interrupting playback position.
-  /// Called when a download completes for the currently-playing item.
+  /// Session-start rewind (setting): pull a new session's start position back
+  /// by maxRewind so playback opens with a little re-orientation. Scaled by
+  /// speed so the perceived amount is the same at 1.5x, and capped at the
+  /// chapter start when the barrier is on. Applied to the start position
+  /// BEFORE the first seek - it used to run after play() and audibly jumped
+  /// 50-90ms into live audio. Callers pass the speed they're about to set.
+  Future<double> _sessionStartRewound(
+    double startTime, {
+    required bool forceStartTime,
+    required double speed,
+  }) async {
+    if (forceStartTime || startTime <= 0) return startTime;
+    final rewindSettings = await AutoRewindSettings.load();
+    if (!rewindSettings.enabled || !rewindSettings.sessionStartRewind) {
+      return startTime;
+    }
+    final rewindSeconds = rewindSettings.maxRewind;
+    if (rewindSeconds <= 0.5) return startTime;
+    var newPos = startTime - (rewindSeconds * speed);
+    if (newPos < 0) newPos = 0;
+    if (rewindSettings.chapterBarrier && _chapters.isNotEmpty) {
+      for (final ch in _chapters) {
+        final start = (ch['start'] as num?)?.toDouble() ?? 0;
+        final end = (ch['end'] as num?)?.toDouble() ?? 0;
+        if (startTime >= start && startTime < end) {
+          if (newPos < start) newPos = start;
+          break;
+        }
+      }
+    }
+    final actualDelta = startTime - newPos;
+    if (actualDelta <= 0) return startTime;
+    final detail = speed == 1.0
+        ? '${rewindSeconds.toStringAsFixed(1)}s (session start)'
+        : '${rewindSeconds.toStringAsFixed(1)}s (${actualDelta.toStringAsFixed(1)}s at ${speed.toStringAsFixed(2)}x, session start)';
+    _logEvent(PlaybackEventType.autoRewind, detail: detail);
+    debugPrint(
+      '[Player] Session-start rewind ${rewindSeconds.toStringAsFixed(1)}s '
+      '(${actualDelta.toStringAsFixed(1)}s at ${speed.toStringAsFixed(2)}x) '
+      '-> starting at ${newPos.toStringAsFixed(1)}s',
+    );
+    return newPos;
+  }
+
+  // A finished download waiting for a quiet moment to take over from the
+  // stream: the progress key of the item, and the start it belongs to.
+  String? _pendingLocalSwapKey;
+  int _pendingLocalSwapGeneration = -1;
+
+  /// A download finished for [itemId]. Moving a playing stream onto the files
+  /// means reloading the source, a short gap in the middle of a sentence, and
+  /// nothing is wrong with the stream, so while audio is running the move
+  /// waits for the next pause or seek, where a reload cannot be heard. Paused,
+  /// it happens now. A stream that errors before then restarts through
+  /// playItem, which picks the files up by itself.
   Future<bool> switchToLocal(String itemId) async {
-    if (_currentItemId != itemId) return false;
+    final currentItemId = _currentItemId;
+    if (currentItemId == null ||
+        playbackDownloadKey(currentItemId, _currentEpisodeId) != itemId) {
+      return false;
+    }
     if (!_downloadService.isDownloaded(itemId)) return false;
-    if (_player == null) return false;
+    if (_player == null || _localSessionMode) return false;
 
-    final wasPlaying = _player!.playing;
-    final currentAbsolutePos = position; // use absolute position getter
+    _pendingLocalSwapKey = itemId;
+    _pendingLocalSwapGeneration = _playbackGeneration;
+    if (_player!.playing) {
+      debugPrint(
+        '[Player] Download finished - holding the move to local files for the next pause or seek',
+      );
+      return true;
+    }
+    return _applyPendingLocalSwap(resumeAfter: false);
+  }
+
+  /// Move the source onto the finished download. Called only where playback
+  /// is already interrupted (paused, mid-seek, or a source that has to be
+  /// rebuilt anyway), so the reload rides inside that interruption. The files
+  /// load straight at [seekToSeconds] (or the current position) - no start at
+  /// zero followed by a seek. Returns true when the move happened and already
+  /// landed there; the caller must then skip its own seek.
+  Future<bool> _applyPendingLocalSwap({
+    double? seekToSeconds,
+    bool resumeAfter = false,
+  }) async {
+    final key = _pendingLocalSwapKey;
+    if (key == null || _player == null) return false;
+    final currentItemId = _currentItemId;
+    if (_pendingLocalSwapGeneration != _playbackGeneration ||
+        currentItemId == null ||
+        playbackDownloadKey(currentItemId, _currentEpisodeId) != key ||
+        _localSessionMode ||
+        !_downloadService.isDownloaded(key)) {
+      _pendingLocalSwapKey = null;
+      return false;
+    }
+    // While casting, the local player isn't the real output - keep the move
+    // for when local playback matters again.
+    if (ChromecastService().isCasting) return false;
+    final localPaths = _downloadService.getLocalPaths(key);
+    if (localPaths == null || localPaths.isEmpty) {
+      _pendingLocalSwapKey = null;
+      return false;
+    }
+    _pendingLocalSwapKey = null; // one-shot, success or not
+
     final currentSpeed = _player!.speed;
+    // Audio that ran up to this moment is still owed to the stream session.
+    // Paused, the pause sync already reported the tail and the span since is
+    // idle time, not listening.
+    final finalStreamingSeconds = !resumeAfter
+        ? 0
+        : DateTime.now().difference(_lastServerSync).inSeconds.clamp(0, 300);
+    final target = (seekToSeconds ?? position.inMilliseconds / 1000.0)
+        .clamp(0.0, double.infinity)
+        .toDouble();
+    debugPrint(
+      '[Player] Moving to local files at ${target.toStringAsFixed(1)}s (resume=$resumeAfter)',
+    );
 
-    debugPrint('[Player] Hot-swapping to local files at ${currentAbsolutePos.inSeconds}s');
-
-    final localPaths = _downloadService.getLocalPaths(itemId);
-    if (localPaths == null || localPaths.isEmpty) return false;
-
-    // Get cached session data for track durations (multi-file seeking)
-    final cachedJson = _downloadService.getCachedSessionData(itemId);
+    // Track durations from the download's stored session, for multi-file
+    // seeking. Same book, so the offsets match the stream's; without them
+    // the stream's own are kept when they fit the files.
+    final cachedJson = _downloadService.getCachedSessionData(key);
     List<dynamic>? audioTracks;
     if (cachedJson != null) {
       try {
@@ -2443,46 +4031,149 @@ class AudioPlayerService extends ChangeNotifier {
         audioTracks = session['audioTracks'] as List<dynamic>?;
       } catch (_) {}
     }
-
-    // Rebuild track offsets for local files
-    if (audioTracks != null) {
+    if (audioTracks != null && audioTracks.length == localPaths.length) {
       _buildTrackOffsets(audioTracks);
-    } else {
+    } else if (_trackStartOffsets.length - 1 != localPaths.length) {
       _trackStartOffsets = [0.0];
     }
-    _currentTrackIndex = 0;
 
+    var oldSourceGone = false;
     try {
-      AudioSource source;
-      if (localPaths.length == 1) {
-        source = AudioSource.file(localPaths.first);
-      } else {
-        final sources = localPaths.map((p) => AudioSource.file(p) as AudioSource).toList();
-        source = ConcatenatingAudioSource(children: sources);
+      var idx = 0;
+      for (int i = 0; i < _trackStartOffsets.length - 1; i++) {
+        if (target < _trackStartOffsets[i + 1] ||
+            i == _trackStartOffsets.length - 2) {
+          idx = i;
+          break;
+        }
       }
+      final trackStart = idx < _trackStartOffsets.length ? _trackStartOffsets[idx] : 0.0;
+      final localPos = Duration(
+        milliseconds: ((target - trackStart) * 1000).round(),
+      );
+      // Stamp the seek target so position readers (UI, progress save) hold at
+      // the target while the files load instead of flashing 0.
+      _lastSeekTargetSeconds = target;
+      _lastSeekTime = DateTime.now();
 
-      await _player!.setAudioSource(source);
-
-      // Seek to the same absolute position
-      final posSeconds = currentAbsolutePos.inMilliseconds / 1000.0;
-      await _seekAbsolute(posSeconds);
-
+      final trackSources = localPaths.map((p) => localAudioSource(p)).toList();
+      final source = ConcatenatingAudioSource(children: trackSources);
+      _pendingSessionUpgrade = null; // going local, its URLs no longer matter
+      _resetPreBufferState();
+      // Update index BEFORE loading so positionStream events use the right offset
+      _currentTrackIndex = idx;
+      oldSourceGone = true;
+      await _player!.setAudioSource(
+        source,
+        initialIndex: idx,
+        initialPosition: localPos,
+        itemId: _currentItemId,
+      );
+      _activeConcatSource = source;
+      _currentBookTrackCount = trackSources.length;
       _subscribeTrackIndex();
-
-      // Restore speed
       await _player!.setSpeed(currentSpeed);
+      if (resumeAfter) _player!.play();
 
-      // Resume if was playing
-      if (wasPlaying) _player!.play();
+      await _switchHotSwapReportingToLocal(
+        position: Duration(milliseconds: (target * 1000).round()),
+        streamingSeconds: finalStreamingSeconds,
+      );
 
       _logEvent(PlaybackEventType.play, detail: 'Switched to local playback');
-      debugPrint('[Player] Hot-swap complete — now playing from local files');
+      debugPrint('[Player] Now playing from local files');
       notifyListeners();
       return true;
     } catch (e) {
-      debugPrint('[Player] Hot-swap failed: $e');
-      return false;
+      debugPrint('[Player] Move to local files failed: $e');
+      if (!oldSourceGone) return false;
+      // The stream's source went with the failed load, so there is nothing
+      // left for the caller to seek. When audio should be running, restart
+      // through the normal path at the spot this was heading for; it falls
+      // back to the server if the files really are unreadable. Paused, the
+      // next play re-initialises the idle player.
+      _lastKnownPositionSec = target;
+      if (resumeAfter) unawaited(_attemptStreamRetry(e));
+      return true;
     }
+  }
+
+  Future<void> _switchHotSwapReportingToLocal({
+    required Duration position,
+    required int streamingSeconds,
+  }) async {
+    if (_localSessionMode || _currentItemId == null) return;
+
+    final api = _api;
+    final streamingSessionId = _playbackSessionId;
+    final progressKey = playbackDownloadKey(
+      _currentItemId!,
+      _currentEpisodeId,
+    );
+    final currentTime = position.inMilliseconds / 1000.0;
+
+    try {
+      await LocalSessionService().beginSession(
+        progressKey: progressKey,
+        libraryItemId: _currentItemId!,
+        episodeId: _currentEpisodeId,
+        mediaType: _currentEpisodeId != null ? 'podcast' : 'book',
+        duration: _totalDuration,
+        startTime: currentTime,
+        displayTitle: _currentTitle,
+        displayAuthor: _currentAuthor,
+      );
+    } catch (e) {
+      debugPrint('[Player] Failed to start LOCAL reporting after hot-swap: $e');
+      return;
+    }
+
+    _logEvent(PlaybackEventType.sessionEnd, detail: 'stream hot-swap');
+    _localSessionMode = true;
+    _playbackSessionId = null;
+    _activeStreamUrls = const [];
+    _activeStreamHeaders = const {};
+    _lastServerSync = DateTime.now();
+    _lastAccrual = _lastServerSync;
+    _lastAccrualPos = null;
+    _logEvent(PlaybackEventType.sessionStart, detail: 'local hot-swap');
+
+    if (api == null || streamingSessionId == null) return;
+
+    try {
+      final pendingBefore =
+          await _progressSync.getStreamingPendingTime(progressKey);
+      final synced = await api.syncPlaybackSession(
+        streamingSessionId,
+        currentTime: currentTime,
+        duration: _totalDuration,
+        timeListened: streamingSeconds,
+      );
+      if (synced) {
+        if (streamingSeconds > 0) {
+          unawaited(
+            _progressSync.addTimeSaved(streamingSeconds, _player?.speed ?? 1.0),
+          );
+          unawaited(
+            HomeWidgetService().addLocalListeningSeconds(streamingSeconds),
+          );
+        }
+        if (pendingBefore > 0) {
+          unawaited(
+            _progressSync.reduceStreamingPendingTime(
+              progressKey,
+              pendingBefore,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[Player] Failed to finalize streaming hot-swap session: $e');
+    }
+
+    try {
+      await api.closePlaybackSession(streamingSessionId);
+    } catch (_) {}
   }
 
   Future<String?> _playFromLocal(
@@ -2494,13 +4185,23 @@ class AudioPlayerService extends ChangeNotifier {
     List<dynamic> chapters,
     double startTime, [
     bool forceStartTime = false,
+    bool loadOnly = false,
+    int? generation,
   ]) async {
+    final gen = generation ?? _playbackGeneration;
+    if (_startSuperseded(gen)) return null;
+    // This start's ids, read before anything awaits. The shared fields belong
+    // to a newer start as soon as one begins.
+    final rawItemId = _currentItemId!;
+    final episodeId = _currentEpisodeId;
     debugPrint('[Player] Playing from local files: $title');
     // Alpha [PodDur]: trace podcast-episode duration loading. Symptom:
     // Android Auto progress bar missing for ~60s on cold-start podcast play
     // because the first MediaItem push carries dur=0. We want to know what
     // value arrived at this function, and what's available from nearby state.
-    debugPrint('[PodDur] _playFromLocal entry: itemId=$itemId ep=$_currentEpisodeId totalDurationArg=${totalDuration.toStringAsFixed(1)}s _totalDuration=${_totalDuration.toStringAsFixed(1)}s chapters=${chapters.length}');
+    debugPrint(
+      '[PodDur] _playFromLocal entry: itemId=$itemId ep=$_currentEpisodeId totalDurationArg=${totalDuration.toStringAsFixed(1)}s _totalDuration=${_totalDuration.toStringAsFixed(1)}s chapters=${chapters.length}',
+    );
     _isOfflineMode = false; // We still sync to server if possible
     _playbackSessionId = null;
 
@@ -2509,116 +4210,100 @@ class AudioPlayerService extends ChangeNotifier {
     final manualOffline = prefs.getBool('manual_offline_mode') ?? false;
     debugPrint('[Player] manualOffline=$manualOffline, api=${_api != null}');
 
-    // Try to start a server session for sync. Skip entirely if the user
-    // is in manual offline mode OR if AuthProvider has told us the server
-    // is unreachable (skip = instant local playback). Otherwise the call
-    // is capped at 5s so a silently-dropping reverse proxy doesn't hold
-    // up local playback for the full 20s api-level timeout.
-    if (_api != null && !manualOffline && !_knownOffline) {
+    // Downloaded plays report to the server via the client-owned LOCAL session
+    // model (GH #276 Local label, GH #280 per-day attribution), NOT a live
+    // /play session. Position still syncs through /me/progress; here we only
+    // reconcile the start position against the server's saved progress (when
+    // online) the way the /play response used to, sourced from GET /me/progress.
+    _localSessionMode = true;
+    _logEvent(PlaybackEventType.sessionStart, detail: 'local-session');
+    // `itemId` here is the progress key (already `id-episodeId` for a podcast),
+    // so build the key from the raw parts to avoid double-appending the episode.
+    final pKey = episodeId != null ? '$rawItemId-$episodeId' : rawItemId;
+    // Only a play from the app screen waits on this, and only briefly: it is
+    // the one moment a fresh start can pick up another device's progress
+    // before audio. Headphone / widget / Android Auto / cold-start plays of
+    // a download need nothing from the network to begin, so they don't ask
+    // (GH #321) - unless this phone has no position for it at all, where
+    // starting from zero would be the wrong guess and there is nothing to
+    // preserve. Whatever position we start with, we keep - no seeking after.
+    if (forceStartTime) {
+      debugPrint(
+        '[Player] Forced start time: ${startTime}s — skipping server/local position comparison',
+      );
+    } else if (!_playFromUi && startTime > 0) {
+      debugPrint(
+        '[Player] Skipping progress reconcile - not started from the app screen, playing local position ${startTime.toStringAsFixed(1)}s now',
+      );
+    } else if (_api != null && !manualOffline && !_knownOffline) {
       try {
-        debugPrint('[Player] Starting server session for local playback...');
-        final sessionData = await (_currentEpisodeId != null
-            ? _api!.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!)
-            : _api!.startPlaybackSession(itemId)
-        ).timeout(const Duration(seconds: 5), onTimeout: () => null);
-        if (sessionData != null) {
-          _playbackSessionId = sessionData['id'] as String?;
-          debugPrint('[Player] Got server session for local playback: $_playbackSessionId');
-          _logEvent(PlaybackEventType.sessionStart, detail: 'local');
-
-          // Alpha [PodDur]: which duration fields did the session response carry?
-          // If the server ships a usable duration here and we ignore it, we
-          // know the fix is to pick it up. Dump all plausible keys.
-          final sdDuration = (sessionData['duration'] as num?)?.toDouble();
-          final sdMediaDuration = (sessionData['mediaDuration'] as num?)?.toDouble();
-          final sdMetaDur = (sessionData['mediaMetadata'] is Map<String, dynamic>)
-              ? ((sessionData['mediaMetadata'] as Map<String, dynamic>)['duration'] as num?)?.toDouble()
-              : null;
-          debugPrint('[PodDur] session response: duration=$sdDuration mediaDuration=$sdMediaDuration mediaMetadata.duration=$sdMetaDur keys=${sessionData.keys.toList()}');
-
-          // Fall back to session duration when the caller didn't have one.
-          // Without this, podcast cold-starts from Android Auto push a first
-          // MediaItem with dur=0, and AA never renders the progress bar.
-          if (totalDuration <= 0 && sdDuration != null && sdDuration > 0) {
-            totalDuration = sdDuration;
-            _totalDuration = sdDuration;
-          }
-
-          // Pick up chapters from session (e.g. podcast episodes with embedded chapters)
-          if (chapters.isEmpty) {
-            final sessionChapters = sessionData['chapters'] as List<dynamic>? ?? [];
-            if (sessionChapters.isNotEmpty) {
-              chapters = sessionChapters;
-              _chapters = sessionChapters;
-              _handler?.updateChaptersQueue(sessionChapters);
-              debugPrint('[Player] Loaded ${sessionChapters.length} chapters from session');
-            }
-          }
-
-          // Compare server position vs local.
-          // Usually the furthest position wins, but if local is ahead we also
-          // check timestamps: a stale local save (e.g. from a crashed write)
-          // shouldn't override a more recently synced server position.
-          final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
-          final pKey = _currentEpisodeId != null ? '$itemId-$_currentEpisodeId' : itemId;
-          final localTs = await _progressSync.getSavedTimestamp(pKey);
-          if (serverPos > startTime + 1.0) {
-            debugPrint('[Player] Server position is ahead: server=${serverPos}s vs local=${startTime}s — using server');
-            startTime = serverPos;
-            await _progressSync.saveLocal(
-              itemId: itemId,
-              currentTime: serverPos,
-              duration: totalDuration,
-              speed: 1.0,
+        final serverProgress = await _api!
+            .getItemProgress(pKey)
+            .timeout(_serverPositionCheckCap, onTimeout: () => null);
+        final serverPos =
+            (serverProgress?['currentTime'] as num?)?.toDouble() ?? 0;
+        final serverLastUpdate =
+            (serverProgress?['lastUpdate'] as num?)?.toInt() ?? 0;
+        final localTs = await _progressSync.getSavedTimestamp(pKey);
+        if (serverPos > startTime + 1.0) {
+          debugPrint(
+            '[Player] Server position is ahead: server=${serverPos}s vs local=${startTime}s — using server',
+          );
+          startTime = serverPos;
+          await _progressSync.saveLocal(
+            itemId: itemId,
+            currentTime: serverPos,
+            duration: totalDuration,
+            speed: 1.0,
+          );
+        } else if (startTime > 0) {
+          // Local is ahead — verify via timestamp that this isn't stale data.
+          // Skip the override if we have a pending local sync: local is the
+          // truth, we just haven't shipped it to the server yet.
+          bool useServer = false;
+          final hasPending = await _progressSync.hasPendingSync(pKey);
+          final gap = startTime - serverPos;
+          if (localTs > 0 &&
+              !hasPending &&
+              gap <= SyncLogic.localAheadSafetySeconds &&
+              serverLastUpdate > localTs) {
+            debugPrint(
+              '[Player] Local position is ahead but stale: local=${startTime}s (ts=$localTs) vs server=${serverPos}s (ts=$serverLastUpdate) — using server',
             );
-          } else if (startTime > 0) {
-            // Local is ahead — verify via timestamp that this isn't stale data.
-            // Fetch the server's lastUpdate to compare with the local save time.
-            // Skip the override if we have a pending local sync: local is the
-            // truth, we just haven't shipped it to the server yet.
-            bool useServer = false;
-            final hasPending = await _progressSync.hasPendingSync(pKey);
-            final gap = startTime - serverPos;
-            if (localTs > 0 && !hasPending && gap <= SyncLogic.localAheadSafetySeconds) {
-              try {
-                final serverProgress = await _api!.getItemProgress(pKey);
-                final serverLastUpdate = (serverProgress?['lastUpdate'] as num?)?.toInt() ?? 0;
-                if (serverLastUpdate > localTs) {
-                  debugPrint('[Player] Local position is ahead but stale: local=${startTime}s (ts=$localTs) vs server=${serverPos}s (ts=$serverLastUpdate) — using server');
-                  startTime = serverPos;
-                  useServer = true;
-                }
-              } catch (_) {}
-            }
-            if (!useServer) {
-              if (hasPending) {
-                debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (pending sync)');
-              } else if (gap > SyncLogic.localAheadSafetySeconds) {
-                debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (gap ${gap.toStringAsFixed(1)}s exceeds safety threshold)');
-              } else {
-                debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local');
-              }
-            }
-          } else if (serverPos > 0) {
-            debugPrint('[Player] No local position, using server: ${serverPos}s');
             startTime = serverPos;
+            useServer = true;
           }
-        } else {
-          debugPrint('[Player] startPlaybackSession returned null');
+          if (!useServer) {
+            if (hasPending) {
+              debugPrint(
+                '[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (pending sync)',
+              );
+            } else if (gap > SyncLogic.localAheadSafetySeconds) {
+              debugPrint(
+                '[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (gap ${gap.toStringAsFixed(1)}s exceeds safety threshold)',
+              );
+            } else {
+              debugPrint(
+                '[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local',
+              );
+            }
+          }
+        } else if (serverPos > 0) {
+          debugPrint('[Player] No local position, using server: ${serverPos}s');
+          startTime = serverPos;
         }
       } catch (e) {
-        debugPrint('[Player] Could not start server session: $e');
+        debugPrint('[Player] Local-play progress reconcile failed: $e');
       }
     } else {
-      debugPrint('[Player] Skipping server session — manual offline or no API');
+      debugPrint(
+        '[Player] Skipping progress reconcile — manual offline or no API',
+      );
     }
 
-    // If no session, fall back to offline mode
-    if (_playbackSessionId == null) {
-      _isOfflineMode = true;
-      debugPrint('[Player] No server session — true offline mode');
+    if (_startSuperseded(gen)) {
+      return _abandonStart(null, null, 'local, after the position check');
     }
-
     final localPaths = _downloadService.getLocalPaths(itemId);
     if (localPaths == null || localPaths.isEmpty) {
       debugPrint('[Player] No local files found');
@@ -2633,6 +4318,16 @@ class AudioPlayerService extends ChangeNotifier {
       try {
         final session = jsonDecode(cachedJson) as Map<String, dynamic>;
         audioTracks = session['audioTracks'] as List<dynamic>?;
+        // Fall back to the cached session duration when the caller didn't have
+        // one (e.g. podcast cold-start from Android Auto pushes dur=0). Replaces
+        // the old /play-response duration fallback now that local plays skip it.
+        if (totalDuration <= 0) {
+          final cachedDur = (session['duration'] as num?)?.toDouble();
+          if (cachedDur != null && cachedDur > 0) {
+            totalDuration = cachedDur;
+            _totalDuration = cachedDur;
+          }
+        }
         // Pick up chapters from cached session when not already loaded
         if (chapters.isEmpty) {
           final cachedChapters = session['chapters'] as List<dynamic>? ?? [];
@@ -2640,13 +4335,18 @@ class AudioPlayerService extends ChangeNotifier {
             chapters = cachedChapters;
             _chapters = cachedChapters;
             _handler?.updateChaptersQueue(cachedChapters);
-            debugPrint('[Player] Loaded ${cachedChapters.length} chapters from cached session');
+            debugPrint(
+              '[Player] Loaded ${cachedChapters.length} chapters from cached session',
+            );
           }
         }
       } catch (_) {}
     }
 
     try {
+      if (_startSuperseded(gen)) {
+        return _abandonStart(null, null, 'local, before building the source');
+      }
       _currentTrackIndex = 0;
 
       // Build multi-file track offsets for absolute position tracking
@@ -2656,9 +4356,7 @@ class AudioPlayerService extends ChangeNotifier {
         _trackStartOffsets = [0.0]; // single file fallback
       }
 
-      final trackSources = localPaths
-          .map((p) => AudioSource.file(p) as AudioSource)
-          .toList();
+      final trackSources = localPaths.map((p) => localAudioSource(p)).toList();
       final source = ConcatenatingAudioSource(children: trackSources);
 
       await _configureAudioSession();
@@ -2668,13 +4366,55 @@ class AudioPlayerService extends ChangeNotifier {
       } catch (e) {
         debugPrint('[Player] Pre-source setActive failed (local): $e');
       }
+      if (_startSuperseded(gen)) {
+        return _abandonStart(null, null, 'local, before loading the source');
+      }
       _resetPreBufferState();
-      await _player!.setAudioSource(source);
+      final decoded = await _player!.setAudioSource(
+        source,
+        itemId: rawItemId,
+      );
+      if (_startSuperseded(gen)) {
+        return _abandonStart(null, null, 'local, after loading the source');
+      }
       _activeConcatSource = source;
       _currentBookTrackCount = trackSources.length;
 
+      // Detect an incomplete/corrupt download: the audio on disk decodes to
+      // materially less than the book's real length. If we trusted the
+      // metadata duration we'd let the user seek past the end of the file,
+      // clamp them to ~the file's end on resume, and save that over their real
+      // progress (GH #278). Flag it so seeks clamp and saves are protected.
+      //
+      // Only valid for single-file books. On a multi-file
+      // ConcatenatingAudioSource, setAudioSource returns just the first track's
+      // duration (the current ExoPlayer window), not the whole book — so this
+      // would flag every complete multi-file download as truncated and pin
+      // playback to the first track, breaking seek and resume. The single-point
+      // _shortLocalDurationSec clamp only models one truncated file anyway.
+      final decodedSec = (decoded?.inMilliseconds ?? 0) / 1000.0;
+      if (trackSources.length == 1 &&
+          totalDuration > 0 &&
+          decodedSec > 0 &&
+          decodedSec < totalDuration - _kLocalTruncationMarginSec) {
+        _shortLocalDurationSec = decodedSec;
+        debugPrint(
+          '[Player] Local audio decodes to ${decodedSec.toStringAsFixed(1)}s '
+          'but book is ${totalDuration.toStringAsFixed(1)}s — download looks '
+          'incomplete; clamping seeks and protecting saved progress (GH #278)',
+        );
+      }
+
       // If the saved position is at (or past) the end, restart from the beginning
       if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
+      final speedKey = _currentItemId ?? itemId;
+      final bookSpeed = await PlayerSettings.getBookSpeed(speedKey);
+      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      startTime = await _sessionStartRewound(
+        startTime,
+        forceStartTime: forceStartTime,
+        speed: speed,
+      );
       if (startTime > 0) {
         await _seekAbsolute(startTime);
       }
@@ -2682,21 +4422,69 @@ class AudioPlayerService extends ChangeNotifier {
 
       _subscribeTrackIndex();
       final initChapter = _initChapterInfo(startTime);
-      _pushMediaItem(itemId, title, author, coverUrl, totalDuration, chapter: initChapter);
-      await _primeNowPlaying(title: title, artist: author, duration: totalDuration, elapsed: startTime);
-      final speedKey = _currentItemId ?? itemId;
-      final bookSpeed = await PlayerSettings.getBookSpeed(speedKey);
-      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      // Speed must be applied before _pushMediaItem: the pushed duration is
+      // speed-adjusted at push time, and nothing re-pushes it on load - so
+      // pushing at the default 1.0x left the notification/AA/widget bar
+      // lagging (the chapter "ended" at 1/speed) until a foreground re-push.
       await _player!.setSpeed(speed);
+      _pushMediaItem(
+        itemId,
+        title,
+        author,
+        coverUrl,
+        totalDuration,
+        chapter: initChapter,
+      );
+      await _primeNowPlaying(
+        title: title,
+        artist: author,
+        duration: totalDuration,
+        elapsed: startTime,
+        chapter: initChapter,
+      );
       await EqualizerService().switchItem(speedKey);
+      if (loadOnly) {
+        // Loaded and idle at the resume position: the lock screen shows the
+        // book paused, a headset press has a live target, and the transcript
+        // can build its runway - but nothing plays and no session exists
+        // until the user presses play, which creates the session then.
+        debugPrint('[Player] Loaded paused (no session) at '
+            '${startTime.toStringAsFixed(0)}s');
+        _pendingLoadOnlySession = (
+          progressKey: pKey,
+          itemId: _currentItemId!,
+          episodeId: _currentEpisodeId,
+          duration: totalDuration,
+          title: title,
+          author: author,
+        );
+        _handler?.refreshPlaybackState();
+        notifyListeners();
+        return null;
+      }
       debugPrint('[Player] Starting local playback at ${speed}x');
       _handler?.refreshPlaybackState();
       await Future.delayed(const Duration(milliseconds: 200));
-      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+      try {
+        (await AudioSession.instance).setActive(true);
+      } catch (_) {}
+      if (_startSuperseded(gen)) {
+        return _abandonStart(null, null, 'local, before play');
+      }
       _player!.play();
       _scheduleAudioDiagnostics('local');
       notifyListeners();
       _setupSync();
+      await LocalSessionService().beginSession(
+        progressKey: pKey,
+        libraryItemId: rawItemId,
+        episodeId: episodeId,
+        mediaType: episodeId != null ? 'podcast' : 'book',
+        duration: totalDuration,
+        startTime: startTime,
+        displayTitle: title,
+        displayAuthor: author,
+      );
       Future.delayed(const Duration(milliseconds: 500), () {
         _handler?.refreshPlaybackState();
       });
@@ -2708,6 +4496,45 @@ class AudioPlayerService extends ChangeNotifier {
       return null;
     } catch (e, stack) {
       debugPrint('[Player] Local play error: $e\n$stack');
+
+      if (_startSuperseded(gen)) {
+        return _abandonStart(null, null, 'local, load interrupted');
+      }
+
+      // A downloaded original can still be unreadable by the device (for
+      // example a very large MP4/M4B that ExoPlayer cannot parse). When the
+      // server is reachable, retry once through ABS transcoding instead of
+      // leaving the user stuck with an unusable local file.
+      if (PlaybackErrorPolicy.shouldRetryWithTranscode(e) &&
+          _api != null &&
+          !manualOffline &&
+          !_knownOffline &&
+          _currentItemId != null) {
+        debugPrint(
+          '[Player] Local source failed - retrying with server transcoding',
+        );
+        _shortLocalDurationSec = null;
+        _localSessionMode = false;
+        final fallbackResult = await _playFromServer(
+          _api!,
+          rawItemId,
+          title,
+          author,
+          coverUrl,
+          totalDuration,
+          chapters,
+          startTime,
+          forceStartTime: forceStartTime,
+          forceTranscode: true,
+          generation: gen,
+        );
+        if (fallbackResult == null) return null;
+        debugPrint(
+          '[Player] Transcoded fallback after local failure did not start: $fallbackResult',
+        );
+        return fallbackResult;
+      }
+
       _clearState();
       return 'Playback failed: ${e.toString().split('\n').first}';
     }
@@ -2725,12 +4552,30 @@ class AudioPlayerService extends ChangeNotifier {
     double totalDuration,
     List<dynamic> chapters,
     double startTime,
-    Map<String, dynamic> cached, [
+    Map<String, dynamic> cached,
+    int localTimestampAtStart,
+    int playbackGeneration, [
     bool forceStartTime = false,
+    Future<Map<String, dynamic>?>? pendingSession,
   ]) async {
+    // The session request still in flight is handed to nobody on this route;
+    // close it when it lands so the server is not left with a stray one.
+    void dropPendingSession() {
+      pendingSession?.then((s) {
+        final id = s?['id'] as String?;
+        if (id != null) unawaited(api.closePlaybackSession(id));
+      }).catchError((_) {});
+    }
+
+    if (_startSuperseded(playbackGeneration)) {
+      dropPendingSession();
+      return _abandonStart(null, null, 'before the cached start');
+    }
     debugPrint('[Player] Playing from session cache: $title');
+    final episodeIdAtStart = _currentEpisodeId;
     _isOfflineMode = false;
-    _playbackSessionId = null; // No server session yet; _refreshServerSession will set it
+    _playbackSessionId =
+        null; // No server session yet; _refreshServerSession will set it
 
     final audioTracks = cached['audioTracks'] as List<dynamic>?;
     if (audioTracks == null || audioTracks.isEmpty) {
@@ -2759,7 +4604,7 @@ class AudioPlayerService extends ChangeNotifier {
 
     try {
       _currentTrackIndex = 0;
-      final audioHeaders = api.mediaHeaders;
+      final audioHeaders = api.playbackSessionHeaders;
       _buildTrackOffsets(audioTracks);
       _captureStreamUrls(audioTracks, api);
       AudioSource source;
@@ -2768,40 +4613,82 @@ class AudioPlayerService extends ChangeNotifier {
         final track = t as Map<String, dynamic>;
         final contentUrl = track['contentUrl'] as String? ?? '';
         final fullUrl = api.buildTrackUrl(contentUrl);
-        trackSources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
+        trackSources.add(
+          AudioSource.uri(
+            Uri.parse(fullUrl),
+            headers: audioHeaders,
+            options: mp3ExtractorOptions(),
+          ),
+        );
       }
       source = ConcatenatingAudioSource(children: trackSources);
 
       await _configureAudioSession();
       try {
         final activated = await (await AudioSession.instance).setActive(true);
-        debugPrint('[Player] Pre-source setActive(true)=$activated (cached-session)');
+        debugPrint(
+          '[Player] Pre-source setActive(true)=$activated (cached-session)',
+        );
       } catch (e) {
         debugPrint('[Player] Pre-source setActive failed (cached-session): $e');
       }
+      if (_startSuperseded(playbackGeneration)) {
+        dropPendingSession();
+        return _abandonStart(null, null, 'cached start, before loading the source');
+      }
       _resetPreBufferState();
-      await _player!.setAudioSource(source);
+      await _player!.setAudioSource(source, itemId: itemId);
+      if (_startSuperseded(playbackGeneration)) {
+        dropPendingSession();
+        return _abandonStart(null, null, 'cached start, after loading the source');
+      }
       _activeConcatSource = source as ConcatenatingAudioSource;
       _currentBookTrackCount = trackSources.length;
 
       if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
+      final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
+      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      startTime = await _sessionStartRewound(
+        startTime,
+        forceStartTime: forceStartTime,
+        speed: speed,
+      );
       if (startTime > 0) {
-        await _seekAbsolute(startTime);
+        await _seekForStart(startTime, playbackGeneration);
       }
       clearSeekTarget();
 
       _subscribeTrackIndex();
       final initChapter = _initChapterInfo(startTime);
-      _pushMediaItem(itemId, title, author, coverUrl, totalDuration, chapter: initChapter);
-      await _primeNowPlaying(title: title, artist: author, duration: totalDuration, elapsed: startTime);
-      final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
-      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      // Speed before _pushMediaItem - the pushed duration is speed-adjusted.
       await _player!.setSpeed(speed);
+      _pushMediaItem(
+        itemId,
+        title,
+        author,
+        coverUrl,
+        totalDuration,
+        chapter: initChapter,
+      );
+      await _primeNowPlaying(
+        title: title,
+        artist: author,
+        duration: totalDuration,
+        elapsed: startTime,
+        chapter: initChapter,
+      );
       await EqualizerService().switchItem(itemId);
       debugPrint('[Player] Starting cached session playback at ${speed}x');
       _handler?.refreshPlaybackState();
       await Future.delayed(const Duration(milliseconds: 200));
-      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+      try {
+        (await AudioSession.instance).setActive(true);
+      } catch (_) {}
+      if (_startSuperseded(playbackGeneration)) {
+        dropPendingSession();
+        return _abandonStart(null, null, 'cached start, before play');
+      }
+      _cachedStartReconcileGeneration = playbackGeneration;
       _player!.play();
       _scheduleAudioDiagnostics('cached-session');
       notifyListeners();
@@ -2814,12 +4701,33 @@ class AudioPlayerService extends ChangeNotifier {
       sleepTimer.checkAutoSleep();
       // Refresh server session in background - gets fresh session ID and
       // handles cross-client progress sync without blocking playback start
-      _refreshServerSession(api, itemId);
+      final progressKey = episodeIdAtStart != null
+          ? '$itemId-$episodeIdAtStart'
+          : itemId;
+      _refreshServerSession(
+        api,
+        itemId,
+        episodeIdAtStart: episodeIdAtStart,
+        progressKey: progressKey,
+        localTimestampAtStart: localTimestampAtStart,
+        localTimeAtStart: startTime,
+        playbackGeneration: playbackGeneration,
+        pendingSession: pendingSession,
+      );
       return null;
     } catch (e, stack) {
       debugPrint('[Player] Cached session play error: $e\n$stack');
+      if (_cachedStartReconcileGeneration == playbackGeneration) {
+        _cachedStartReconcileGeneration = null;
+      }
+      // Interrupted by a newer start, not a bad cache: leave the cache alone
+      // and do not fall through to a full server start over the winner.
+      if (_startSuperseded(playbackGeneration)) {
+        dropPendingSession();
+        return _abandonStart(null, null, 'cached start, load interrupted');
+      }
       // Cache was stale or invalid - clear it and signal fallback
-      SessionCache.clear(itemId: itemId, episodeId: _currentEpisodeId);
+      SessionCache.clear(itemId: itemId, episodeId: episodeIdAtStart);
       return 'cache-miss';
     }
   }
@@ -2827,14 +4735,36 @@ class AudioPlayerService extends ChangeNotifier {
   /// Re-create the server playback session in the background after starting
   /// playback from cache. Gets a fresh session ID so progress syncing works,
   /// and handles cross-client progress (seek to server position if ahead).
-  void _refreshServerSession(ApiService api, String itemId) async {
-    if (_isOfflineMode) return;
+  void _refreshServerSession(
+    ApiService api,
+    String itemId, {
+    required String? episodeIdAtStart,
+    required String progressKey,
+    required int localTimestampAtStart,
+    required double localTimeAtStart,
+    required int playbackGeneration,
+    Future<Map<String, dynamic>?>? pendingSession,
+  }) async {
     try {
-      final sessionData = _currentEpisodeId != null
-          ? await api.startEpisodePlaybackSession(itemId, _currentEpisodeId!)
-          : await api.startPlaybackSession(itemId);
+      if (_isOfflineMode) return;
+      final progressRequest = api.getItemProgress(progressKey);
+      // The race in playItem may already have a POST in flight - consume it
+      // rather than opening a second session.
+      final sessionData = await (pendingSession ??
+          (episodeIdAtStart != null
+              ? api.startEpisodePlaybackSession(itemId, episodeIdAtStart)
+              : api.startPlaybackSession(itemId)));
       if (sessionData == null) {
         debugPrint('[Player] Background session refresh returned null');
+        return;
+      }
+      final serverProgress = await progressRequest;
+      if (_playbackGeneration != playbackGeneration ||
+          _currentItemId != itemId ||
+          _currentEpisodeId != episodeIdAtStart) {
+        debugPrint(
+          '[Player] Ignoring stale background session refresh for $progressKey',
+        );
         return;
       }
       _playbackSessionId = sessionData['id'] as String?;
@@ -2854,22 +4784,42 @@ class AudioPlayerService extends ChangeNotifier {
           chapters: sessionChapters.isNotEmpty ? sessionChapters : _chapters,
           totalDuration: sessionDur > 0 ? sessionDur : _totalDuration,
         );
+        // The playing source still carries the cached tokened URLs; hold this
+        // session so the next pause or seek can swap to its tokenless URLs.
+        _stashSessionUpgrade(sessionData);
       }
 
-      // Check if server position is ahead (another client advanced). Gate on a
-      // newer server timestamp, not position alone, so a stale pre-rewind
-      // position left on the server can't yank us forward (see _resumeServerSync).
-      final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
-      final serverTs = (sessionData['updatedAt'] as num?)?.toInt() ?? 0;
+      // Audio is already running from the cached start; the server's saved
+      // position is only logged here, never seeked to - a jump a few seconds
+      // into playback is worse than the stale spot. An app-screen play had
+      // its chance to adopt it in the pre-start race window.
+      final serverPos =
+          (serverProgress?['currentTime'] as num?)?.toDouble() ??
+          (sessionData['currentTime'] as num?)?.toDouble() ??
+          0;
+      final serverTs =
+          (serverProgress?['lastUpdate'] as num?)?.toInt() ??
+          (localTimestampAtStart == 0
+              ? (sessionData['updatedAt'] as num?)?.toInt() ?? 0
+              : 0);
       final localPos = position.inMilliseconds / 1000.0;
-      final pKey = _currentEpisodeId != null ? '$itemId-$_currentEpisodeId' : itemId;
-      final localTs = await _progressSync.getSavedTimestamp(pKey);
-      if (serverTs > localTs && serverPos > localPos + 5.0) {
-        debugPrint('[Player] Server is ahead on cache-start: server=${serverPos}s vs local=${localPos}s - seeking');
-        await _seekAbsolute(serverPos);
+      if (SyncLogic.shouldAdoptServerAtCachedStart(
+        serverTimestamp: serverTs,
+        serverTime: serverPos,
+        localTimestampAtStart: localTimestampAtStart,
+        localTimeAtStart: localTimeAtStart,
+        currentPlaybackTime: localPos,
+      )) {
+        debugPrint(
+          '[Player] Server is ahead on cache-start: server=${serverPos}s vs local=${localPos}s - not seeking (audio already running)',
+        );
       }
     } catch (e) {
       debugPrint('[Player] Background session refresh failed: $e');
+    } finally {
+      if (_cachedStartReconcileGeneration == playbackGeneration) {
+        _cachedStartReconcileGeneration = null;
+      }
     }
   }
 
@@ -2881,26 +4831,64 @@ class AudioPlayerService extends ChangeNotifier {
     String? coverUrl,
     double totalDuration,
     List<dynamic> chapters,
-    double startTime, [
+    double startTime, {
     bool forceStartTime = false,
-  ]) async {
+    bool forceTranscode = false,
+    Map<String, dynamic>? preFetchedSession,
+    int? generation,
+  }) async {
+    final gen = generation ?? _playbackGeneration;
+    // A session fetched ahead of time is this start's to close if it lost.
+    if (_startSuperseded(gen)) {
+      return _abandonStart(api, preFetchedSession?['id'] as String?, 'before streaming');
+    }
     debugPrint('[Player] Streaming from server: $title');
     _isOfflineMode = false;
+    _localSessionMode = false;
+    // Still this start's episode: nothing has awaited since the check above.
+    // Reading the shared field later asked the server for whatever a newer
+    // start had set, which is how one episode got two sessions.
+    final episodeId = _currentEpisodeId;
 
     // Use episode endpoint if this is a podcast episode
-    final sessionData = _currentEpisodeId != null
-        ? await api.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!)
-        : await api.startPlaybackSession(itemId);
+    final sessionData = preFetchedSession ??
+        (episodeId != null
+            ? await api.startEpisodePlaybackSession(
+                itemId,
+                episodeId,
+                forceTranscode: forceTranscode,
+              )
+            : await api.startPlaybackSession(
+                itemId,
+                forceTranscode: forceTranscode,
+              ));
+    String? ownSessionId = sessionData?['id'] as String?;
+    if (_startSuperseded(gen)) {
+      return _abandonStart(api, ownSessionId, 'after the session request');
+    }
     if (sessionData == null) {
       debugPrint('[Player] Failed to start playback session');
       _clearState();
       return 'Could not connect to server';
     }
 
-    _playbackSessionId = sessionData['id'] as String?;
+    _playbackSessionId = ownSessionId;
+    // Sessions know their library; adopt it when the caller couldn't provide
+    // one so per-library skip amounts work for lean/merged shelf items.
+    final sessionLibId = sessionData['libraryId'] as String?;
+    if ((_currentLibraryId == null || _currentLibraryId!.isEmpty) &&
+        sessionLibId != null &&
+        sessionLibId.isNotEmpty) {
+      debugPrint(
+        '[SkipDebug] libraryId adopted from play session: $sessionLibId',
+      );
+      _currentLibraryId = sessionLibId;
+      _syncNotifSkipCache();
+    }
     _lastServerSync = DateTime.now();
     _logEvent(PlaybackEventType.sessionStart, detail: 'stream');
     var audioTracks = sessionData['audioTracks'] as List<dynamic>?;
+    var sessionPlayMethod = (sessionData['playMethod'] as num?)?.toInt();
     if (audioTracks == null || audioTracks.isEmpty) {
       _clearState();
       return 'No audio files found - this item may be missing on the server';
@@ -2909,33 +4897,59 @@ class AudioPlayerService extends ChangeNotifier {
     // Detect Dolby Atmos / EAC-3 / AC-3 tracks. Samsung has a hardware Dolby
     // decoder and iOS AVPlayer handles EAC3 natively, so only force transcode
     // on other Android devices where the software codec often fails or outputs silence.
-    if (!forceStartTime && Platform.isAndroid &&
+    if (!forceTranscode &&
+        Platform.isAndroid &&
         !ApiService.deviceManufacturer.toLowerCase().contains('samsung')) {
       final needsTranscode = audioTracks.any((t) {
-        final mime = ((t as Map<String, dynamic>)['mimeType'] as String? ?? '').toLowerCase();
+        final mime = ((t as Map<String, dynamic>)['mimeType'] as String? ?? '')
+            .toLowerCase();
         final codec = (t['codec'] as String? ?? '').toLowerCase();
-        return mime.contains('eac3') || mime.contains('ac3') || mime.contains('ac4') ||
-            mime.contains('atmos') || codec.contains('eac3') || codec.contains('ac3') ||
-            codec.contains('ac4') || codec.contains('atmos');
+        return mime.contains('eac3') ||
+            mime.contains('ac3') ||
+            mime.contains('ac4') ||
+            mime.contains('atmos') ||
+            codec.contains('eac3') ||
+            codec.contains('ac3') ||
+            codec.contains('ac4') ||
+            codec.contains('atmos');
       });
       if (needsTranscode) {
-        debugPrint('[Player] Dolby/EAC3 track detected - restarting with server transcoding');
-        try { await api.closePlaybackSession(_playbackSessionId!); } catch (_) {}
+        debugPrint(
+          '[Player] Dolby/EAC3 track detected - restarting with server transcoding',
+        );
+        if (ownSessionId != null) {
+          try {
+            await api.closePlaybackSession(ownSessionId);
+          } catch (_) {}
+        }
+        if (_startSuperseded(gen)) {
+          return _abandonStart(api, null, 'before the Dolby transcode retry');
+        }
         _playbackSessionId = null;
-        final retrySession = _currentEpisodeId != null
-            ? await api.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!, forceTranscode: true)
+        final retrySession = episodeId != null
+            ? await api.startEpisodePlaybackSession(
+                itemId,
+                episodeId,
+                forceTranscode: true,
+              )
             : await api.startPlaybackSession(itemId, forceTranscode: true);
+        ownSessionId = retrySession?['id'] as String?;
+        if (_startSuperseded(gen)) {
+          return _abandonStart(api, ownSessionId, 'after the Dolby transcode retry');
+        }
         if (retrySession == null) {
           _clearState();
           return 'Could not start transcoded playback';
         }
-        _playbackSessionId = retrySession['id'] as String?;
+        _playbackSessionId = ownSessionId;
         audioTracks = retrySession['audioTracks'] as List<dynamic>? ?? [];
+        sessionPlayMethod = (retrySession['playMethod'] as num?)?.toInt();
         if (audioTracks.isEmpty) {
           _clearState();
           return 'No audio files in transcoded session';
         }
-        final sessionChapters = retrySession['chapters'] as List<dynamic>? ?? [];
+        final sessionChapters =
+            retrySession['chapters'] as List<dynamic>? ?? [];
         if (sessionChapters.isNotEmpty) {
           chapters = sessionChapters;
           _chapters = sessionChapters;
@@ -2956,10 +4970,11 @@ class AudioPlayerService extends ChangeNotifier {
         chapters = sessionChapters;
         _chapters = sessionChapters;
         _handler?.updateChaptersQueue(sessionChapters);
-        debugPrint('[Player] Loaded ${sessionChapters.length} chapters from session');
+        debugPrint(
+          '[Player] Loaded ${sessionChapters.length} chapters from session',
+        );
       }
     }
-
 
     // Update totalDuration from session if it was unknown (e.g. podcast episodes
     // where the embedded recentEpisode didn't include a duration field)
@@ -2968,7 +4983,9 @@ class AudioPlayerService extends ChangeNotifier {
       if (sessionDur > 0) {
         totalDuration = sessionDur;
         _totalDuration = sessionDur;
-        debugPrint('[Player] Updated totalDuration from session: ${sessionDur}s');
+        debugPrint(
+          '[Player] Updated totalDuration from session: ${sessionDur}s',
+        );
       }
     }
 
@@ -2977,12 +4994,16 @@ class AudioPlayerService extends ChangeNotifier {
     // check timestamps to catch stale local saves.
     // Skip all of this when startTime was forced (bookmark/chapter jump).
     final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
-    final pKey = _currentEpisodeId != null ? '$itemId-$_currentEpisodeId' : itemId;
+    final pKey = episodeId != null ? '$itemId-$episodeId' : itemId;
     final localTs = await _progressSync.getSavedTimestamp(pKey);
     if (forceStartTime) {
-      debugPrint('[Player] Forced start time: ${startTime}s — skipping server/local position comparison');
+      debugPrint(
+        '[Player] Forced start time: ${startTime}s — skipping server/local position comparison',
+      );
     } else if (serverPos > startTime + 1.0) {
-      debugPrint('[Player] Server position is ahead: server=${serverPos}s vs local=${startTime}s — using server');
+      debugPrint(
+        '[Player] Server position is ahead: server=${serverPos}s vs local=${startTime}s — using server',
+      );
       startTime = serverPos;
     } else if (startTime > 0) {
       // Skip the staleness override if we have a pending local sync: the
@@ -2994,12 +5015,17 @@ class AudioPlayerService extends ChangeNotifier {
       bool useServer = false;
       final hasPending = await _progressSync.hasPendingSync(pKey);
       final gap = startTime - serverPos;
-      if (localTs > 0 && !hasPending && gap <= SyncLogic.localAheadSafetySeconds) {
+      if (localTs > 0 &&
+          !hasPending &&
+          gap <= SyncLogic.localAheadSafetySeconds) {
         try {
           final serverProgress = await api.getItemProgress(pKey);
-          final serverLastUpdate = (serverProgress?['lastUpdate'] as num?)?.toInt() ?? 0;
+          final serverLastUpdate =
+              (serverProgress?['lastUpdate'] as num?)?.toInt() ?? 0;
           if (serverLastUpdate > localTs) {
-            debugPrint('[Player] Local position is ahead but stale: local=${startTime}s (ts=$localTs) vs server=${serverPos}s (ts=$serverLastUpdate) — using server');
+            debugPrint(
+              '[Player] Local position is ahead but stale: local=${startTime}s (ts=$localTs) vs server=${serverPos}s (ts=$serverLastUpdate) — using server',
+            );
             startTime = serverPos;
             useServer = true;
           }
@@ -3007,11 +5033,17 @@ class AudioPlayerService extends ChangeNotifier {
       }
       if (!useServer) {
         if (hasPending) {
-          debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (pending sync)');
+          debugPrint(
+            '[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (pending sync)',
+          );
         } else if (gap > SyncLogic.localAheadSafetySeconds) {
-          debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (gap ${gap.toStringAsFixed(1)}s exceeds safety threshold)');
+          debugPrint(
+            '[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local (gap ${gap.toStringAsFixed(1)}s exceeds safety threshold)',
+          );
         } else {
-          debugPrint('[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local');
+          debugPrint(
+            '[Player] Local position is ahead: local=${startTime}s vs server=${serverPos}s — keeping local',
+          );
         }
       }
     } else if (serverPos > 0) {
@@ -3020,18 +5052,39 @@ class AudioPlayerService extends ChangeNotifier {
     }
 
     try {
+      // Checked before the track offsets are rebuilt: they belong to
+      // whichever start is current.
+      if (_startSuperseded(gen)) {
+        return _abandonStart(api, ownSessionId, 'before building the source');
+      }
       _currentTrackIndex = 0;
-      final audioHeaders = api.mediaHeaders;
+      final audioHeaders = api.playbackSessionHeaders;
 
       // Build audio source - one source per track file
       _buildTrackOffsets(audioTracks);
-      _captureStreamUrls(audioTracks, api);
+      _captureStreamUrls(
+        audioTracks,
+        api,
+        sessionId: _playbackSessionId,
+        playMethod: sessionPlayMethod,
+      );
       final trackSources = <AudioSource>[];
       for (final t in audioTracks) {
         final track = t as Map<String, dynamic>;
         final contentUrl = track['contentUrl'] as String? ?? '';
-        final fullUrl = api.buildTrackUrl(contentUrl);
-        trackSources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
+        final fullUrl = api.buildTrackUrl(
+          contentUrl,
+          sessionId: _playbackSessionId,
+          trackIndex: (track['index'] as num?)?.toInt(),
+          playMethod: sessionPlayMethod,
+        );
+        trackSources.add(
+          AudioSource.uri(
+            Uri.parse(fullUrl),
+            headers: audioHeaders,
+            options: mp3ExtractorOptions(),
+          ),
+        );
       }
       final source = ConcatenatingAudioSource(children: trackSources);
 
@@ -3042,30 +5095,60 @@ class AudioPlayerService extends ChangeNotifier {
       } catch (e) {
         debugPrint('[Player] Pre-source setActive failed (stream): $e');
       }
+      if (_startSuperseded(gen)) {
+        return _abandonStart(api, ownSessionId, 'before loading the source');
+      }
       _resetPreBufferState();
-      await _player!.setAudioSource(source);
+      await _player!.setAudioSource(source, itemId: itemId);
+      if (_startSuperseded(gen)) {
+        return _abandonStart(api, ownSessionId, 'after loading the source');
+      }
       _activeConcatSource = source;
       _currentBookTrackCount = trackSources.length;
 
       // If the saved position is at (or past) the end, restart from the beginning
       if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
+      final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
+      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      startTime = await _sessionStartRewound(
+        startTime,
+        forceStartTime: forceStartTime,
+        speed: speed,
+      );
       if (startTime > 0) {
-        await _seekAbsolute(startTime);
+        await _seekForStart(startTime, gen);
       }
       clearSeekTarget(); // Seek done; let position events flow immediately
 
       _subscribeTrackIndex();
       final initChapter = _initChapterInfo(startTime);
-      _pushMediaItem(itemId, title, author, coverUrl, totalDuration, chapter: initChapter);
-      await _primeNowPlaying(title: title, artist: author, duration: totalDuration, elapsed: startTime);
-      final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
-      final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
+      // Speed before _pushMediaItem - the pushed duration is speed-adjusted.
       await _player!.setSpeed(speed);
+      _pushMediaItem(
+        itemId,
+        title,
+        author,
+        coverUrl,
+        totalDuration,
+        chapter: initChapter,
+      );
+      await _primeNowPlaying(
+        title: title,
+        artist: author,
+        duration: totalDuration,
+        elapsed: startTime,
+        chapter: initChapter,
+      );
       await EqualizerService().switchItem(itemId);
       debugPrint('[Player] Starting stream playback at ${speed}x');
       _handler?.refreshPlaybackState();
       await Future.delayed(const Duration(milliseconds: 200));
-      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+      try {
+        (await AudioSession.instance).setActive(true);
+      } catch (_) {}
+      if (_startSuperseded(gen)) {
+        return _abandonStart(api, ownSessionId, 'before play');
+      }
       _player!.play();
       _scheduleAudioDiagnostics('stream');
       notifyListeners();
@@ -3080,7 +5163,7 @@ class AudioPlayerService extends ChangeNotifier {
       // Cache session metadata so next play can start instantly
       SessionCache.save(
         itemId: itemId,
-        episodeId: _currentEpisodeId,
+        episodeId: episodeId,
         audioTracks: audioTracks,
         chapters: chapters,
         totalDuration: totalDuration,
@@ -3089,103 +5172,38 @@ class AudioPlayerService extends ChangeNotifier {
     } catch (e, stack) {
       debugPrint('[Player] Stream error: $e\n$stack');
 
-      // If this looks like a codec/renderer error, retry with server-side
-      // transcoding.  Common with Dolby Atmos, EAC-3, multi-channel audio, etc.
-      final errStr = e.toString();
-      if (!forceStartTime && // avoid infinite retry loops (forceStartTime is reused as retry guard)
-          (errStr.contains('MediaCodecAudioRenderer') ||
-           errStr.contains('AudioTrack') ||
-           errStr.contains('Decoder') ||
-           errStr.contains('format_supported'))) {
-        debugPrint('[Player] Codec error detected - retrying with server transcoding');
-        // Preserve item identity before wiping state so the absorbing card
-        // stays visible during the retry and the episode endpoint can be used
-        // correctly. _clearState() would null _currentItemId/_currentEpisodeId,
-        // making hasBook = false (card vanishes) and breaking podcast retries.
-        final retryItemId = _currentItemId;
-        final retryEpId = _currentEpisodeId;
-        final retryEpTitle = _currentEpisodeTitle;
-        final retryTitle = _currentTitle;
-        final retryAuthor = _currentAuthor;
-        final retryCover = _currentCoverUrl;
-        _clearState();
-        _currentItemId = retryItemId;
-        _currentEpisodeId = retryEpId;
-        _currentEpisodeTitle = retryEpTitle;
-        _currentTitle = retryTitle;
-        _currentAuthor = retryAuthor;
-        _currentCoverUrl = retryCover;
-        // Close the failed session
-        if (_playbackSessionId != null) {
-          try { await api.closePlaybackSession(_playbackSessionId!); } catch (_) {}
-          _playbackSessionId = null;
+      // A newer start loading its source is what interrupts this one, so the
+      // "error" is expected and the state now belongs to that start.
+      if (_startSuperseded(gen)) {
+        return _abandonStart(api, ownSessionId, 'load interrupted');
+      }
+
+      // Retry source and codec failures through ABS once. A distinct flag from
+      // forceStartTime keeps bookmark/chapter seeks eligible for recovery while
+      // still preventing a transcode loop.
+      if (!forceTranscode && PlaybackErrorPolicy.shouldRetryWithTranscode(e)) {
+        debugPrint(
+          '[Player] Source or codec error detected - retrying with server transcoding',
+        );
+        if (ownSessionId != null) {
+          try {
+            await api.closePlaybackSession(ownSessionId);
+          } catch (_) {}
+          if (_playbackSessionId == ownSessionId) _playbackSessionId = null;
         }
-        // Retry with transcode
-        final retrySession = _currentEpisodeId != null
-            ? await api.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!, forceTranscode: true)
-            : await api.startPlaybackSession(itemId, forceTranscode: true);
-        if (retrySession != null) {
-          _playbackSessionId = retrySession['id'] as String?;
-          _lastServerSync = DateTime.now();
-          final retryTracks = retrySession['audioTracks'] as List<dynamic>?;
-          if (retryTracks != null && retryTracks.isNotEmpty) {
-            try {
-              _currentTrackIndex = 0;
-              _buildTrackOffsets(retryTracks);
-              AudioSource retrySource;
-              final audioHeaders = api.mediaHeaders;
-              if (retryTracks.length == 1) {
-                final track = retryTracks.first as Map<String, dynamic>;
-                final contentUrl = track['contentUrl'] as String? ?? '';
-                final fullUrl = api.buildTrackUrl(contentUrl);
-                retrySource = AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders);
-              } else {
-                final sources = <AudioSource>[];
-                for (final t in retryTracks) {
-                  final track = t as Map<String, dynamic>;
-                  final contentUrl = track['contentUrl'] as String? ?? '';
-                  final fullUrl = api.buildTrackUrl(contentUrl);
-                  sources.add(AudioSource.uri(Uri.parse(fullUrl), headers: audioHeaders));
-                }
-                retrySource = ConcatenatingAudioSource(children: sources);
-              }
-              await _player!.setAudioSource(retrySource);
-              if (totalDuration > 0 && startTime >= totalDuration - 1.0) startTime = 0;
-              if (startTime > 0) await _seekAbsolute(startTime);
-              clearSeekTarget();
-              _subscribeTrackIndex();
-              final initChapter = _initChapterInfo(startTime);
-              _pushMediaItem(itemId, title, author, coverUrl, totalDuration, chapter: initChapter);
-              final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
-              final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
-              await _player!.setSpeed(speed);
-              await EqualizerService().switchItem(itemId);
-              debugPrint('[Player] Transcoded playback starting at ${speed}x');
-              try { (await AudioSession.instance).setActive(true); } catch (_) {}
-              _player!.play();
-              _scheduleAudioDiagnostics('transcoded-retry');
-              notifyListeners();
-              _setupSync();
-              Future.delayed(const Duration(milliseconds: 500), () {
-                _handler?.refreshPlaybackState();
-              });
-              final sleepTimer = SleepTimerService();
-              sleepTimer.resetDismiss();
-              sleepTimer.checkAutoSleep();
-              // Cache the transcoded session so next cold start is instant
-              SessionCache.save(
-                itemId: itemId,
-                episodeId: _currentEpisodeId,
-                audioTracks: retryTracks,
-                chapters: _chapters,
-                totalDuration: totalDuration,
-              );
-              return null;
-            } catch (retryError) {
-              debugPrint('[Player] Transcoded playback also failed: $retryError');
-            }
-          }
-        }
+        return _playFromServer(
+          api,
+          itemId,
+          title,
+          author,
+          coverUrl,
+          totalDuration,
+          chapters,
+          startTime,
+          forceStartTime: forceStartTime,
+          forceTranscode: true,
+          generation: gen,
+        );
       }
 
       _clearState();
@@ -3195,39 +5213,105 @@ class AudioPlayerService extends ChangeNotifier {
 
   bool _transcodeRetryInFlight = false;
 
+  // Set when the player failed while paused; the next play rebuilds it
+  // instead of trusting its position or its decoder.
+  bool _playerBroken = false;
+
+  /// A downloaded book needs no server to come back from a decoder failure.
+  /// Android can take the decoder away from a paused app, which surfaces as
+  /// a renderer error; the file is fine. Playing: start over where it was.
+  /// Paused: leave it alone and rebuild on the next play, from the saved
+  /// position, so the error can't send the book back to the beginning.
+  Future<void> _recoverLocalPlayback(Object e) async {
+    if (_currentItemId == null || _api == null) return;
+    final wasPlaying = _player?.playing ?? false;
+    final startS = position.inMilliseconds / 1000.0;
+    debugPrint(
+      '[Player] Decoder failed on a local book at ${startS.toStringAsFixed(1)}s '
+      '(playing=$wasPlaying) - '
+      '${wasPlaying ? "restarting from there" : "rebuilding on the next play"}: $e',
+    );
+    if (!wasPlaying) {
+      _playerBroken = true;
+      return;
+    }
+    await playItem(
+      api: _api!,
+      itemId: _currentItemId!,
+      title: _currentTitle ?? '',
+      author: _currentAuthor ?? '',
+      coverUrl: _currentCoverUrl,
+      totalDuration: _totalDuration,
+      chapters: _chapters,
+      startTime: startS,
+      forceStartTime: startS > 0,
+      episodeId: _currentEpisodeId,
+      episodeTitle: _currentEpisodeTitle,
+      libraryId: _currentLibraryId,
+    );
+  }
+
   Future<void> _retryWithTranscode() async {
     if (_transcodeRetryInFlight) return;
     _transcodeRetryInFlight = true;
     try {
       final api = _api;
       if (api == null || _currentItemId == null) return;
-      debugPrint('[Player] Codec error in playback stream - retrying with server transcoding');
+      debugPrint(
+        '[Player] Playback error in stream - retrying with server transcoding',
+      );
       final itemId = _currentItemId!;
       final retryEpId = _currentEpisodeId;
       final retryEpTitle = _currentEpisodeTitle;
+      final retryLibraryId = _currentLibraryId;
       final retryTitle = _currentTitle ?? '';
       final retryAuthor = _currentAuthor ?? '';
       final retryCover = _currentCoverUrl;
-      final startTime = (_player?.position.inMilliseconds ?? 0) / 1000.0;
+      final failedSessionId = _playbackSessionId;
+      final startTime = position.inMilliseconds / 1000.0;
+      // A start of its own: a load still in flight is about to be interrupted
+      // by this one and has to see that it lost, not clear the state.
+      final gen = ++_playbackGeneration;
       _clearState();
       _currentItemId = itemId;
       _currentEpisodeId = retryEpId;
       _currentEpisodeTitle = retryEpTitle;
+      _currentLibraryId = retryLibraryId;
       _currentTitle = retryTitle;
       _currentAuthor = retryAuthor;
       _currentCoverUrl = retryCover;
-      if (_playbackSessionId != null) {
-        try { await api.closePlaybackSession(_playbackSessionId!); } catch (_) {}
-        _playbackSessionId = null;
+      _shortLocalDurationSec = null;
+      _syncNotifSkipCache();
+      if (failedSessionId != null) {
+        try {
+          await api.closePlaybackSession(failedSessionId);
+        } catch (_) {}
       }
       final retrySession = retryEpId != null
-          ? await api.startEpisodePlaybackSession(itemId, retryEpId, forceTranscode: true)
+          ? await api.startEpisodePlaybackSession(
+              itemId,
+              retryEpId,
+              forceTranscode: true,
+            )
           : await api.startPlaybackSession(itemId, forceTranscode: true);
+      final ownSessionId = retrySession?['id'] as String?;
+      if (_startSuperseded(gen)) {
+        _abandonStart(api, ownSessionId, 'transcode retry, after the session request');
+        return;
+      }
       if (retrySession == null) return;
-      _playbackSessionId = retrySession['id'] as String?;
+      _playbackSessionId = ownSessionId;
+      final retrySessionLibId = retrySession['libraryId'] as String?;
+      if ((_currentLibraryId == null || _currentLibraryId!.isEmpty) &&
+          retrySessionLibId != null &&
+          retrySessionLibId.isNotEmpty) {
+        _currentLibraryId = retrySessionLibId;
+        _syncNotifSkipCache();
+      }
       _lastServerSync = DateTime.now();
       final retryTracks = retrySession['audioTracks'] as List<dynamic>?;
-      final totalDuration = (retrySession['duration'] as num?)?.toDouble() ?? _totalDuration;
+      final totalDuration =
+          (retrySession['duration'] as num?)?.toDouble() ?? _totalDuration;
       final chapters = retrySession['chapters'] as List<dynamic>? ?? _chapters;
       _chapters = chapters;
       _totalDuration = totalDuration;
@@ -3235,32 +5319,60 @@ class AudioPlayerService extends ChangeNotifier {
       _currentTrackIndex = 0;
       _buildTrackOffsets(retryTracks);
       AudioSource retrySource;
-      final audioHeaders = api.mediaHeaders;
+      final audioHeaders = api.playbackSessionHeaders;
       if (retryTracks.length == 1) {
         final track = retryTracks.first as Map<String, dynamic>;
         final contentUrl = track['contentUrl'] as String? ?? '';
-        retrySource = AudioSource.uri(Uri.parse(api.buildTrackUrl(contentUrl)), headers: audioHeaders);
+        retrySource = AudioSource.uri(
+          Uri.parse(api.buildTrackUrl(contentUrl)),
+          headers: audioHeaders,
+          options: mp3ExtractorOptions(),
+        );
       } else {
         final sources = <AudioSource>[];
         for (final t in retryTracks) {
           final track = t as Map<String, dynamic>;
           final contentUrl = track['contentUrl'] as String? ?? '';
-          sources.add(AudioSource.uri(Uri.parse(api.buildTrackUrl(contentUrl)), headers: audioHeaders));
+          sources.add(
+            AudioSource.uri(
+              Uri.parse(api.buildTrackUrl(contentUrl)),
+              headers: audioHeaders,
+              options: mp3ExtractorOptions(),
+            ),
+          );
         }
         retrySource = ConcatenatingAudioSource(children: sources);
       }
-      await _player!.setAudioSource(retrySource);
-      if (startTime > 0) await _seekAbsolute(startTime);
+      await _player!.setAudioSource(retrySource, itemId: itemId);
+      if (_startSuperseded(gen)) {
+        _abandonStart(api, ownSessionId, 'transcode retry, after loading the source');
+        return;
+      }
+      if (startTime > 0) await _seekForStart(startTime, gen);
       clearSeekTarget();
       _subscribeTrackIndex();
       final initChapter = _initChapterInfo(startTime);
-      _pushMediaItem(itemId, retryTitle, retryAuthor, retryCover, totalDuration, chapter: initChapter);
+      // Speed before _pushMediaItem - the pushed duration is speed-adjusted.
       final bookSpeed = await PlayerSettings.getBookSpeed(itemId);
       final speed = bookSpeed ?? await PlayerSettings.getDefaultSpeed();
       await _player!.setSpeed(speed);
+      _pushMediaItem(
+        itemId,
+        retryTitle,
+        retryAuthor,
+        retryCover,
+        totalDuration,
+        chapter: initChapter,
+      );
       await EqualizerService().switchItem(itemId);
       debugPrint('[Player] Transcoded playback starting at ${speed}x');
-      try { (await AudioSession.instance).setActive(true); } catch (_) {}
+      try {
+        (await AudioSession.instance).setActive(true);
+      } catch (_) {}
+      if (_startSuperseded(gen)) {
+        _abandonStart(api, ownSessionId, 'transcode retry, before play');
+        return;
+      }
       _player!.play();
       _scheduleAudioDiagnostics('transcoded');
       notifyListeners();
@@ -3286,6 +5398,19 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   /// Set _currentChapterStart/End for the chapter containing [posSeconds].
+  /// Chapter title covering [posSeconds] in an arbitrary chapter list (used for
+  /// the pre-buffered next book, whose chapters aren't in [_chapters] yet).
+  String? _chapterTitleAt(List<dynamic> chapters, double posSeconds) {
+    if (chapters.isEmpty) return null;
+    for (final ch in chapters) {
+      final m = ch as Map<String, dynamic>;
+      final start = (m['start'] as num?)?.toDouble() ?? 0;
+      final end = (m['end'] as num?)?.toDouble() ?? double.infinity;
+      if (posSeconds >= start && posSeconds < end) return m['title'] as String?;
+    }
+    return (chapters.first as Map<String, dynamic>)['title'] as String?;
+  }
+
   /// Returns the chapter title (or null) so _pushMediaItem can show it.
   String? _initChapterInfo(double posSeconds) {
     if (_chapters.isEmpty) return null;
@@ -3300,27 +5425,46 @@ class AudioPlayerService extends ChangeNotifier {
         return ch['title'] as String?;
       }
     }
-    // Past all chapters — use the last one
-    if (_chapters.isNotEmpty) {
-      final last = _chapters.last as Map<String, dynamic>;
-      _currentChapterStart = (last['start'] as num?)?.toDouble() ?? 0;
-      _currentChapterEnd = (last['end'] as num?)?.toDouble() ?? _totalDuration;
-      _lastNotifiedChapterIndex = _chapters.length - 1;
-      return last['title'] as String?;
+    // Slightly past the last chapter still counts as the last chapter.
+    // Grossly past it means the chapters don't cover the timeline (e.g.
+    // duplicate audio files doubling the duration, GH #345) - report no
+    // chapter rather than pinning the last one.
+    final graceIdx =
+        ChapterLookup.indexAtWithGrace(_chapters, posSeconds, _totalDuration);
+    if (graceIdx != null) {
+      final ch = _chapters[graceIdx] as Map<String, dynamic>;
+      _currentChapterStart = (ch['start'] as num?)?.toDouble() ?? 0;
+      _currentChapterEnd = (ch['end'] as num?)?.toDouble() ?? _totalDuration;
+      _lastNotifiedChapterIndex = graceIdx;
+      return ch['title'] as String?;
     }
+    _currentChapterStart = 0;
+    _currentChapterEnd = _totalDuration;
+    _lastNotifiedChapterIndex = -1;
     return null;
   }
 
-  /// Content provider authority — must match CoverContentProvider and AndroidManifest.
-  static const _coverAuthority = 'com.barnabas.absorb.covers';
+  /// Content provider authority. Follows the installed package, as the
+  /// manifest's `${applicationId}.covers` does, so the dev flavor reaches its
+  /// own provider.
+  static String get _coverAuthority => '${ApiService.packageName}.covers';
 
-  void _pushMediaItem(String itemId, String title, String author,
-      String? coverUrl, double totalDuration, {String? chapter}) {
+  void _pushMediaItem(
+    String itemId,
+    String title,
+    String author,
+    String? coverUrl,
+    double totalDuration, {
+    String? chapter,
+    int? coverCacheBust,
+  }) {
     // Alpha [PodDur]: trace every push-site. We want to see which callers
     // pass only the parent itemId (missing -episodeId suffix) and/or a zero
     // duration, so we can pinpoint what to fix for the AA podcast progress
     // bar. Includes the current _totalDuration so "stale 0" paths are visible.
-    debugPrint('[PodDur] _pushMediaItem: itemId=$itemId ep=$_currentEpisodeId argDur=${totalDuration.toStringAsFixed(1)}s _totalDuration=${_totalDuration.toStringAsFixed(1)}s');
+    debugPrint(
+      '[PodDur] _pushMediaItem: itemId=$itemId ep=$_currentEpisodeId argDur=${totalDuration.toStringAsFixed(1)}s _totalDuration=${_totalDuration.toStringAsFixed(1)}s',
+    );
     // Android: Always use content:// URI for Now Playing artwork - some OEMs
     // (e.g. Vivo) don't load HTTP URLs in MediaSession. The CoverContentProvider
     // handles both downloaded and streamed covers.
@@ -3336,16 +5480,70 @@ class AudioPlayerService extends ChangeNotifier {
         effectiveCoverUrl = coverUrl;
       }
     } else {
-      effectiveCoverUrl = 'content://$_coverAuthority/cover/$itemId';
+      final localCover = DownloadService().getInfo(itemId).localCoverPath;
+      final streamed = localCover == null || localCover.isEmpty;
+      // Some re-pushes (foreground, speed, settings) pass the episode's
+      // item-episode key. A downloaded episode keeps its cover under that
+      // key, but the server only has covers under the item id, so a streamed
+      // episode asked for that key got the placeholder note (GH #401).
+      final coverId = streamed &&
+              _currentEpisodeId != null &&
+              itemId == '$_currentItemId-$_currentEpisodeId'
+          ? _currentItemId!
+          : itemId;
+      effectiveCoverUrl = 'content://$_coverAuthority/cover/$coverId';
+      if (coverCacheBust != null) effectiveCoverUrl += '?cb=$coverCacheBust';
+      // Streamed cover (no local file) won't be cached on first play - schedule
+      // one cache-busted re-push so the art shows up the first time too.
+      if (streamed && coverCacheBust == null && _coverRepushItem != coverId) {
+        _coverRepushItem = coverId;
+        _scheduleStreamedCoverRepush(itemId);
+      }
     }
-    _updateNotificationMediaItem(itemId, title, author, effectiveCoverUrl, totalDuration, chapter: chapter);
+    _updateNotificationMediaItem(
+      itemId,
+      title,
+      author,
+      effectiveCoverUrl,
+      totalDuration,
+      chapter: chapter,
+    );
   }
 
-  void _updateNotificationMediaItem(String itemId, String title, String author,
-      String? coverUrl, double totalDuration, {String? chapter}) {
-    final displayArtist = chapter != null && chapter.isNotEmpty
-        ? '$author · $chapter'
-        : author;
+  void _scheduleStreamedCoverRepush(String itemId) {
+    _coverRepushTimer?.cancel();
+    _coverRepushTimer = Timer(const Duration(seconds: 3), () {
+      // Only re-push if we're still on the same item.
+      if (_currentItemId == null) return;
+      if (_currentItemId != itemId && _mediaItemKey != itemId) return;
+      final chapterTitle =
+          _lastNotifiedChapterIndex >= 0 && _chapters.isNotEmpty
+          ? (_chapters[_lastNotifiedChapterIndex]
+                    as Map<String, dynamic>)['title']
+                as String?
+          : null;
+      _pushMediaItem(
+        itemId,
+        _currentTitle ?? '',
+        _currentAuthor ?? '',
+        _currentCoverUrl,
+        _totalDuration,
+        chapter: chapterTitle,
+        coverCacheBust: DateTime.now().millisecondsSinceEpoch,
+      );
+    });
+  }
+
+  void _updateNotificationMediaItem(
+    String itemId,
+    String title,
+    String author,
+    String? coverUrl,
+    double totalDuration, {
+    String? chapter,
+  }) {
+    // GH #298: chapter becomes the title, book moves beside the author.
+    final labels = nowPlayingLabels(title, author, chapter);
     // In chapter progress mode, show chapter duration instead of full book
     final rawDuration = notifChapterMode
         ? (_currentChapterEnd - _currentChapterStart)
@@ -3360,27 +5558,34 @@ class AudioPlayerService extends ChangeNotifier {
     // (BT car display stuck on prior chapter). If this fires with fresh
     // artist/chapter text but the car still shows old, the issue is downstream
     // of audio_service's MediaSession push.
-    debugPrint('[Handler] mediaItem.add: item=$itemId artist="$displayArtist" dur=${displayDuration.round()}s chapter=$chapter hasHandler=${_handler != null}');
-    _handler!.mediaItem.add(MediaItem(
-      id: itemId,
-      title: title,
-      artist: displayArtist,
-      album: title,
-      duration: Duration(seconds: displayDuration.round()),
-      artUri: coverUrl != null ? Uri.tryParse(coverUrl) : null,
-    ));
+    debugPrint(
+      '[Handler] mediaItem.add: item=$itemId title="${labels.title}" artist="${labels.subtitle}" dur=${displayDuration.round()}s chapter=$chapter hasHandler=${_handler != null} art=${coverUrl == null ? 'none' : coverUrl.startsWith('content:') ? 'content' : coverUrl.startsWith('file:') ? 'file' : coverUrl.startsWith('http') ? 'http' : 'other'}',
+    );
+    _handler!.mediaItem.add(
+      MediaItem(
+        id: itemId,
+        title: labels.title,
+        artist: labels.subtitle,
+        album: title,
+        duration: Duration(seconds: displayDuration.round()),
+        artUri: coverUrl != null ? Uri.tryParse(coverUrl) : null,
+      ),
+    );
   }
-
 
   void _clearState() {
     _currentItemId = null;
     _currentEpisodeId = null;
+    _currentLibraryId = null;
     _currentEpisodeTitle = null;
     _currentTitle = null;
     _currentAuthor = null;
     _currentCoverUrl = null;
+    _coverRepushTimer?.cancel();
+    _coverRepushItem = null;
     _playbackSessionId = null;
     _isOfflineMode = false;
+    _localSessionMode = false;
     _trackStartOffsets = [];
     _currentTrackIndex = 0;
     _lastNotifiedChapterIndex = -1;
@@ -3414,6 +5619,161 @@ class AudioPlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // How long a cached play waits for the real session before falling back to
+  // the instant cached start. Long enough for LAN/WiFi round trips, short
+  // enough that a slow reverse proxy doesn't make press-play feel laggy.
+  static const _sessionRaceWindow = Duration(milliseconds: 700);
+
+  // A fresh session whose tokenless URLs the playing source should adopt at
+  // the next pause or seek - the two moments a source rebuild is inaudible.
+  // Set whenever a session is (re)created behind an already-playing source:
+  // cached fast-starts, sync-tick recreations, resume recreations. One-shot.
+  Map<String, dynamic>? _pendingSessionUpgrade;
+  int _pendingUpgradeGeneration = -1;
+
+  void _stashSessionUpgrade(Map<String, dynamic> sessionData) {
+    final tracks = sessionData['audioTracks'] as List<dynamic>?;
+    if (tracks == null || tracks.isEmpty) return;
+    _pendingSessionUpgrade = sessionData;
+    _pendingUpgradeGeneration = _playbackGeneration;
+    debugPrint(
+      '[StreamUpgrade] Holding session ${sessionData['id']} for a swap at the next pause/seek',
+    );
+  }
+
+  /// Swap the playing source onto [_pendingSessionUpgrade]'s tokenless session
+  /// URLs. Called only from moments where playback is already interrupted
+  /// (paused, or mid-seek), so the rebuild rides inside that interruption.
+  /// Returns true when the swap happened and already landed at
+  /// [seekToSeconds] (or the current position); the caller must then skip its
+  /// own seek. Any failure keeps the old, still-working source.
+  Future<bool> _applyPendingSessionUpgrade({
+    double? seekToSeconds,
+    bool resumeAfter = false,
+  }) async {
+    final session = _pendingSessionUpgrade;
+    if (session == null || _player == null || _api == null) return false;
+    if (_pendingUpgradeGeneration != _playbackGeneration ||
+        _isOfflineMode ||
+        _localSessionMode) {
+      _pendingSessionUpgrade = null;
+      return false;
+    }
+    // While casting, the local player isn't the real output - keep the
+    // pending session for when local playback matters again.
+    if (ChromecastService().isCasting) return false;
+    final sessionId = session['id'] as String?;
+    final tracks = session['audioTracks'] as List<dynamic>?;
+    final playMethod = (session['playMethod'] as num?)?.toInt();
+    if (sessionId == null ||
+        sessionId != _playbackSessionId ||
+        tracks == null ||
+        tracks.isEmpty) {
+      // Session got replaced or closed since it was stashed - a swap onto its
+      // URLs would point at a dead session.
+      _pendingSessionUpgrade = null;
+      return false;
+    }
+    _pendingSessionUpgrade = null; // one-shot, success or not
+    var sourceReplaced = false;
+    try {
+      final api = _api!;
+      final target = (seekToSeconds ?? position.inMilliseconds / 1000.0)
+          .clamp(0.0, double.infinity)
+          .toDouble();
+      final audioHeaders = api.playbackSessionHeaders;
+      final trackSources = <AudioSource>[];
+      var tokenless = true;
+      for (final t in tracks) {
+        final track = t as Map<String, dynamic>;
+        final contentUrl = track['contentUrl'] as String? ?? '';
+        final fullUrl = api.buildTrackUrl(
+          contentUrl,
+          sessionId: sessionId,
+          trackIndex: (track['index'] as num?)?.toInt(),
+          playMethod: playMethod,
+        );
+        if (fullUrl.contains('token=')) tokenless = false;
+        trackSources.add(
+          AudioSource.uri(
+            Uri.parse(fullUrl),
+            headers: audioHeaders,
+            options: mp3ExtractorOptions(),
+          ),
+        );
+      }
+      if (!tokenless) {
+        // Old server or transcode session - the swap would just re-bake a
+        // token, which is what the current source already has.
+        debugPrint('[StreamUpgrade] Session URLs still carry a token - skipping');
+        return false;
+      }
+      // Map the absolute target onto (track, local position) for the new source.
+      _buildTrackOffsets(tracks);
+      var idx = 0;
+      for (int i = 0; i < _trackStartOffsets.length - 1; i++) {
+        if (target < _trackStartOffsets[i + 1] ||
+            i == _trackStartOffsets.length - 2) {
+          idx = i;
+          break;
+        }
+      }
+      final localPos = Duration(
+        milliseconds: ((target - _trackStartOffsets[idx]) * 1000).round(),
+      );
+      // Stamp the seek target so position readers (UI, progress save) hold at
+      // the target while the new source loads instead of flashing 0.
+      _lastSeekTargetSeconds = target;
+      _lastSeekTime = DateTime.now();
+      _captureStreamUrls(
+        tracks,
+        api,
+        sessionId: sessionId,
+        playMethod: playMethod,
+      );
+      final source = ConcatenatingAudioSource(children: trackSources);
+      _resetPreBufferState();
+      // Update index BEFORE loading so positionStream events use the right offset
+      _currentTrackIndex = idx;
+      sourceReplaced = true;
+      // A server that refuses connections left this loading for 82s with
+      // Play stuck behind it (GH #344).
+      await _player!
+          .setAudioSource(
+            source,
+            initialIndex: idx,
+            initialPosition: localPos,
+            itemId: _currentItemId,
+          )
+          .timeout(_swapLoadTimeout);
+      _activeConcatSource = source;
+      _currentBookTrackCount = trackSources.length;
+      _subscribeTrackIndex();
+      if (resumeAfter) _player!.play();
+      debugPrint(
+        '[StreamUpgrade] Swapped to tokenless session URLs at ${target.toStringAsFixed(1)}s '
+        '(track $idx, resume=$resumeAfter)',
+      );
+      return true;
+    } catch (e) {
+      if (!sourceReplaced) {
+        debugPrint('[StreamUpgrade] Swap failed - keeping current source: $e');
+        return false;
+      }
+      // The old source is already gone, so there's nothing to keep. Leave the
+      // player idle: the next play() sees that and starts the item over
+      // instead of pressing play on a half-loaded source.
+      debugPrint('[StreamUpgrade] Swap failed after replacing the source - resetting the player: $e');
+      try {
+        await _player?.stop();
+      } catch (_) {}
+      if (resumeAfter) unawaited(_attemptStreamRetry(e));
+      return false;
+    }
+  }
+
+  static const _swapLoadTimeout = Duration(seconds: 15);
+
   /// Attempt to recover from a stream error by restarting playback from the
   /// last known position.  Tries up to [_maxStreamRetries] times with
   /// exponential back-off (1s, 2s, 4s).  If the item has been downloaded in
@@ -3422,14 +5782,18 @@ class AudioPlayerService extends ChangeNotifier {
     if (_retryInProgress) return;
     if (_currentItemId == null || _api == null) return;
     if (_streamRetryCount >= _maxStreamRetries) {
-      debugPrint('[Player] Max retries reached ($_maxStreamRetries) — giving up');
+      debugPrint(
+        '[Player] Max retries reached ($_maxStreamRetries) — giving up',
+      );
       return;
     }
 
     _retryInProgress = true;
     _streamRetryCount++;
     final delay = Duration(seconds: 1 << (_streamRetryCount - 1)); // 1s, 2s, 4s
-    debugPrint('[Player] Stream error — retry $_streamRetryCount/$_maxStreamRetries in ${delay.inSeconds}s');
+    debugPrint(
+      '[Player] Stream error — retry $_streamRetryCount/$_maxStreamRetries in ${delay.inSeconds}s',
+    );
 
     await Future<void>.delayed(delay);
 
@@ -3442,6 +5806,7 @@ class AudioPlayerService extends ChangeNotifier {
     final chapters = List<dynamic>.from(_chapters);
     final episodeId = _currentEpisodeId;
     final episodeTitle = _currentEpisodeTitle;
+    final libraryId = _currentLibraryId;
     final api = _api!;
     final retryPos = _lastKnownPositionSec;
 
@@ -3449,6 +5814,12 @@ class AudioPlayerService extends ChangeNotifier {
       _retryInProgress = false;
       return;
     }
+
+    // A stream error usually means the cached-session URLs went bad (expired
+    // baked token, dead public session). Drop the cache entry so the rebuild
+    // takes the fresh-session path - tokenless public URLs with a
+    // known-good credential - instead of re-baking whatever just failed.
+    await SessionCache.clear(itemId: itemId, episodeId: episodeId);
 
     debugPrint('[Player] Retrying playback at ${retryPos.toStringAsFixed(1)}s');
     final ok = await playItem(
@@ -3460,8 +5831,10 @@ class AudioPlayerService extends ChangeNotifier {
       totalDuration: totalDuration,
       chapters: chapters,
       startTime: retryPos,
+      forceStartTime: true,
       episodeId: episodeId,
       episodeTitle: episodeTitle,
+      libraryId: libraryId,
     );
 
     _retryInProgress = false;
@@ -3521,8 +5894,11 @@ class AudioPlayerService extends ChangeNotifier {
     _lastChapterCheckSec = -1;
     _lastKnownPositionSec = 0;
     _lastServerSync = DateTime.now();
+    _lastAccrual = DateTime.now();
+    _lastAccrualPos = null;
     _positionSyncInProgress = false;
     _positionSyncFailures = 0;
+    _noSessionSyncRetryAt = null;
     // Cache prefs in background - not needed synchronously here
     if (_prefs == null) {
       SharedPreferences.getInstance().then((p) => _prefs = p);
@@ -3533,11 +5909,15 @@ class AudioPlayerService extends ChangeNotifier {
     // listener saves every 5s; this only matters when that stream goes silent.
 
     _bgSaveTimer = Timer.periodic(const Duration(seconds: 300), (_) async {
-      if (_currentItemId == null || _player == null || !_player!.playing) return;
+      if (_currentItemId == null || _player == null || !_player!.playing)
+        return;
       final pos = position;
       final posSec = pos.inMilliseconds / 1000.0;
       if (posSec <= 0) return;
       await _saveProgressLocal(pos);
+      // Backstop: if the position stream is frozen (Doze), this still banks
+      // listening. Shares _lastAccrual so it can't double-count live ticks.
+      await _accrueListening(pos);
     });
 
     // Attach equalizer to current audio session
@@ -3549,7 +5929,9 @@ class AudioPlayerService extends ChangeNotifier {
     _nativeAutoAdvanceSub?.cancel();
     _nativeAutoAdvanceSub = _player?.bookAutoAdvancedStream.listen((_) {
       if (_preloadedNextBook != null) {
-        debugPrint('[NativeEngine] bookAutoAdvanced received — firing auto-queue advance');
+        debugPrint(
+          '[NativeEngine] bookAutoAdvanced received — firing auto-queue advance',
+        );
         _onAutoQueueAdvanced();
       }
     });
@@ -3557,257 +5939,364 @@ class AudioPlayerService extends ChangeNotifier {
     // ─── Primary completion detection via processingState ───
     // This fires reliably when ExoPlayer reaches STATE_ENDED, before any
     // position-reset can confuse the position-based detection.
-    _completionSub = _player?.processingStateStream.listen((state) {
-      if (state == ProcessingState.completed && _currentItemId != null) {
-        if (_preloadedNextBook != null) {
-          debugPrint('[PreBuffer] processingState=completed with pre-buffer loaded — firing auto-queue advance');
-          _onAutoQueueAdvanced();
-        } else {
-          _onPlaybackComplete();
-        }
-      }
-      // Notify UI when buffering/loading state changes so spinners update.
-      // Skip when backgrounded - no visible UI to rebuild; flushed on foreground.
-      if (!_isBackgrounded &&
-          (state == ProcessingState.ready || state == ProcessingState.loading || state == ProcessingState.buffering)) {
-        notifyListeners();
-      }
-    }, onError: (Object e, StackTrace st) {
-      debugPrint('[Player] processingState stream error: $e');
-      _attemptStreamRetry(e);
-    });
-    _syncSub = _player?.positionStream.listen((trackRelativePos) async {
-      // Reset retry counter on successful position updates
-      _streamRetryCount = 0;
-      // Convert track-relative position to absolute book position
-      final absolutePos = position; // uses the getter which adds track offset
-      final sec = absolutePos.inSeconds;
-      final posSec = absolutePos.inMilliseconds / 1000.0;
-
-      // After a track advance, push once now that the new position has landed
-      // so the background lock screen isn't left stale until foreground.
-      if (_pendingTrackAdvanceRefresh) {
-        _pendingTrackAdvanceRefresh = false;
-        _handler?.refreshPlaybackState();
-      }
-
-      // ─── Position-reset guard ────────────────────────────
-      // ExoPlayer can seek to 0 on STATE_ENDED. If we were near the end
-      // and suddenly jump to near 0 without a user seek, treat it as
-      // completion rather than restarting playback.
-      if (_lastKnownPositionSec > 0 && _totalDuration > 0) {
-        final wasNearEnd = _lastKnownPositionSec >= _totalDuration - 5.0;
-        final nowNearStart = posSec < 2.0;
-        if (wasNearEnd && nowNearStart) {
+    _completionSub = _player?.processingStateStream.listen(
+      (state) {
+        if (state == ProcessingState.completed && _currentItemId != null) {
           if (_preloadedNextBook != null) {
-            debugPrint('[PreBuffer] Position jump near-end → 0 with pre-buffer loaded — firing auto-queue advance');
+            debugPrint(
+              '[PreBuffer] processingState=completed with pre-buffer loaded — firing auto-queue advance',
+            );
+            _onAutoQueueAdvanced();
+          } else {
+            _onPlaybackComplete();
+          }
+        }
+        // Notify UI when buffering/loading state changes so spinners update.
+        // Skip when backgrounded - no visible UI to rebuild; flushed on foreground.
+        if (!_isBackgrounded &&
+            (state == ProcessingState.ready ||
+                state == ProcessingState.loading ||
+                state == ProcessingState.buffering)) {
+          notifyListeners();
+        }
+      },
+      onError: (Object e, StackTrace st) {
+        debugPrint('[Player] processingState stream error: $e');
+        _attemptStreamRetry(e);
+      },
+    );
+    _syncSub = _player?.positionStream.listen(
+      (trackRelativePos) async {
+        // Reset retry counter on successful position updates
+        _streamRetryCount = 0;
+        // Convert track-relative position to absolute book position
+        final absolutePos = position; // uses the getter which adds track offset
+        final sec = absolutePos.inSeconds;
+        final posSec = absolutePos.inMilliseconds / 1000.0;
+
+        // After a track advance, push once now that the new position has landed
+        // so the background lock screen isn't left stale until foreground.
+        if (_pendingTrackAdvanceRefresh) {
+          _pendingTrackAdvanceRefresh = false;
+          _handler?.refreshPlaybackState();
+        }
+
+        // ─── Position-reset guard ────────────────────────────
+        // ExoPlayer can seek to 0 on STATE_ENDED. If we were near the end
+        // and suddenly jump to near 0 without a user seek, treat it as
+        // completion rather than restarting playback.
+        if (_lastKnownPositionSec > 0 && _totalDuration > 0) {
+          final wasNearEnd = _lastKnownPositionSec >= _totalDuration - 5.0;
+          final nowNearStart = posSec < 2.0;
+          if (wasNearEnd && nowNearStart) {
+            if (_preloadedNextBook != null) {
+              debugPrint(
+                '[PreBuffer] Position jump near-end → 0 with pre-buffer loaded — firing auto-queue advance',
+              );
+              _onAutoQueueAdvanced();
+              return;
+            }
+            debugPrint(
+              '[Player] Position jumped from ${_lastKnownPositionSec.toStringAsFixed(1)}s to ${posSec.toStringAsFixed(1)}s — treating as completion',
+            );
+            _onPlaybackComplete();
+            return;
+          }
+        }
+        if (posSec > 0) _lastKnownPositionSec = posSec;
+
+        _maybePreloadNextBook();
+
+        // On iOS in background, fire the cross-book transition just before the
+        // current item ends. The native handover swaps the player item in one
+        // step, keeping the AVPlayer rate continuous so iOS doesn't drop the
+        // background route. Foreground still uses the regular auto-advance path.
+        if (Platform.isIOS &&
+            _isBackgrounded &&
+            _preloadedNextBook != null &&
+            !_autoQueueAdvancing &&
+            _totalDuration > 0 &&
+            (_player?.playing ?? false)) {
+          final remaining = _totalDuration - posSec;
+          if (remaining > 0 && remaining <= 0.5) {
+            debugPrint(
+              '[PreBuffer] Proactive iOS transition at remaining=${remaining.toStringAsFixed(2)}s',
+            );
             _onAutoQueueAdvanced();
             return;
           }
-          debugPrint('[Player] Position jumped from ${_lastKnownPositionSec.toStringAsFixed(1)}s to ${posSec.toStringAsFixed(1)}s — treating as completion');
+        }
+
+        if (sec <= 0) return;
+
+        // In background, only process once per second to save CPU.
+        if (_isBackgrounded) {
+          if (sec == _lastBgProcessedSec) return;
+          _lastBgProcessedSec = sec;
+        }
+
+        // ─── Chapter change detection ──────────────────────────
+        // Update notification subtitle when the chapter changes.
+        // Throttled to once per second — chapters can't change faster than that.
+        if (_chapters.isNotEmpty &&
+            _currentItemId != null &&
+            sec != _lastChapterCheckSec) {
+          _lastChapterCheckSec = sec;
+          int chapterIdx = -1;
+          String? chapterTitle;
+          double chapterStart = 0;
+          double chapterEnd = _totalDuration;
+
+          // Fast path: check if still in the cached chapter
+          if (_lastNotifiedChapterIndex >= 0 &&
+              _lastNotifiedChapterIndex < _chapters.length) {
+            final ch =
+                _chapters[_lastNotifiedChapterIndex] as Map<String, dynamic>;
+            final s = (ch['start'] as num?)?.toDouble() ?? 0;
+            final e = (ch['end'] as num?)?.toDouble() ?? _totalDuration;
+            if (posSec >= s && posSec < e) {
+              chapterIdx = _lastNotifiedChapterIndex;
+              chapterTitle = ch['title'] as String?;
+              chapterStart = s;
+              chapterEnd = e;
+            }
+          }
+
+          // Slow path: linear scan only if cached chapter didn't match
+          if (chapterIdx < 0) {
+            for (int i = 0; i < _chapters.length; i++) {
+              final ch = _chapters[i] as Map<String, dynamic>;
+              final start = (ch['start'] as num?)?.toDouble() ?? 0;
+              final end = (ch['end'] as num?)?.toDouble() ?? _totalDuration;
+              if (posSec >= start && posSec < end) {
+                chapterIdx = i;
+                chapterTitle = ch['title'] as String?;
+                chapterStart = start;
+                chapterEnd = end;
+                break;
+              }
+            }
+          }
+
+          // Within the grace window past the last chapter, keep the last one
+          if (chapterIdx < 0) {
+            final g = ChapterLookup.indexAtWithGrace(_chapters, posSec, _totalDuration);
+            if (g != null) {
+              final ch = _chapters[g] as Map<String, dynamic>;
+              chapterIdx = g;
+              chapterTitle = ch['title'] as String?;
+              chapterStart = (ch['start'] as num?)?.toDouble() ?? 0;
+              chapterEnd = (ch['end'] as num?)?.toDouble() ?? _totalDuration;
+            }
+          }
+
+          if (chapterIdx < 0 && _lastNotifiedChapterIndex >= 0) {
+            // Position left the chapter span entirely - clear the stale
+            // chapter so the notification stops claiming the last one
+            debugPrint(
+              '[Battery] Chapter cleared: ${posSec.toStringAsFixed(1)}s is outside the chapter span',
+            );
+            _lastNotifiedChapterIndex = -1;
+            _currentChapterStart = 0;
+            _currentChapterEnd = _totalDuration;
+            _pushMediaItem(
+              _currentItemId!,
+              _currentTitle ?? '',
+              _currentAuthor ?? '',
+              _currentCoverUrl,
+              _totalDuration,
+            );
+          }
+
+          if (chapterIdx >= 0 && chapterIdx != _lastNotifiedChapterIndex) {
+            debugPrint(
+              '[Battery] Chapter change: idx=$chapterIdx "$chapterTitle" at ${posSec.toStringAsFixed(1)}s',
+            );
+            _lastNotifiedChapterIndex = chapterIdx;
+            _currentChapterStart = chapterStart;
+            _currentChapterEnd = chapterEnd;
+            _pushMediaItem(
+              _currentItemId!,
+              _currentTitle ?? '',
+              _currentAuthor ?? '',
+              _currentCoverUrl,
+              _totalDuration,
+              chapter: chapterTitle,
+            );
+            // Force PlaybackState refresh so the notification position resets
+            // to 0 immediately instead of waiting for the next stream event.
+            if (_notifChapterMode) _handler?.refreshPlaybackState();
+          }
+        }
+
+        // ─── Completion detection (fallback) ───────────────────
+        // processingStateStream is the primary signal; this is a safety net.
+        if (_totalDuration > 0 && posSec >= _totalDuration - 1.0) {
+          if (_preloadedNextBook != null && _isBackgrounded && Platform.isIOS) {
+            debugPrint(
+              '[PreBuffer] Position-fallback near end with pre-buffer loaded — firing auto-queue advance',
+            );
+            _onAutoQueueAdvanced();
+            return;
+          }
           _onPlaybackComplete();
           return;
         }
-      }
-      if (posSec > 0) _lastKnownPositionSec = posSec;
 
-      _maybePreloadNextBook();
+        // Save locally every 5 seconds (always works, even offline)
+        if (sec % 5 == 0 && sec != _lastSyncSecond && _currentItemId != null) {
+          _lastSyncSecond = sec;
+          _saveProgressLocal(absolutePos);
+          // Seeks emit position events while paused too (auto-rewind on
+          // resume, scrubbing), and such a tick must not accrue or sync -
+          // the clocks are stale from the pause, so it would credit the
+          // paused span as listening. The pause handler already banked the
+          // playing tail.
+          if (_player?.playing != true) return;
+          // Bank listening to durable storage every tick, decoupled from the
+          // server push below, so an abrupt kill loses at most one tick.
+          await _accrueListening(absolutePos);
+          if (_isCachedStartReconcilePending) return;
 
-      // On iOS in background, fire the cross-book transition just before the
-      // current item ends. The native handover swaps the player item in one
-      // step, keeping the AVPlayer rate continuous so iOS doesn't drop the
-      // background route. Foreground still uses the regular auto-advance path.
-      if (Platform.isIOS &&
-          _isBackgrounded &&
-          _preloadedNextBook != null &&
-          !_autoQueueAdvancing &&
-          _totalDuration > 0 &&
-          (_player?.playing ?? false)) {
-        final remaining = _totalDuration - posSec;
-        if (remaining > 0 && remaining <= 0.5) {
-          debugPrint('[PreBuffer] Proactive iOS transition at remaining=${remaining.toStringAsFixed(2)}s');
-          _onAutoQueueAdvanced();
-          return;
-        }
-      }
+          // Push to server every 20s regardless of foreground state, in line
+          // with the other ABS clients (official 15s, web 10s). Accuracy rides
+          // on the accrual above, not this cadence - this is just server
+          // freshness.
+          const syncInterval = 20;
+          final sinceLastSync = DateTime.now()
+              .difference(_lastServerSync)
+              .inSeconds;
+          if (sinceLastSync >= syncInterval && !_positionSyncInProgress) {
+            _positionSyncInProgress = true;
+            try {
+              final manualOffline =
+                  (_prefs ?? await SharedPreferences.getInstance()).getBool(
+                    'manual_offline_mode',
+                  ) ??
+                  false;
 
-      if (sec <= 0) return;
-
-      // In background, only process once per second to save CPU.
-      if (_isBackgrounded) {
-        if (sec == _lastBgProcessedSec) return;
-        _lastBgProcessedSec = sec;
-      }
-
-      // ─── Chapter change detection ──────────────────────────
-      // Update notification subtitle when the chapter changes.
-      // Throttled to once per second — chapters can't change faster than that.
-      if (_chapters.isNotEmpty && _currentItemId != null && sec != _lastChapterCheckSec) {
-        _lastChapterCheckSec = sec;
-        int chapterIdx = -1;
-        String? chapterTitle;
-        double chapterStart = 0;
-        double chapterEnd = _totalDuration;
-
-        // Fast path: check if still in the cached chapter
-        if (_lastNotifiedChapterIndex >= 0 && _lastNotifiedChapterIndex < _chapters.length) {
-          final ch = _chapters[_lastNotifiedChapterIndex] as Map<String, dynamic>;
-          final s = (ch['start'] as num?)?.toDouble() ?? 0;
-          final e = (ch['end'] as num?)?.toDouble() ?? _totalDuration;
-          if (posSec >= s && posSec < e) {
-            chapterIdx = _lastNotifiedChapterIndex;
-            chapterTitle = ch['title'] as String?;
-            chapterStart = s;
-            chapterEnd = e;
-          }
-        }
-
-        // Slow path: linear scan only if cached chapter didn't match
-        if (chapterIdx < 0) {
-          for (int i = 0; i < _chapters.length; i++) {
-            final ch = _chapters[i] as Map<String, dynamic>;
-            final start = (ch['start'] as num?)?.toDouble() ?? 0;
-            final end = (ch['end'] as num?)?.toDouble() ?? _totalDuration;
-            if (posSec >= start && posSec < end) {
-              chapterIdx = i;
-              chapterTitle = ch['title'] as String?;
-              chapterStart = start;
-              chapterEnd = end;
-              break;
-            }
-          }
-        }
-
-        if (chapterIdx >= 0 && chapterIdx != _lastNotifiedChapterIndex) {
-          debugPrint('[Battery] Chapter change: idx=$chapterIdx "$chapterTitle" at ${posSec.toStringAsFixed(1)}s');
-          _lastNotifiedChapterIndex = chapterIdx;
-          _currentChapterStart = chapterStart;
-          _currentChapterEnd = chapterEnd;
-          _pushMediaItem(
-            _currentItemId!, _currentTitle ?? '', _currentAuthor ?? '',
-            _currentCoverUrl, _totalDuration,
-            chapter: chapterTitle,
-          );
-          // Force PlaybackState refresh so the notification position resets
-          // to 0 immediately instead of waiting for the next stream event.
-          if (_notifChapterMode) _handler?.refreshPlaybackState();
-        }
-      }
-
-      // ─── Completion detection (fallback) ───────────────────
-      // processingStateStream is the primary signal; this is a safety net.
-      if (_totalDuration > 0 && posSec >= _totalDuration - 1.0) {
-        if (_preloadedNextBook != null && _isBackgrounded && Platform.isIOS) {
-          debugPrint('[PreBuffer] Position-fallback near end with pre-buffer loaded — firing auto-queue advance');
-          _onAutoQueueAdvanced();
-          return;
-        }
-        _onPlaybackComplete();
-        return;
-      }
-
-      // Save locally every 5 seconds (always works, even offline)
-      if (sec % 5 == 0 && sec != _lastSyncSecond && _currentItemId != null) {
-        _lastSyncSecond = sec;
-        _saveProgressLocal(absolutePos);
-
-        // Sync to server: 60s foreground, 300s background
-        final syncInterval = _isBackgrounded ? 300 : 60;
-        final sinceLastSync = DateTime.now().difference(_lastServerSync).inSeconds;
-        if (sinceLastSync >= syncInterval && !_positionSyncInProgress) {
-          _positionSyncInProgress = true;
-          try {
-            final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
-                .getBool('manual_offline_mode') ?? false;
-
-            // If we're online but lost the playback session (e.g. pause-
-            // timeout closed it and _resumeServerSync silently failed when
-            // playback resumed), recreate it before the accumulator branch.
-            // Without this the offline accumulator fills for hours and gets
-            // dumped later as one phantom session with startTime==lastTime.
-            if (!manualOffline &&
-                !_isOfflineMode &&
-                _playbackSessionId == null &&
-                _api != null &&
-                _currentItemId != null &&
-                !_recreatingSession) {
-              _recreatingSession = true;
-              try {
-                final sessionData = _currentEpisodeId != null
-                    ? await _api!.startEpisodePlaybackSession(
-                        _currentItemId!, _currentEpisodeId!)
-                    : await _api!.startPlaybackSession(_currentItemId!);
-                if (sessionData != null) {
-                  _playbackSessionId = sessionData['id'] as String?;
-                  if (_playbackSessionId != null) {
-                    debugPrint('[Player] Recreated session in sync tick: '
-                        '$_playbackSessionId');
+              // If we're online but lost the playback session (e.g. pause-
+              // timeout closed it and _resumeServerSync silently failed when
+              // playback resumed), recreate it before the accumulator branch.
+              // Without this the offline accumulator fills for hours and gets
+              // dumped later as one phantom session with startTime==lastTime.
+              // Skipped for local-session plays — they never open a /play session.
+              if (!_localSessionMode &&
+                  !manualOffline &&
+                  !_isOfflineMode &&
+                  _playbackSessionId == null &&
+                  _api != null &&
+                  _currentItemId != null &&
+                  !_recreatingSession) {
+                _recreatingSession = true;
+                try {
+                  final sessionData = _currentEpisodeId != null
+                      ? await _api!.startEpisodePlaybackSession(
+                          _currentItemId!,
+                          _currentEpisodeId!,
+                        )
+                      : await _api!.startPlaybackSession(_currentItemId!);
+                  if (sessionData != null) {
+                    _playbackSessionId = sessionData['id'] as String?;
+                    if (_playbackSessionId != null) {
+                      debugPrint(
+                        '[Player] Recreated session in sync tick: '
+                        '$_playbackSessionId',
+                      );
+                      // The playing source still points at the OLD session's
+                      // URLs. Adopt this one at the next pause/seek, unless
+                      // that old session is already gone: then the stream
+                      // dies with the cache, so move it now.
+                      _stashSessionUpgrade(sessionData);
+                      if (_sourceSessionDead) {
+                        final playing = _player?.playing ?? false;
+                        if (!await _applyPendingLocalSwap(resumeAfter: playing)) {
+                          await _applyPendingSessionUpgrade(resumeAfter: playing);
+                        }
+                      }
+                    }
                   }
+                } catch (e) {
+                  debugPrint(
+                    '[Player] Session recreate in sync tick failed: $e',
+                  );
+                } finally {
+                  _recreatingSession = false;
                 }
-              } catch (e) {
-                debugPrint('[Player] Session recreate in sync tick failed: $e');
-              } finally {
-                _recreatingSession = false;
               }
-            }
 
-            if (manualOffline || _isOfflineMode || _playbackSessionId == null) {
-              // Offline or no session - accumulate listening time locally
-              final progressKey = _currentEpisodeId != null
-                  ? '$_currentItemId-$_currentEpisodeId'
-                  : _currentItemId!;
-              final offlineSeconds = sinceLastSync.clamp(0, 300);
-              _progressSync.addOfflineListeningTime(progressKey, offlineSeconds);
-              unawaited(_progressSync.addTimeSaved(
-                  offlineSeconds, _player?.speed ?? 1.0));
-              // Widget ticks forward even when the server is unreachable.
-              unawaited(HomeWidgetService()
-                  .addLocalListeningSeconds(offlineSeconds));
-              // Reset the sync clock so the next tick waits a full interval
-              // before accumulating again.
-              _lastServerSync = DateTime.now();
-            }
+              // Listening itself is banked every tick by _accrueListening. These
+              // branches only handle the interval-rate bookkeeping (time-saved,
+              // widget tick) and, for downloaded plays, pushing the local session.
+              final secs = sinceLastSync.clamp(0, 300);
+              if (_localSessionMode) {
+                final online =
+                    !manualOffline && !_isOfflineMode && _api != null;
+                unawaited(
+                  _progressSync.addTimeSaved(secs, _player?.speed ?? 1.0),
+                );
+                unawaited(HomeWidgetService().addLocalListeningSeconds(secs));
+                if (online) await LocalSessionService().pushActive(api: _api!);
+                _lastServerSync = DateTime.now();
+              } else if (manualOffline ||
+                  _isOfflineMode ||
+                  _playbackSessionId == null) {
+                unawaited(
+                  _progressSync.addTimeSaved(secs, _player?.speed ?? 1.0),
+                );
+                // Widget ticks forward even when the server is unreachable.
+                unawaited(HomeWidgetService().addLocalListeningSeconds(secs));
+                _lastServerSync = DateTime.now();
+              }
 
-            // Back off when the server is unreachable to avoid hammering
-            // every sync interval with requests that will just timeout.
-            if (_positionSyncFailures >= 3) {
-              // Skip server sync - will retry after connectivity change
-              // or app foreground resets the counter.
-              _lastServerSync = DateTime.now();
-            } else if (manualOffline) {
-              // Manual offline - local save only, no server sync
-            } else if (!_isOfflineMode && _playbackSessionId != null) {
-              // Streaming/local with session: sync via session
-              _syncToServer(absolutePos);
-            } else if (!_isOfflineMode && _api != null && _currentItemId != null) {
-              // No session but online - sync via progress update endpoint
-              try {
-                final syncKey = _currentEpisodeId != null
-                    ? '$_currentItemId-$_currentEpisodeId'
-                    : _currentItemId!;
-                final ok = await _progressSync.syncToServer(
-                    api: _api!, itemId: syncKey);
-                if (ok) {
-                  debugPrint('[Player] No-session sync succeeded');
-                  _positionSyncFailures = 0;
-                } else {
-                  _positionSyncFailures++;
-                  debugPrint('[Player] No-session sync returned false (failures=$_positionSyncFailures)');
+              // Back off when the server is unreachable to avoid hammering
+              // every sync interval with requests that will just timeout.
+              // The pause is timed and grows with each failure, so a bad
+              // minute during a WiFi-to-cellular handover doesn't leave the
+              // server stale for the rest of the listen.
+              if (_positionSyncFailures >= 3 &&
+                  _noSessionSyncRetryAt != null &&
+                  DateTime.now().isBefore(_noSessionSyncRetryAt!)) {
+                _lastServerSync = DateTime.now();
+              } else if (manualOffline) {
+                // Manual offline - local save only, no server sync
+              } else if (!_isOfflineMode && _playbackSessionId != null) {
+                // Streaming/local with session: sync via session
+                _syncToServer(absolutePos);
+              } else if (!_isOfflineMode &&
+                  _api != null &&
+                  _currentItemId != null) {
+                // No session but online - sync via progress update endpoint
+                try {
+                  final syncKey = _currentEpisodeId != null
+                      ? '$_currentItemId-$_currentEpisodeId'
+                      : _currentItemId!;
+                  final ok = await _progressSync.syncToServer(
+                    api: _api!,
+                    itemId: syncKey,
+                  );
+                  if (ok) {
+                    debugPrint('[Player] No-session sync succeeded');
+                    _positionSyncFailures = 0;
+                    _noSessionSyncRetryAt = null;
+                  } else {
+                    _noteNoSessionSyncFailure('returned false');
+                  }
+                } catch (e) {
+                  _noteNoSessionSyncFailure('error: $e');
                 }
-              } catch (e) {
-                _positionSyncFailures++;
-                debugPrint('[Player] No-session sync error (failures=$_positionSyncFailures): $e');
               }
+            } finally {
+              _positionSyncInProgress = false;
             }
-          } finally {
-            _positionSyncInProgress = false;
           }
         }
-      }
-    }, onError: (Object e, StackTrace st) {
-      debugPrint('[Player] Position stream error: $e');
-      _attemptStreamRetry(e);
-    });
+      },
+      onError: (Object e, StackTrace st) {
+        debugPrint('[Player] Position stream error: $e');
+        _attemptStreamRetry(e);
+      },
+    );
 
     // Start stuck position detection (xHE-AAC/USAC iOS seek failures)
     _startStuckDetection();
@@ -3833,14 +6322,27 @@ class AudioPlayerService extends ChangeNotifier {
       // If playing or actively loading/buffering, all is well
       if (_player!.playing) return;
       final state = _player!.processingState;
-      if (state == ProcessingState.loading || state == ProcessingState.buffering) return;
+      if (state == ProcessingState.loading ||
+          state == ProcessingState.buffering)
+        return;
       // Player is idle/ready but not playing — silent failure
       final currentPos = position.inMilliseconds / 1000.0;
-      debugPrint('[Player] Play verify failed: not playing after 3s '
-          '(state=${state.name}, pos=${currentPos.toStringAsFixed(1)}s, '
-          'posAtPlay=${posAtPlay.toStringAsFixed(1)}s)');
-      // Re-seek to current position to kick the decoder, then retry play
+      debugPrint(
+        '[Player] Play verify failed: not playing after 3s '
+        '(state=${state.name}, pos=${currentPos.toStringAsFixed(1)}s, '
+        'posAtPlay=${posAtPlay.toStringAsFixed(1)}s)',
+      );
+      // Re-seek to current position to kick the decoder, then retry play.
+      // Activate the session first: a resume right after an interruption can
+      // fail with "cannot interrupt others" while the interrupter still holds
+      // the audio, and a bare play() on a never-activated session stays
+      // silent even once it has let go.
       await _seekAbsolute(currentPos > 0 ? currentPos : posAtPlay);
+      try {
+        await (await AudioSession.instance).setActive(true);
+      } catch (e) {
+        debugPrint('[Player] Play verify: session activate failed: $e');
+      }
       _player?.play();
       notifyListeners();
     });
@@ -3857,7 +6359,6 @@ class AudioPlayerService extends ChangeNotifier {
     // Skip on Android to reduce background CPU wakeups.
     if (!Platform.isIOS) return;
 
-
     _stuckCheckTimer = Timer.periodic(const Duration(seconds: 10), (_) async {
       // Only check while actively playing
       if (_player == null || !_player!.playing) {
@@ -3868,7 +6369,8 @@ class AudioPlayerService extends ChangeNotifier {
 
       // Don't check during loading/buffering
       final state = _player!.processingState;
-      if (state == ProcessingState.loading || state == ProcessingState.buffering) {
+      if (state == ProcessingState.loading ||
+          state == ProcessingState.buffering) {
         return;
       }
 
@@ -3892,9 +6394,11 @@ class AudioPlayerService extends ChangeNotifier {
             // Stuck for ~20 seconds - force re-seek
             _stuckReseekAttempts++;
             _stuckConsecutiveCount = 0;
-            debugPrint('[Player] Stuck position detected - re-seeking '
-                '(attempt $_stuckReseekAttempts/$_maxStuckReseekAttempts '
-                'at ${currentPos.toStringAsFixed(1)}s)');
+            debugPrint(
+              '[Player] Stuck position detected - re-seeking '
+              '(attempt $_stuckReseekAttempts/$_maxStuckReseekAttempts '
+              'at ${currentPos.toStringAsFixed(1)}s)',
+            );
             await _seekAbsolute(currentPos);
           }
         }
@@ -3906,12 +6410,14 @@ class AudioPlayerService extends ChangeNotifier {
 
   bool _isCompletingBook = false;
 
-  Future<void> _onPlaybackComplete() async {
+  Future<void> _onPlaybackComplete({bool userRequested = false}) async {
     // Alpha: captures completion path choice for GH #186 (book restart bug).
     // Re-entry attempts are logged too so we can see if completion fires
     // multiple times from different signals (processingState, position-jump,
     // fallback) and races with auto-advance.
-    debugPrint('[Complete] entry: pos=${_lastKnownPositionSec.toStringAsFixed(1)}s totalDur=${_totalDuration.toStringAsFixed(1)}s item=$_currentItemId ep=$_currentEpisodeId reentry=$_isCompletingBook');
+    debugPrint(
+      '[Complete] entry: pos=${_lastKnownPositionSec.toStringAsFixed(1)}s totalDur=${_totalDuration.toStringAsFixed(1)}s item=$_currentItemId ep=$_currentEpisodeId reentry=$_isCompletingBook',
+    );
     if (_isCompletingBook) return; // prevent re-entry
     _isCompletingBook = true;
 
@@ -3924,7 +6430,7 @@ class AudioPlayerService extends ChangeNotifier {
     // because the position-getter math (trackRel + offset[last]) lands at
     // total duration. Recovery: seek a hair into the last track and resume,
     // which forces AVPlayer to reload that single item correctly.
-    if (Platform.isIOS && _trackStartOffsets.length > 2) {
+    if (!userRequested && Platform.isIOS && _trackStartOffsets.length > 2) {
       final lastIdx = _trackStartOffsets.length - 2;
       final lastTrackStart = _trackStartOffsets[lastIdx];
       final lastTrackDur = _trackStartOffsets[lastIdx + 1] - lastTrackStart;
@@ -3939,11 +6445,16 @@ class AudioPlayerService extends ChangeNotifier {
           _iosLastTrackRecoveryAttempts < _maxIosLastTrackRecoveries) {
         _iosLastTrackRecoveryAttempts++;
         final recoveryTarget = lastTrackStart + 0.5;
-        debugPrint('[Player] iOS premature last-track completion detected '
-            '(idx=$_currentTrackIndex/$lastIdx, lastTrackDur=${lastTrackDur.toStringAsFixed(1)}s, '
-            'advance=${msSinceAdvance}ms ago) — recovery attempt $_iosLastTrackRecoveryAttempts: '
-            'seeking to ${recoveryTarget.toStringAsFixed(1)}s');
-        _logEvent(PlaybackEventType.pause, detail: 'iOS premature completion blocked');
+        debugPrint(
+          '[Player] iOS premature last-track completion detected '
+          '(idx=$_currentTrackIndex/$lastIdx, lastTrackDur=${lastTrackDur.toStringAsFixed(1)}s, '
+          'advance=${msSinceAdvance}ms ago) — recovery attempt $_iosLastTrackRecoveryAttempts: '
+          'seeking to ${recoveryTarget.toStringAsFixed(1)}s',
+        );
+        _logEvent(
+          PlaybackEventType.pause,
+          detail: 'iOS premature completion blocked',
+        );
         _isCompletingBook = false;
         try {
           await _seekAbsolute(recoveryTarget);
@@ -3959,10 +6470,14 @@ class AudioPlayerService extends ChangeNotifier {
     // completion signal (iOS AVPlayer can fire completed on audio interruptions,
     // buffer errors, etc.). Save current position and stop - don't mark finished
     // or advance the queue.
-    if (_totalDuration > 0 && _lastKnownPositionSec > 0 &&
+    if (!userRequested &&
+        _totalDuration > 0 &&
+        _lastKnownPositionSec > 0 &&
         _lastKnownPositionSec < _totalDuration * 0.9 &&
         _lastKnownPositionSec < _totalDuration - 30) {
-      debugPrint('[Player] Spurious completion at ${_lastKnownPositionSec.toStringAsFixed(1)}s / ${_totalDuration.toStringAsFixed(1)}s — saving position instead of marking finished');
+      debugPrint(
+        '[Player] Spurious completion at ${_lastKnownPositionSec.toStringAsFixed(1)}s / ${_totalDuration.toStringAsFixed(1)}s — saving position instead of marking finished',
+      );
       _logEvent(PlaybackEventType.pause, detail: 'Spurious completion blocked');
       _syncSub?.cancel();
       _syncSub = null;
@@ -3971,7 +6486,9 @@ class AudioPlayerService extends ChangeNotifier {
       _bgSaveTimer?.cancel();
       _bgSaveTimer = null;
       await _player?.stop();
-      await _saveProgressLocal(Duration(milliseconds: (_lastKnownPositionSec * 1000).round()));
+      await _saveProgressLocal(
+        Duration(milliseconds: (_lastKnownPositionSec * 1000).round()),
+      );
       _isCompletingBook = false;
       notifyListeners();
       return;
@@ -4018,7 +6535,8 @@ class AudioPlayerService extends ChangeNotifier {
         try {
           if (episodeId != null) {
             await api.updateEpisodeProgress(
-              itemId, episodeId,
+              itemId,
+              episodeId,
               currentTime: dur,
               duration: dur,
               isFinished: true,
@@ -4058,6 +6576,17 @@ class AudioPlayerService extends ChangeNotifier {
       }());
     }
 
+    // Local-session play: push the final accrued listening and finalize before
+    // any auto-advance begins a new session (awaited to avoid racing it).
+    if (_localSessionMode) {
+      _logEvent(PlaybackEventType.sessionEnd, detail: 'local book finished');
+      bool pushed = false;
+      if (_api != null) {
+        pushed = await LocalSessionService().pushActive(api: _api!);
+      }
+      await LocalSessionService().finalizeActive(pushed: pushed);
+    }
+
     // Notify LibraryProvider before clearing state so it can update isFinished locally.
     if (itemId != null) {
       final key = episodeId != null ? '$itemId-$episodeId' : itemId;
@@ -4065,7 +6594,9 @@ class AudioPlayerService extends ChangeNotifier {
         _onBookFinishedCallback!(key);
       } else {
         _pendingBookFinishedKey = key;
-        debugPrint('[Player] Book-finished callback not registered, buffering key=$key');
+        debugPrint(
+          '[Player] Book-finished callback not registered, buffering key=$key',
+        );
       }
     }
 
@@ -4079,11 +6610,27 @@ class AudioPlayerService extends ChangeNotifier {
 
   Future<void> _saveProgressLocal(Duration pos) async {
     if (_currentItemId == null) return;
+    if (_isCachedStartReconcilePending) return;
     final ct = pos.inMilliseconds / 1000.0;
     // Use compound key for podcast episodes
     final progressKey = _currentEpisodeId != null
         ? '$_currentItemId-$_currentEpisodeId'
         : _currentItemId!;
+    // Incomplete download: the player pins beyond-file positions to the file's
+    // end. Don't let that clamped value clobber a further-along saved position
+    // (the user's real progress, recoverable once the full file streams or
+    // re-downloads). GH #278. Only refuses a backward jump at the clamp point.
+    if (_shortLocalDurationSec != null && ct >= _shortLocalDurationSec! - 2.0) {
+      final saved = await _progressSync.getSavedPosition(progressKey);
+      if (saved > ct + 1.0) {
+        debugPrint(
+          '[Player] Skipping save ${ct.toStringAsFixed(1)}s — would '
+          'clobber further saved ${saved.toStringAsFixed(1)}s from incomplete '
+          'download (GH #278)',
+        );
+        return;
+      }
+    }
     await _progressSync.saveLocal(
       itemId: progressKey,
       currentTime: ct,
@@ -4094,45 +6641,208 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   DateTime _lastServerSync = DateTime.now();
+  // Separate from the server-sync clock: drives the every-5s durable accrual so
+  // a kill loses at most one tick of listening, independent of how often we POST.
+  DateTime _lastAccrual = DateTime.now();
+  double? _lastAccrualPos;
   bool _syncRecoveryInProgress = false;
   bool _positionSyncInProgress = false;
   int _positionSyncFailures = 0;
+  DateTime? _noSessionSyncRetryAt;
   bool _recreatingSession = false;
+
+  void _noteNoSessionSyncFailure(String what) {
+    _positionSyncFailures++;
+    if (_positionSyncFailures >= 3) {
+      final waitSec = (60 << (_positionSyncFailures - 3)).clamp(60, 300);
+      _noSessionSyncRetryAt = DateTime.now().add(Duration(seconds: waitSec));
+      debugPrint(
+        '[Player] No-session sync $what (failures=$_positionSyncFailures), '
+        'backing off ${waitSec}s',
+      );
+    } else {
+      debugPrint(
+        '[Player] No-session sync $what (failures=$_positionSyncFailures)',
+      );
+    }
+  }
+
+  /// The active server address changed under a loaded book (local to remote
+  /// or back). Sync, session pushes and the offline flush all go through
+  /// [_api], which until now stayed on the address play started with - so
+  /// after leaving WiFi every push went to a LAN address for as long as the
+  /// book kept playing.
+  void useApi(ApiService api) {
+    final current = _api;
+    if (current == null || identical(current, api)) return;
+    if (current.cleanBaseUrl == api.cleanBaseUrl) return;
+    debugPrint('[Player] Sync now goes to ${api.cleanBaseUrl}');
+    _api = api;
+  }
+
+  /// Forget any sync backoff so the next tick pushes progress right away.
+  /// Called when the network comes back or the active server changes.
+  void resetServerSyncBackoff() {
+    if (_positionSyncFailures == 0 && _noSessionSyncRetryAt == null) return;
+    debugPrint('[Player] Sync backoff cleared (failures=$_positionSyncFailures)');
+    _positionSyncFailures = 0;
+    _noSessionSyncRetryAt = null;
+  }
+  int _playbackGeneration = 0;
+  int? _cachedStartReconcileGeneration;
+
+  /// True once a newer start has taken over from the one that was handed
+  /// [generation]. Every start shares the current item, session and track
+  /// state, so a start that lost has to back out without touching any of it:
+  /// clearing it left the winner playing with no item (GH #391).
+  bool _startSuperseded(int generation) => generation != _playbackGeneration;
+
+  /// Backs a superseded start out: closes the server session it opened so
+  /// the server is not left with a stray one, and reports nothing - the user
+  /// is already listening to what they picked instead.
+  String? _abandonStart(ApiService? api, String? ownSessionId, String where) {
+    debugPrint('[Player] Start superseded ($where) - backing out');
+    if (api != null && ownSessionId != null) {
+      if (_playbackSessionId == ownSessionId) _playbackSessionId = null;
+      unawaited(api.closePlaybackSession(ownSessionId));
+    }
+    return null;
+  }
+
+  bool get _isCachedStartReconcilePending =>
+      _cachedStartReconcileGeneration == _playbackGeneration;
+
+  /// Bank listening time to the durable store for the active play mode. Called
+  /// every ~5s while playing (decoupled from the server POST) so the recorded
+  /// total survives a kill. Uses wall-clock elapsed since the last accrual, so
+  /// it stays correct at any speed and excludes paused spans (no ticks fire
+  /// while paused; [play] restarts the clock).
+  Future<void> _accrueListening(Duration absolutePos) async {
+    if (_currentItemId == null) return;
+    final now = DateTime.now();
+    final delta = now.difference(_lastAccrual).inSeconds;
+    if (delta <= 0) return;
+    final ct = absolutePos.inMilliseconds / 1000.0;
+    // A player can report playing while its position sits still - a stalled
+    // stream, a dead web audio element. Wall clock alone would bank that span
+    // as listening, and the 300s backstop timer keeps doing it for as long as
+    // the app is open, so hours of standing still later ship as one phantom
+    // session. Only credit a span the position actually moved through, and
+    // drop the frozen span rather than carrying it into the next tick.
+    final prevPos = _lastAccrualPos;
+    _lastAccrualPos = ct;
+    if (prevPos != null && (ct - prevPos).abs() < 0.5) {
+      _lastAccrual = now;
+      debugPrint(
+        '[Player] Position frozen at ${ct.toStringAsFixed(1)}s - '
+        'not banking ${delta}s as listening',
+      );
+      return;
+    }
+    final secs = delta > 300 ? 300 : delta;
+    _lastAccrual = now;
+    final key = _currentEpisodeId != null
+        ? '$_currentItemId-$_currentEpisodeId'
+        : _currentItemId!;
+    final manualOffline = (_prefs?.getBool('manual_offline_mode')) ?? false;
+    if (_localSessionMode) {
+      await LocalSessionService().accrue(
+        progressKey: key,
+        seconds: secs,
+        currentTime: ct,
+        api: null,
+      );
+    } else if (manualOffline || _isOfflineMode || _playbackSessionId == null) {
+      await _progressSync.addOfflineListeningTime(key, secs);
+    } else {
+      await _progressSync.addStreamingPendingTime(key, secs);
+    }
+  }
 
   Future<void> _syncToServer(Duration pos, {int? timeListenedOverride}) async {
     if (_api == null || _playbackSessionId == null) return;
+    if (_isCachedStartReconcilePending) return;
     final ct = pos.inMilliseconds / 1000.0;
+    // Incomplete download: stuck at the truncated file's end. Don't push that
+    // clamped position to the server (it would move real progress backward) or
+    // report the stuck time as listened. GH #278.
+    if (_shortLocalDurationSec != null && ct >= _shortLocalDurationSec! - 2.0) {
+      return;
+    }
     final now = DateTime.now();
-    final elapsed = timeListenedOverride ??
+    final elapsed =
+        timeListenedOverride ??
         now.difference(_lastServerSync).inSeconds.clamp(0, 300);
     _lastServerSync = now;
+    // The streaming safety buffer mirrors this same span; read it before the
+    // POST so we only clear what the server is about to confirm. A real
+    // timeListened (not an override) is what the buffer is shadowing.
+    final streamKey = (timeListenedOverride == null && _currentItemId != null)
+        ? (_currentEpisodeId != null
+              ? '$_currentItemId-$_currentEpisodeId'
+              : _currentItemId!)
+        : null;
+    final pendingBefore = streamKey != null
+        ? await _progressSync.getStreamingPendingTime(streamKey)
+        : 0;
     if (elapsed > 0) {
-      unawaited(_progressSync.addTimeSaved(elapsed.toInt(), _player?.speed ?? 1.0));
+      unawaited(
+        _progressSync.addTimeSaved(elapsed.toInt(), _player?.speed ?? 1.0),
+      );
     }
     // Alpha: volume/sessionId piggybacked for GH #179 (volume falls off).
     // We sample these on each sync tick so drift over time is visible.
     final vol = _player?.volume;
     final eqSid = _player?.androidAudioSessionId;
-    debugPrint('[Player] Sync session ${_playbackSessionId!.substring(0, 8)}... | currentTime=${ct.toStringAsFixed(1)}s, timeListened=${elapsed}s, volume=$vol, eqSession=$eqSid');
-    final ok = await _api!.syncPlaybackSession(
+    debugPrint(
+      '[Player] Sync session ${_playbackSessionId!.substring(0, 8)}... | currentTime=${ct.toStringAsFixed(1)}s, timeListened=${elapsed}s, volume=$vol, eqSession=$eqSid',
+    );
+    final status = await _api!.syncPlaybackSessionStatus(
       _playbackSessionId!,
       currentTime: ct,
       duration: _totalDuration,
       timeListened: elapsed,
     );
+    final ok = status == 200;
     if (ok && elapsed > 0) {
       // Tick the StatsWidget forward locally so "today" stays fresh between
       // 15-min authoritative refreshes (which Android Doze throttles).
       unawaited(HomeWidgetService().addLocalListeningSeconds(elapsed));
     }
+    if (ok && streamKey != null && pendingBefore > 0) {
+      unawaited(
+        _progressSync.reduceStreamingPendingTime(streamKey, pendingBefore),
+      );
+    }
     if (ok) {
       _logEvent(PlaybackEventType.syncServer, detail: '+${elapsed}s');
     }
     if (!ok && !_syncRecoveryInProgress) {
+      // Starting a new session makes the server close this one, and the
+      // live source may stream through it. A failure that isn't "session
+      // gone" is network trouble: keep the session, push progress through
+      // the progress endpoint, and try the session again next tick.
+      final sessionGone = status == 404;
+      if (!sessionGone && _sourceSessionId == _playbackSessionId) {
+        debugPrint(
+          '[Player] Session sync failed (status=$status) - keeping the session the stream runs on, syncing progress directly',
+        );
+        await _syncProgressWithoutSession(pos);
+        return;
+      }
       debugPrint('[Player] Session sync failed - attempting recovery');
       _syncRecoveryInProgress = true;
       try {
         await _recoverSession(ct, elapsed);
+        // A gone session was the one the stream ran on: the source is dead
+        // already, and moving it now costs a short gap instead of the five
+        // seconds of silence when the cache runs out and the retry kicks in.
+        if (_sourceSessionDead) {
+          final playing = _player?.playing ?? false;
+          if (!await _applyPendingLocalSwap(resumeAfter: playing)) {
+            await _applyPendingSessionUpgrade(resumeAfter: playing);
+          }
+        }
       } finally {
         _syncRecoveryInProgress = false;
       }
@@ -4144,12 +6854,16 @@ class AudioPlayerService extends ChangeNotifier {
     if (_api == null || _currentItemId == null) return;
     try {
       final sessionData = _currentEpisodeId != null
-          ? await _api!.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!)
+          ? await _api!.startEpisodePlaybackSession(
+              _currentItemId!,
+              _currentEpisodeId!,
+            )
           : await _api!.startPlaybackSession(_currentItemId!);
       if (sessionData != null) {
         _playbackSessionId = sessionData['id'] as String?;
         debugPrint('[Player] Recovered session: $_playbackSessionId');
         _logEvent(PlaybackEventType.sessionStart, detail: 'recovery');
+        _stashSessionUpgrade(sessionData);
         // Re-sync the lost time to the new session
         if (_playbackSessionId != null && lostTimeListened > 0) {
           await _api!.syncPlaybackSession(
@@ -4169,9 +6883,17 @@ class AudioPlayerService extends ChangeNotifier {
   }
 
   DateTime? _lastPauseTime;
-  double _lastAutoRewindAmount = 0;
   bool _seekedWhilePaused = false;
+  // Origin of the playItem in flight, read by the play paths to decide
+  // whether to wait on the server's saved position. See playItem().
+  bool _playFromUi = false;
   bool _wasPlayingBeforeInterrupt = false;
+  bool _pauseRequested = false;
+  bool get isPauseRequested => _pauseRequested;
+
+  void _markPauseRequested() {
+    _pauseRequested = true;
+  }
 
   // Storm guard for the idle-on-resume re-init path. A book the player can't
   // start (e.g. a thousands-of-files book the engine never leaves `idle` on)
@@ -4186,8 +6908,11 @@ class AudioPlayerService extends ChangeNotifier {
   /// Scales linearly from minRewind at activationDelay to maxRewind at 1 hour.
   /// activationDelay = minimum pause before rewind kicks in (0 = always).
   static double calculateAutoRewind(
-      Duration pauseDuration, double minRewind, double maxRewind,
-      {double activationDelay = 0}) {
+    Duration pauseDuration,
+    double minRewind,
+    double maxRewind, {
+    double activationDelay = 0,
+  }) {
     final pauseSeconds = pauseDuration.inSeconds.toDouble();
 
     // Don't rewind if pause is shorter than activation delay
@@ -4195,14 +6920,50 @@ class AudioPlayerService extends ChangeNotifier {
 
     // Linear from min to max over 1 hour of pause time
     const maxPause = 3600.0; // 1 hour = full rewind
-    final effectivePause = (pauseSeconds - activationDelay).clamp(0.0, maxPause);
+    final effectivePause = (pauseSeconds - activationDelay).clamp(
+      0.0,
+      maxPause,
+    );
     final t = effectivePause / maxPause;
     final rewind = minRewind + (maxRewind - minRewind) * t;
     return rewind.clamp(minRewind, maxRewind);
   }
 
-  Future<void> play({String? logDetail}) async {
-    debugPrint('[Service] play() called — lastPause=${_lastPauseTime != null}');
+  /// [fromUi] marks a play started from the app's own screen. Only those
+  /// look at the server for a position another device may have advanced,
+  /// and only before audio starts. Headphones, notification, widget, lock
+  /// screen and Android Auto plays resume where the phone left off, right
+  /// away - if you switched devices you'll open the app, and a jump a few
+  /// seconds into playback is worse than starting where you paused.
+  Future<void> play({String? logDetail, bool fromUi = false}) async {
+    _pauseRequested = false;
+    // A second Play while the first is still moving the source onto a live
+    // session raced it: it pressed play on a half-loaded player and ExoPlayer
+    // failed with "Unexpected runtime error" (GH #344). The first one plays
+    // when it's ready, so let it.
+    final since = _playInFlightSince;
+    if (since != null && DateTime.now().difference(since) < _playInFlightCap) {
+      debugPrint(
+        '[Service] play() ignored - the play from '
+        '${DateTime.now().difference(since).inMilliseconds}ms ago is still getting ready',
+      );
+      return;
+    }
+    _playInFlightSince = DateTime.now();
+    try {
+      await _playNow(logDetail: logDetail, fromUi: fromUi);
+    } finally {
+      _playInFlightSince = null;
+    }
+  }
+
+  DateTime? _playInFlightSince;
+  static const _playInFlightCap = Duration(seconds: 30);
+
+  Future<void> _playNow({String? logDetail, bool fromUi = false}) async {
+    debugPrint(
+      '[Service] play() called — lastPause=${_lastPauseTime != null} fromUi=$fromUi',
+    );
 
     // Cold-start play guard. If the OS killed absorb during a long pause
     // and the user tapped play via headphones / lock screen / Android Auto,
@@ -4217,37 +6978,121 @@ class AudioPlayerService extends ChangeNotifier {
       lastPlayedItemId: prefs.getString('widget_item_id'),
     );
     if (decision == ColdStartPlayDecision.restoreLastPlayed) {
-      debugPrint('[Service] play() on cold-started service - routing to cold-start restore');
-      final restore = AudioPlayerService.onColdStartPlayRequested;
+      debugPrint(
+        '[Service] play() on cold-started service - routing to cold-start restore',
+      );
+      // Android can start the process from the media resume card and send
+      // play while the app is still starting up, before main() has wired the
+      // restore handler. Wait for it rather than dropping the press.
+      var restore = AudioPlayerService.onColdStartPlayRequested;
+      for (var i = 0; restore == null && i < 50; i++) {
+        await Future.delayed(const Duration(milliseconds: 200));
+        restore = AudioPlayerService.onColdStartPlayRequested;
+      }
       if (restore != null) {
         unawaited(restore());
       } else {
-        debugPrint('[Service] No cold-start restore handler registered - ignoring play');
+        debugPrint(
+          '[Service] No cold-start restore handler registered after 10s - ignoring play',
+        );
       }
       return;
     }
     if (decision == ColdStartPlayDecision.nothing) {
-      debugPrint('[Service] play() called with no current item and no history - ignoring');
+      debugPrint(
+        '[Service] play() called with no current item and no history - ignoring',
+      );
       return;
     }
 
     _pauseStopTimer?.cancel();
     _pauseStopTimer = null;
-    _noisyPause = false; // User explicitly resumed — allow interrupt-resume again
+    // Playing again settles any interruption still waiting to resume; a stale
+    // flag would bring the book back after some later, unrelated focus gain.
+    _wasPlayingBeforeInterrupt = false;
+    _noisyPause =
+        false; // User explicitly resumed — allow interrupt-resume again
     _handler?._noisyPauseAt = null; // Clear noisy suppression window
-    _lastAutoRewindAmount = 0;
+    // A loadOnly playItem left the item paused with no session; this first
+    // real play is where listening actually starts, so the session does too.
+    final pendingSession = _pendingLoadOnlySession;
+    if (pendingSession != null) {
+      _pendingLoadOnlySession = null;
+      if (_currentItemId == pendingSession.itemId) {
+        await LocalSessionService().beginSession(
+          progressKey: pendingSession.progressKey,
+          libraryItemId: pendingSession.itemId,
+          episodeId: pendingSession.episodeId,
+          mediaType: pendingSession.episodeId != null ? 'podcast' : 'book',
+          duration: pendingSession.duration,
+          startTime: position.inMilliseconds / 1000.0,
+          displayTitle: pendingSession.title,
+          displayAuthor: pendingSession.author,
+        );
+        // The loadOnly playItem returned before _setupSync, so this session
+        // has no completion listener, no position sync, no EQ attach and no
+        // stats accrual yet. Without it a hot-loaded book that plays to the
+        // end just sits there: completed arrives, nobody reacts, the card
+        // stays until a manual stop and the book is never marked finished.
+        _setupSync();
+      }
+    }
+    // BookOrbit audio streams through the in-app proxy, which a long
+    // suspension can take down; a lock screen play doesn't foreground the app.
+    if (_api?.isBookOrbit == true) await _api!.ensureMediaReady();
+    // A source streaming through a session the server no longer has (closed
+    // by the pause timeout, or replaced since) would play from the cache
+    // until that runs out, then die with a 404 and a five-second retry.
+    // Nothing is audible yet, so this is the moment to move it.
+    if (_sourceSessionDead) {
+      await _rebuildSourceOnDeadSession(resumeAfter: false);
+      if (_pauseRequested) {
+        debugPrint('[Service] Paused while the source was being rebuilt - not starting');
+        return;
+      }
+    }
+    // A seek while paused (user, or the socket adopting another device's
+    // position) is the position the user expects to hear next - don't let
+    // the server check below override it.
+    final seekedWhilePaused = _seekedWhilePaused;
+    _seekedWhilePaused = false;
+    final adoptedServerPos = fromUi && !seekedWhilePaused
+        ? await _adoptServerPositionBeforeResume()
+        : false;
+    // Coming back within a few minutes of the sleep timer firing means you were
+    // awake for it, so put back what its rewind took. Done before the ordinary
+    // auto-rewind below so that still applies from the restored position.
+    // Moot when we just jumped to another device's position; consume the undo
+    // anyway so it can't fire on a later resume.
+    if (_player != null) {
+      final undoTo = SleepTimerService()
+          .takeSleepRewindUndo(_currentItemId, position);
+      if (undoTo != null && !adoptedServerPos) {
+        await seekTo(undoTo, logDetail: 'sleep rewind undone');
+        // seekTo flags a paused seek; this one is ours, not the user's, and
+        // the server check has already run, so don't carry it to next resume.
+        _seekedWhilePaused = false;
+      }
+    }
     // Auto-rewind on resume if enabled
     if (_lastPauseTime != null && _player != null) {
       final settings = await AutoRewindSettings.load();
       if (settings.enabled) {
         final pauseDuration = DateTime.now().difference(_lastPauseTime!);
         final rewindSeconds = calculateAutoRewind(
-            pauseDuration, settings.minRewind, settings.maxRewind,
-            activationDelay: settings.activationDelay);
-        if (rewindSeconds > 0.5) {
+          pauseDuration,
+          settings.minRewind,
+          settings.maxRewind,
+          activationDelay: settings.activationDelay,
+        );
+        // A player sitting at zero has lost its place (an error reset it);
+        // rewinding from there would only seek to the start on top of
+        // whatever the server check just restored.
+        if (rewindSeconds > 0.5 && position > Duration.zero) {
           final currentAbsolutePos = position.inMilliseconds / 1000.0;
           final currentSpeed = _player!.speed;
-          var newPosSeconds = currentAbsolutePos - (rewindSeconds * currentSpeed);
+          var newPosSeconds =
+              currentAbsolutePos - (rewindSeconds * currentSpeed);
           if (newPosSeconds < 0) newPosSeconds = 0;
           // Chapter barrier: don't rewind past the current chapter start
           if (settings.chapterBarrier && _chapters.isNotEmpty) {
@@ -4261,47 +7106,102 @@ class AudioPlayerService extends ChangeNotifier {
             }
           }
           await _seekAbsolute(newPosSeconds);
-          // Store the actual book-time position delta, not raw rewindSeconds.
-          // At speed>1.0 the delta is larger (rewindSeconds * speed), and the
-          // chapter barrier above may cap it smaller. The "server ahead on
-          // resume" check compares serverPos vs localPos+_lastAutoRewindAmount;
-          // using raw seconds at 1.4x makes it misread a legitimate auto-rewind
-          // gap as the server being ahead and seeks forward, erasing the rewind.
+          // Log the actual book-time delta: at speed>1.0 it's larger than
+          // rewindSeconds, and the chapter barrier may cap it smaller.
           final actualDelta = currentAbsolutePos - newPosSeconds;
-          _lastAutoRewindAmount = actualDelta;
           final rewindDetail = currentSpeed == 1.0
               ? '${rewindSeconds.toStringAsFixed(1)}s'
               : '${rewindSeconds.toStringAsFixed(1)}s (${actualDelta.toStringAsFixed(1)}s at ${currentSpeed.toStringAsFixed(2)}x)';
           _logEvent(PlaybackEventType.autoRewind, detail: rewindDetail);
           debugPrint(
-              '[Player] Auto-rewind ${rewindSeconds.toStringAsFixed(1)}s '
-              '(paused ${pauseDuration.inSeconds}s)');
+            '[Player] Auto-rewind ${rewindSeconds.toStringAsFixed(1)}s '
+            '(paused ${pauseDuration.inSeconds}s)',
+          );
         }
       }
     }
+    final pausedFor = _lastPauseTime == null
+        ? null
+        : DateTime.now().difference(_lastPauseTime!);
     _lastPauseTime = null;
     // Reset server sync clock so the first sync after resume doesn't
     // include pause duration as timeListened
     _lastServerSync = DateTime.now();
-    // Re-activate audio session in case a prior stop released it.
-    try { (await AudioSession.instance).setActive(true); } catch (_) {}
+    _lastAccrual = DateTime.now();
+    _lastAccrualPos = null;
+    // Re-activate audio session in case a prior stop released it. The answer
+    // is the audio focus request: a refusal here on a resume from the
+    // background is a lead when the book then plays without sound.
+    try {
+      final activated = await (await AudioSession.instance).setActive(true);
+      debugPrint('[Player] Resume setActive(true)=$activated '
+          '(paused ${pausedFor?.inSeconds ?? '?'}s)');
+    } catch (e) {
+      debugPrint('[Player] Resume setActive(true) failed: $e');
+    }
+    // Android: a player left paused past the pause timeout comes back with
+    // the position moving and nothing audible, and only a rebuilt player
+    // sounds again. Rebuild it at the position the resume settled on, which
+    // already includes the auto rewind, so nothing seeks once audio starts.
+    final longPause = pausedFor != null && pausedFor >= _pauseStopTimeout;
+    if ((Platform.isAndroid && longPause || _playerBroken) &&
+        _player?.processingState != ProcessingState.idle &&
+        _currentItemId != null &&
+        _api != null) {
+      final why = _playerBroken
+          ? 'Player failed while paused'
+          : 'Long pause (${pausedFor!.inSeconds}s)';
+      _playerBroken = false;
+      // A position of zero means the player lost its place; the start then
+      // comes from the saved progress instead of being forced to the top.
+      final startS = position.inMilliseconds / 1000.0;
+      debugPrint(
+        '[Player] $why - rebuilding the player '
+        '${startS > 0 ? "at ${startS.toStringAsFixed(1)}s" : "from the saved position"} '
+        'instead of resuming it',
+      );
+      _logEvent(PlaybackEventType.play, detail: '$logDetail (rebuilt: $why)');
+      unawaited(playItem(
+        api: _api!,
+        itemId: _currentItemId!,
+        title: _currentTitle ?? '',
+        author: _currentAuthor ?? '',
+        coverUrl: _currentCoverUrl,
+        totalDuration: _totalDuration,
+        chapters: _chapters,
+        startTime: startS,
+        forceStartTime: startS > 0,
+        episodeId: _currentEpisodeId,
+        episodeTitle: _currentEpisodeTitle,
+        libraryId: _currentLibraryId,
+        fromUi: fromUi,
+      ));
+      return;
+    }
     // If the player is idle (source was disposed), we need to fully re-initialize
     // playback instead of just calling play() on an empty player.
-    if (_player?.processingState == ProcessingState.idle && _currentItemId != null && _api != null) {
+    if (_player?.processingState == ProcessingState.idle &&
+        _currentItemId != null &&
+        _api != null) {
       // Cap re-inits within a window so a book the engine can't start doesn't
       // spin here forever, hammering the server with fresh play sessions.
       final now = DateTime.now();
-      if (_lastIdleReinit != null && now.difference(_lastIdleReinit!) < _idleReinitWindow) {
+      if (_lastIdleReinit != null &&
+          now.difference(_lastIdleReinit!) < _idleReinitWindow) {
         _idleReinitCount++;
       } else {
         _idleReinitCount = 1;
       }
       _lastIdleReinit = now;
       if (_idleReinitCount > _idleReinitMaxAttempts) {
-        debugPrint('[Player] Idle-on-resume re-init capped after $_idleReinitCount attempts — giving up to avoid a retry storm');
+        debugPrint(
+          '[Player] Idle-on-resume re-init capped after $_idleReinitCount attempts — giving up to avoid a retry storm',
+        );
         return;
       }
-      debugPrint('[Player] Player is idle on resume - re-initializing playback for $_currentItemId (attempt $_idleReinitCount)');
+      debugPrint(
+        '[Player] Player is idle on resume - re-initializing playback for $_currentItemId (attempt $_idleReinitCount)',
+      );
       playItem(
         api: _api!,
         itemId: _currentItemId!,
@@ -4312,11 +7212,23 @@ class AudioPlayerService extends ChangeNotifier {
         chapters: _chapters,
         episodeId: _currentEpisodeId,
         episodeTitle: _currentEpisodeTitle,
+        libraryId: _currentLibraryId,
+        fromUi: fromUi,
       );
       return;
     }
+    // Restart the listening-time clock so the paused span isn't counted as
+    // listening on the first sync tick after resume (a long/overnight pause
+    // would otherwise be credited as up to 300s of phantom listening).
+    _lastServerSync = DateTime.now();
+    _lastAccrual = DateTime.now();
+    _lastAccrualPos = null;
     // Start playback immediately — don't wait for server calls
     _player?.play();
+    // Any paused seek up to this instant belonged to this resume (a socket
+    // adoption can land between the check above and here); the flag is for
+    // seeks during the NEXT pause.
+    _seekedWhilePaused = false;
     _scheduleAudioDiagnostics('resume');
     _logEvent(PlaybackEventType.play, detail: logDetail);
     _onPlaybackStateChangedCallback?.call(true);
@@ -4328,11 +7240,15 @@ class AudioPlayerService extends ChangeNotifier {
     if (_bgSaveTimer == null || !_bgSaveTimer!.isActive) {
       _bgSaveTimer?.cancel();
       _bgSaveTimer = Timer.periodic(const Duration(seconds: 300), (_) async {
-        if (_currentItemId == null || _player == null || !_player!.playing) return;
+        if (_currentItemId == null || _player == null || !_player!.playing)
+          return;
         final pos = position;
         final posSec = pos.inMilliseconds / 1000.0;
         if (posSec <= 0) return;
         await _saveProgressLocal(pos);
+        // Backstop accrual for a frozen position stream (Doze); shares
+        // _lastAccrual so it never double-counts live ticks.
+        await _accrueListening(pos);
       });
     }
     // Restart stuck detection (stopped on pause to avoid background wakes)
@@ -4347,88 +7263,217 @@ class AudioPlayerService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Re-create server session and check if server progress is ahead.
-  /// Runs in the background so play() returns instantly.
-  void _resumeServerSync() async {
-    if (_api == null || _currentItemId == null) return;
-    if (_recreatingSession) return;
-    final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
-        .getBool('manual_offline_mode') ?? false;
-    if (manualOffline || _isOfflineMode) {
-      debugPrint('[Player] Skipping session re-create on resume (manualOffline=$manualOffline, isOffline=$_isOfflineMode)');
-      return;
+  /// Pause long enough that another device could plausibly have listened
+  /// meanwhile. Shorter pauses resume instantly with no server round trip.
+  static const _serverPositionCheckMinPause = Duration(minutes: 2);
+
+  /// Longest an app-screen resume waits on the server before starting where
+  /// the phone left off. A late answer is dropped, never seeked to.
+  static const _serverPositionCheckCap = Duration(seconds: 2);
+
+  /// Before an app-screen resume, look at the server's saved progress and,
+  /// if another device genuinely moved it ahead, start there. Returns true
+  /// when the position was adopted. Runs only before audio, capped, and only
+  /// after a pause long enough to matter; anything slower starts local.
+  Future<bool> _adoptServerPositionBeforeResume() async {
+    if (_api == null || _currentItemId == null || _player == null) return false;
+    // An idle player is about to be re-initialised through playItem, which
+    // reconciles the start position itself.
+    if (_player!.processingState == ProcessingState.idle) return false;
+    if (_knownOffline || _isOfflineMode) return false;
+    if (ChromecastService().isCasting) return false;
+    final lastPause = _lastPauseTime;
+    // BookOrbit has no live progress push to cover a short pause, so check
+    // after any pause long enough for someone to have listened elsewhere.
+    final minPause = _api!.isBookOrbit
+        ? const Duration(seconds: 10)
+        : _serverPositionCheckMinPause;
+    if (lastPause == null || DateTime.now().difference(lastPause) < minPause) {
+      return false;
     }
-    // Skip server position override if user manually seeked while paused
-    // (e.g. jumped to a different chapter) — respect the intentional seek.
-    final skipOverride = _seekedWhilePaused;
-    _seekedWhilePaused = false;
+    final manualOffline =
+        (_prefs ?? await SharedPreferences.getInstance()).getBool(
+          'manual_offline_mode',
+        ) ??
+        false;
+    if (manualOffline) return false;
     final pKey = _currentEpisodeId != null
         ? '$_currentItemId-$_currentEpisodeId'
         : _currentItemId!;
+    try {
+      final localTs = await _progressSync.getSavedTimestamp(pKey);
+      final serverProgress = await _api!
+          .getItemProgress(pKey)
+          .timeout(_serverPositionCheckCap, onTimeout: () => null);
+      if (serverProgress == null) {
+        debugPrint(
+          '[Player] Resume server-check (pre-start): no answer within ${_serverPositionCheckCap.inMilliseconds}ms - starting local',
+        );
+        return false;
+      }
+      final serverPos = (serverProgress['currentTime'] as num?)?.toDouble() ?? 0;
+      final serverTs = (serverProgress['lastUpdate'] as num?)?.toInt() ?? 0;
+      final localPos = position.inMilliseconds / 1000.0;
+      // Timestamp gate, like the sync path: our own pre-rewind position still
+      // sits on the server after a resume, so position alone would call every
+      // auto-rewind "server ahead".
+      final ahead = serverTs > localTs && serverPos > localPos + 5.0;
+      debugPrint(
+        '[Player] Resume server-check (pre-start): server=${serverPos}s(ts=$serverTs) vs local=${localPos}s(ts=$localTs) -> ${ahead ? "SEEKING" : "keep local"}',
+      );
+      if (!ahead) return false;
+      await _seekAbsolute(serverPos);
+      _logEvent(
+        PlaybackEventType.seek,
+        detail: 'adopted server position ${serverPos.toStringAsFixed(1)}s before resume',
+      );
+      return true;
+    } catch (e) {
+      debugPrint('[Player] Resume server-check (pre-start) failed: $e');
+      return false;
+    }
+  }
+
+  /// The server session the playing source streams through, read off its
+  /// URLs. Null for tokened item URLs and local files.
+  String? get _sourceSessionId {
+    if (_activeStreamUrls.isEmpty) return null;
+    final m = RegExp(r'/public/session/([^/]+)/')
+        .firstMatch(_activeStreamUrls.first);
+    return m?.group(1);
+  }
+
+  /// A session URL stops working the moment the server closes the session:
+  /// its public track route serves open sessions only, and Audiobookshelf
+  /// closes any other open session from the same device when a new one
+  /// starts. So a source is dead once its session is no longer the one we
+  /// hold - closed by the pause timeout, or replaced. Playback carries on
+  /// from the cache until that runs out, then a 404 and a five-second retry.
+  bool get _sourceSessionDead {
+    if (_localSessionMode) return false;
+    final sid = _sourceSessionId;
+    return sid != null && sid != _playbackSessionId;
+  }
+
+  /// Move a source that streams through a dead session onto a live one.
+  /// Starts a session when we hold none; a held one is adopted through the
+  /// pending upgrade. Returns whether the source was rebuilt.
+  Future<bool> _rebuildSourceOnDeadSession({required bool resumeAfter}) async {
+    if (_api == null || _currentItemId == null || _localSessionMode) {
+      return false;
+    }
+    // A finished download takes the rebuild: no new session, no network.
+    if (await _applyPendingLocalSwap(resumeAfter: resumeAfter)) return true;
+    if (_isOfflineMode || _knownOffline || ChromecastService().isCasting) {
+      return false;
+    }
+    final manualOffline =
+        (_prefs ?? await SharedPreferences.getInstance()).getBool(
+          'manual_offline_mode',
+        ) ??
+        false;
+    if (manualOffline) return false;
+    final pending = _pendingSessionUpgrade;
+    if (pending == null || pending['id'] != _playbackSessionId) {
+      if (_recreatingSession) return false;
+      _recreatingSession = true;
+      try {
+        final sessionData = _currentEpisodeId != null
+            ? await _api!.startEpisodePlaybackSession(
+                _currentItemId!,
+                _currentEpisodeId!,
+              )
+            : await _api!.startPlaybackSession(_currentItemId!);
+        if (sessionData == null) return false;
+        _playbackSessionId = sessionData['id'] as String?;
+        _logEvent(PlaybackEventType.sessionStart, detail: 'dead source');
+        _stashSessionUpgrade(sessionData);
+      } catch (e) {
+        debugPrint('[Player] Session start for a dead source failed: $e');
+        return false;
+      } finally {
+        _recreatingSession = false;
+      }
+    }
+    final swapped = await _applyPendingSessionUpgrade(resumeAfter: resumeAfter);
+    debugPrint(
+      '[Player] Source was on a closed session - '
+      '${swapped ? 'rebuilt on ${_playbackSessionId?.substring(0, 8)}' : 'rebuild failed, keeping it'}',
+    );
+    return swapped;
+  }
+
+  /// Progress-endpoint sync for a tick whose session sync could not be used.
+  Future<void> _syncProgressWithoutSession(Duration pos) async {
+    if (_api == null || _currentItemId == null) return;
+    final key = _currentEpisodeId != null
+        ? '$_currentItemId-$_currentEpisodeId'
+        : _currentItemId!;
+    try {
+      await _saveProgressLocal(pos);
+      final ok = await _progressSync.syncToServer(api: _api!, itemId: key);
+      debugPrint(
+        '[Player] Direct progress sync ${ok ? 'succeeded' : 'returned false'}',
+      );
+    } catch (e) {
+      debugPrint('[Player] Direct progress sync error: $e');
+    }
+  }
+
+  /// Re-create the server session after a pause long enough to have closed
+  /// it. Runs in the background so play() returns instantly. Position is not
+  /// touched here: once audio is running we never seek it out from under the
+  /// listener (see play()).
+  void _resumeServerSync() async {
+    if (_api == null || _currentItemId == null) return;
+    if (_recreatingSession) return;
+    if (_playbackSessionId != null) return;
+    final manualOffline =
+        (_prefs ?? await SharedPreferences.getInstance()).getBool(
+          'manual_offline_mode',
+        ) ??
+        false;
+    if (manualOffline || _isOfflineMode || _localSessionMode) {
+      debugPrint(
+        '[Player] Skipping session re-create on resume (manualOffline=$manualOffline, isOffline=$_isOfflineMode, localSession=$_localSessionMode)',
+      );
+      return;
+    }
     _recreatingSession = true;
     try {
-      // Only let the server pull us forward if its progress is genuinely newer
-      // (another device advanced it). Position alone is wrong right after an
-      // auto-rewind: our pre-rewind position still sits on the server, so a big
-      // rewind looks like "server ahead" and gets erased. Gate on timestamp,
-      // like the sync path, since _lastAutoRewindAmount only covers one rewind.
-      final localTs = await _progressSync.getSavedTimestamp(pKey);
-      if (_playbackSessionId == null) {
-        // Session expired - re-create it
-        final sessionData = _currentEpisodeId != null
-            ? await _api!.startEpisodePlaybackSession(_currentItemId!, _currentEpisodeId!)
-            : await _api!.startPlaybackSession(_currentItemId!);
-        if (sessionData != null) {
-          _playbackSessionId = sessionData['id'] as String?;
-          debugPrint('[Player] Re-created session on resume: $_playbackSessionId');
-          if (!skipOverride) {
-            final serverPos = (sessionData['currentTime'] as num?)?.toDouble() ?? 0;
-            final serverTs = (sessionData['updatedAt'] as num?)?.toInt() ?? 0;
-            final localPos = position.inMilliseconds / 1000.0;
-            final ahead = serverTs > localTs && serverPos > localPos + _lastAutoRewindAmount + 5.0;
-            // [AlphaDiag] log inputs; strip before beta.
-            debugPrint('[Player] Resume server-check (recreated): server=${serverPos}s(ts=$serverTs) vs local=${localPos}s(ts=$localTs) rewindAmt=$_lastAutoRewindAmount -> ${ahead ? "SEEKING" : "keep local"}');
-            if (ahead) {
-              await _seekAbsolute(serverPos);
-            }
-          }
-        }
-      } else {
-        // Session still active - check server progress in case another client advanced
-        if (!skipOverride) {
-          final serverProgress = await _api!.getItemProgress(pKey);
-          if (serverProgress != null) {
-            final serverPos = (serverProgress['currentTime'] as num?)?.toDouble() ?? 0;
-            final serverTs = (serverProgress['lastUpdate'] as num?)?.toInt() ?? 0;
-            final localPos = position.inMilliseconds / 1000.0;
-            final ahead = serverTs > localTs && serverPos > localPos + _lastAutoRewindAmount + 5.0;
-            // [AlphaDiag] log the inputs so we can tell a stale pre-rewind server
-            // position from a real cross-device advance. Strip before beta.
-            debugPrint('[Player] Resume server-check (active): server=${serverPos}s(ts=$serverTs) vs local=${localPos}s(ts=$localTs) rewindAmt=$_lastAutoRewindAmount -> ${ahead ? "SEEKING" : "keep local"}');
-            if (ahead) {
-              await _seekAbsolute(serverPos);
-            }
-          }
-        }
+      final sessionData = _currentEpisodeId != null
+          ? await _api!.startEpisodePlaybackSession(
+              _currentItemId!,
+              _currentEpisodeId!,
+            )
+          : await _api!.startPlaybackSession(_currentItemId!);
+      if (sessionData != null) {
+        _playbackSessionId = sessionData['id'] as String?;
+        debugPrint(
+          '[Player] Re-created session on resume: $_playbackSessionId',
+        );
+        _stashSessionUpgrade(sessionData);
       }
-      _lastAutoRewindAmount = 0;
     } catch (e) {
-      debugPrint('[Player] Failed to check server progress on resume: $e');
+      debugPrint('[Player] Failed to re-create session on resume: $e');
     } finally {
       _recreatingSession = false;
     }
   }
 
   Future<void> pause() async {
+    _markPauseRequested();
     debugPrint('[Service] pause() called');
     _playVerifyTimer?.cancel();
     _wasPlayingBeforeInterrupt = false;
     _lastPauseTime = DateTime.now();
     // Stamp BT-route observation for AA-disconnect phantom-click detection.
     // Fire-and-forget: pause shouldn't block on a native call.
-    unawaited(_isBluetoothAudioConnected().then((bt) {
-      if (bt) _lastPlayedOnBtAt = DateTime.now();
-    }));
+    unawaited(
+      _isBluetoothAudioConnected().then((bt) {
+        if (bt) _lastPlayedOnBtAt = DateTime.now();
+      }),
+    );
     // Stop timers to avoid background wakes while paused
     if (_bgSaveTimer != null) {
       _bgSaveTimer!.cancel();
@@ -4444,12 +7489,30 @@ class AudioPlayerService extends ChangeNotifier {
 
     notifyListeners();
     final pos = position;
-    debugPrint('[Player] Saving on pause: ${(pos.inMilliseconds / 1000.0).toStringAsFixed(1)}s');
+    debugPrint(
+      '[Player] Saving on pause: ${(pos.inMilliseconds / 1000.0).toStringAsFixed(1)}s',
+    );
     await _saveProgressLocal(pos);
 
     // Check manual offline before syncing
-    final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
-        .getBool('manual_offline_mode') ?? false;
+    final manualOffline =
+        (_prefs ?? await SharedPreferences.getInstance()).getBool(
+          'manual_offline_mode',
+        ) ??
+        false;
+
+    // Credit listening right up to the pause for whatever mode is active — we
+    // were playing until now — then let the push below ship it. resume (play())
+    // restarts both clocks so the paused span is never counted. Runs even under
+    // manual offline since accrual works offline.
+    await _accrueListening(pos);
+    if (_localSessionMode) {
+      final online = !manualOffline && !_isOfflineMode && _api != null;
+      if (online) unawaited(LocalSessionService().pushActive(api: _api!));
+      _lastServerSync = DateTime.now();
+      _lastAccrual = DateTime.now();
+    }
+
     if (manualOffline) return;
 
     if (!_isOfflineMode && _playbackSessionId != null) {
@@ -4459,6 +7522,17 @@ class AudioPlayerService extends ChangeNotifier {
           ? '$_currentItemId-$_currentEpisodeId'
           : _currentItemId!;
       _progressSync.syncToServer(api: _api!, itemId: syncKey);
+    }
+
+    // Paused audio is the other free moment to adopt a waiting session's
+    // tokenless URLs - the rebuild is inaudible and playback resumes on a
+    // source that can't hit token expiry.
+    // A finished download goes first - once on the files the session's URLs
+    // no longer matter.
+    if (_pendingLocalSwapKey != null) {
+      unawaited(_applyPendingLocalSwap(resumeAfter: false));
+    } else if (_pendingSessionUpgrade != null) {
+      unawaited(_applyPendingSessionUpgrade(resumeAfter: false));
     }
 
     // After 10 min paused, close the server session so we don't inflate
@@ -4489,17 +7563,20 @@ class AudioPlayerService extends ChangeNotifier {
     });
   }
 
-  Future<void> togglePlayPause() async {
+  Future<void> togglePlayPause({bool fromUi = false}) async {
     debugPrint('[Service] togglePlayPause() — isPlaying=$isPlaying');
     if (isPlaying) {
       await pause();
     } else {
-      await play();
+      await play(fromUi: fromUi);
     }
   }
 
-  Future<void> seekTo(Duration pos,
-      {PlaybackEventType logAs = PlaybackEventType.seek, String? logDetail}) async {
+  Future<void> seekTo(
+    Duration pos, {
+    PlaybackEventType logAs = PlaybackEventType.seek,
+    String? logDetail,
+  }) async {
     // While this item is casting, the Chromecast is the real player - route
     // the seek there too or bookmark/chapter jumps only move the stopped
     // local player (GH #273).
@@ -4514,9 +7591,11 @@ class AudioPlayerService extends ChangeNotifier {
     if (_player != null && !_player!.playing) _seekedWhilePaused = true;
     final from = position;
     await _seekAbsolute(pos.inMilliseconds / 1000.0);
-    _logEvent(logAs,
-        detail: logDetail ?? '${_formatPos(from)} → ${_formatPos(pos)}',
-        overridePosition: from.inMilliseconds / 1000.0);
+    _logEvent(
+      logAs,
+      detail: logDetail ?? '${_formatPos(from)} → ${_formatPos(pos)}',
+      overridePosition: from.inMilliseconds / 1000.0,
+    );
     notifyListeners();
   }
 
@@ -4528,8 +7607,11 @@ class AudioPlayerService extends ChangeNotifier {
     var target = position - Duration(seconds: seconds);
     if (target < Duration.zero) target = Duration.zero;
     final amount = seconds % 60 == 0 ? '${seconds ~/ 60}m' : '${seconds}s';
-    await seekTo(target,
-        logAs: PlaybackEventType.autoRewind, logDetail: '$amount (sleep timer)');
+    await seekTo(
+      target,
+      logAs: PlaybackEventType.autoRewind,
+      logDetail: '$amount (sleep timer)',
+    );
   }
 
   Future<void> skipForward([int seconds = 30]) async {
@@ -4538,10 +7620,15 @@ class AudioPlayerService extends ChangeNotifier {
     if (!_player!.playing) _seekedWhilePaused = true;
     // Multiply by speed so the skip feels like the configured amount of real time
     final adjusted = (seconds * speed).round();
-    debugPrint('[Service] skipForward(${seconds}s × ${speed}x = ${adjusted}s) — playing=${_player!.playing}');
+    debugPrint(
+      '[Service] skipForward(${seconds}s × ${speed}x = ${adjusted}s) — playing=${_player!.playing}',
+    );
     final newPos = position + Duration(seconds: adjusted);
     await _seekAbsolute(newPos.inMilliseconds / 1000.0);
-    _logEvent(PlaybackEventType.skipForward, detail: '+${seconds}s (${adjusted}s @ ${speed}x)');
+    _logEvent(
+      PlaybackEventType.skipForward,
+      detail: '+${seconds}s (${adjusted}s @ ${speed}x)',
+    );
     debugPrint('[Service] skipForward done — playing=${_player!.playing}');
   }
 
@@ -4562,20 +7649,27 @@ class AudioPlayerService extends ChangeNotifier {
       double chapterStart = 0;
       for (int i = _chapters.length - 1; i >= 0; i--) {
         final s = (_chapters[i]['start'] as num?)?.toDouble() ?? 0;
-        if (s <= posS + 0.5) { chapterStart = s; break; }
+        if (s <= posS + 0.5) {
+          chapterStart = s;
+          break;
+        }
       }
 
       final intoChapter = posS - chapterStart;
       // If the rewind would cross the chapter boundary
       if (targetS < chapterStart && intoChapter > 0.5) {
         final now = DateTime.now();
-        final recentSnap = _lastRewindChapterSnap != null &&
+        final recentSnap =
+            _lastRewindChapterSnap != null &&
             now.difference(_lastRewindChapterSnap!).inMilliseconds < 2000;
         if (!recentSnap) {
           // Snap to chapter start instead of crossing
           _lastRewindChapterSnap = now;
           await _seekAbsolute(chapterStart);
-          _logEvent(PlaybackEventType.skipBackward, detail: 'snap to chapter start');
+          _logEvent(
+            PlaybackEventType.skipBackward,
+            detail: 'snap to chapter start',
+          );
           return;
         }
         // Double-tap within 2s - break through the barrier
@@ -4585,7 +7679,10 @@ class AudioPlayerService extends ChangeNotifier {
 
     var n = targetS < 0 ? 0.0 : targetS;
     await _seekAbsolute(n);
-    _logEvent(PlaybackEventType.skipBackward, detail: '-${seconds}s (${adjusted}s @ ${speed}x)');
+    _logEvent(
+      PlaybackEventType.skipBackward,
+      detail: '-${seconds}s (${adjusted}s @ ${speed}x)',
+    );
   }
 
   Future<void> skipToNextChapter() async {
@@ -4593,16 +7690,23 @@ class AudioPlayerService extends ChangeNotifier {
     _resetStuckDetection();
     if (!_player!.playing) _seekedWhilePaused = true;
     final posS = position.inMilliseconds / 1000.0;
-    for (int i = 0; i < _chapters.length; i++) {
-      final start = (_chapters[i]['start'] as num?)?.toDouble() ?? 0;
-      if (start > posS + 1.0) {
-        debugPrint('[Service] skipToNextChapter → chapter $i at ${start}s');
-        await _seekAbsolute(start);
-        _logEvent(PlaybackEventType.seek, detail: 'next chapter');
-        notifyListeners();
-        return;
-      }
+    final target = ChapterLookup.nextSkipTarget(
+      _chapters,
+      posS,
+      _totalDuration,
+    );
+    if (target == null) return;
+    if (target.finishesItem) {
+      debugPrint('[Service] skipToNextChapter → end at ${target.seconds}s');
+      _lastKnownPositionSec = target.seconds;
+      _logEvent(PlaybackEventType.seek, detail: 'next chapter to end');
+      await _onPlaybackComplete(userRequested: true);
+      return;
     }
+    debugPrint('[Service] skipToNextChapter → ${target.seconds}s');
+    await _seekAbsolute(target.seconds);
+    _logEvent(PlaybackEventType.seek, detail: 'next chapter');
+    notifyListeners();
   }
 
   Future<void> skipToPreviousChapter() async {
@@ -4632,15 +7736,24 @@ class AudioPlayerService extends ChangeNotifier {
     debugPrint('[Service] setSpeed(${s}x) — before: ${_player!.speed}x');
     await _player!.setSpeed(s);
     debugPrint('[Service] setSpeed done — after: ${_player!.speed}x');
-    _logEvent(PlaybackEventType.speedChange, detail: '${s.toStringAsFixed(2)}x');
+    _logEvent(
+      PlaybackEventType.speedChange,
+      detail: '${s.toStringAsFixed(2)}x',
+    );
     if (_currentItemId != null) {
       PlayerSettings.setBookSpeed(_currentItemId!, s);
       // Re-push MediaItem so the notification/AA duration updates for the
       // new speed (duration is divided by speed for speed-adjusted time).
       if (_handler != null) {
         final chTitle = currentChapter?['title'] as String?;
-        _pushMediaItem(_mediaItemKey, _currentTitle ?? '', _currentAuthor ?? '',
-            _currentCoverUrl, _totalDuration, chapter: chTitle);
+        _pushMediaItem(
+          _mediaItemKey,
+          _currentTitle ?? '',
+          _currentAuthor ?? '',
+          _currentCoverUrl,
+          _totalDuration,
+          chapter: chTitle,
+        );
       }
     }
     // Refresh the PlaybackState so Android Auto's speed badge tracks the rate.
@@ -4659,29 +7772,40 @@ class AudioPlayerService extends ChangeNotifier {
     return null;
   }
 
-  Future<void> stop() async {
+  Future<void> stop({bool keepSleepTimer = false}) async {
     _pauseStopTimer?.cancel();
     _pauseStopTimer = null;
+    _endAdvanceBuffering();
+    final wasPlaying = _player?.playing ?? false;
     // Save final position locally
     if (_currentItemId != null) {
       final pos = position;
-      debugPrint('[Player] Saving on stop: ${(pos.inMilliseconds / 1000.0).toStringAsFixed(1)}s');
+      debugPrint(
+        '[Player] Saving on stop: ${(pos.inMilliseconds / 1000.0).toStringAsFixed(1)}s',
+      );
       await _saveProgressLocal(pos);
+      // Credit the final playing tail before the push/close below. Skipped when
+      // stopped from a paused state so the idle span isn't counted.
+      if (wasPlaying) await _accrueListening(pos);
     }
 
     // Check manual offline before syncing
-    final manualOffline = (_prefs ?? await SharedPreferences.getInstance())
-        .getBool('manual_offline_mode') ?? false;
+    final manualOffline =
+        (_prefs ?? await SharedPreferences.getInstance()).getBool(
+          'manual_offline_mode',
+        ) ??
+        false;
 
     if (!manualOffline) {
       // Try server sync. If stop() was called while already paused, we were
       // not playing in the interval since the last sync - pass timeListened=0
       // so the wall-clock diff doesn't inflate server listening stats.
       if (_playbackSessionId != null && _api != null) {
-        final wasPlaying = _player?.playing ?? false;
         _logEvent(PlaybackEventType.sessionEnd, detail: 'stop');
-        await _syncToServer(position,
-            timeListenedOverride: wasPlaying ? null : 0);
+        await _syncToServer(
+          position,
+          timeListenedOverride: wasPlaying ? null : 0,
+        );
         try {
           debugPrint('[Player] Closing session (stop)');
           await _api!.closePlaybackSession(_playbackSessionId!);
@@ -4691,32 +7815,52 @@ class AudioPlayerService extends ChangeNotifier {
       }
     }
 
+    // Local-session play: push the final accrued listening, then finalize.
+    // Runs even under manual offline so the session is queued for replay.
+    if (_localSessionMode) {
+      bool pushed = false;
+      if (!manualOffline && _api != null) {
+        pushed = await LocalSessionService().pushActive(api: _api!);
+      }
+      await LocalSessionService().finalizeActive(pushed: pushed);
+    }
+
     await _player?.stop();
     _onPlaybackStateChangedCallback?.call(false);
 
     _clearState();
     _chapters = [];
     _handler?.updateChaptersQueue(const []);
-    // Cancel sleep timer when playback is stopped
-    if (SleepTimerService().isActive) {
+    // Cancel sleep timer when playback is stopped - unless the caller is
+    // handing off to Chromecast, where an armed timer should keep running
+    // against the cast session rather than vanish (GH #338).
+    if (!keepSleepTimer && SleepTimerService().isActive) {
       SleepTimerService().cancel();
     }
     // Release audio focus so other apps can use it - but not during casting,
     // because deactivating the session can interfere with cast playback.
     if (!ChromecastService().isCasting) {
       debugPrint('[Battery] AudioSession DEACTIVATED (stop)');
-      try { (await AudioSession.instance).setActive(false); } catch (_) {}
+      try {
+        (await AudioSession.instance).setActive(false);
+      } catch (_) {}
     }
   }
 
   /// Stop playback without saving progress — used by reset progress.
   Future<void> stopWithoutSaving() async {
+    _endAdvanceBuffering();
     // Close server session without syncing position
     if (_playbackSessionId != null && _api != null) {
       try {
         debugPrint('[Player] Closing session (reset progress)');
         await _api!.closePlaybackSession(_playbackSessionId!);
       } catch (_) {}
+    }
+    // Local-session play: queue the accrued listening for replay (the user did
+    // listen; resetting position shouldn't erase that).
+    if (_localSessionMode) {
+      await LocalSessionService().finalizeActive();
     }
     await _player?.stop();
     _clearState();
@@ -4726,6 +7870,7 @@ class AudioPlayerService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _endAdvanceBuffering();
     _syncSub?.cancel();
     _bgSaveTimer?.cancel();
     _pauseStopTimer?.cancel();

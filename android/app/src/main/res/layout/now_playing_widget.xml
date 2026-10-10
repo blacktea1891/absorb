@@ -41,7 +41,7 @@
             android:layout_alignTop="@id/widget_cover"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:paddingTop="4dp"
+            android:paddingTop="12dp"
             android:text="Absorb"
             android:textColor="#FFFFFF"
             android:textSize="15sp"
@@ -87,6 +87,7 @@
             android:layout_height="wrap_content"
             android:layout_toEndOf="@id/widget_cover"
             android:layout_alignBottom="@id/widget_cover"
+            android:layout_marginBottom="8dp"
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:paddingStart="4dp"
@@ -121,15 +122,28 @@
             </FrameLayout>
 
             <!-- Play/pause: white circle with dark icon -->
-            <ImageButton
-                android:id="@+id/widget_play_pause"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:padding="8dp"
-                android:src="@drawable/ic_widget_play_dark"
-                android:background="@drawable/widget_play_btn_bg"
-                android:contentDescription="Play or pause"
-                android:scaleType="centerInside" />
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+                <ImageButton
+                    android:id="@+id/widget_play_pause"
+                    android:layout_width="56dp"
+                    android:layout_height="40dp"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_widget_play_dark"
+                    android:background="@drawable/widget_play_btn_bg"
+                    android:contentDescription="Play or pause"
+                    android:scaleType="centerInside" />
+                <ProgressBar
+                    android:id="@+id/widget_play_pending"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="18dp"
+                    android:layout_height="18dp"
+                    android:layout_gravity="center"
+                    android:indeterminate="true"
+                    android:indeterminateTint="#1A1A1A"
+                    android:visibility="gone" />
+            </FrameLayout>
 
             <!-- Skip forward: arrow icon with duration overlay -->
             <FrameLayout
@@ -160,7 +174,9 @@
 
         </LinearLayout>
 
-        <!-- Wrapper fills the gap; ProgressBar is centered inside at 2dp thin -->
+        <!-- Wrapper fills the gap; progress row (elapsed / squiggle bar /
+             remaining) is centered inside. The bar is drawn as a bitmap by
+             WidgetClock: a static wave while playing, flat when paused. -->
         <FrameLayout
             android:id="@+id/widget_progress_wrapper"
             android:layout_width="match_parent"
@@ -169,18 +185,46 @@
             android:layout_below="@id/widget_chapter"
             android:layout_above="@id/widget_controls">
 
-            <ProgressBar
-                android:id="@+id/widget_progress"
-                style="@android:style/Widget.ProgressBar.Horizontal"
+            <LinearLayout
+                android:id="@+id/widget_progress_row"
                 android:layout_width="match_parent"
-                android:layout_height="2dp"
+                android:layout_height="wrap_content"
                 android:layout_gravity="center"
-                android:layout_marginStart="12dp"
-                android:layout_marginEnd="12dp"
-                android:max="1000"
-                android:progress="0"
-                android:progressDrawable="@drawable/widget_progress_bar"
-                android:visibility="invisible" />
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:visibility="invisible">
+
+                <TextView
+                    android:id="@+id/widget_time_elapsed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="8dp"
+                    android:textColor="#99FFFFFF"
+                    android:textSize="9sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:visibility="gone" />
+
+                <ImageView
+                    android:id="@+id/widget_progress"
+                    android:layout_width="0dp"
+                    android:layout_height="12dp"
+                    android:layout_weight="1"
+                    android:scaleType="fitXY"
+                    android:contentDescription="Progress" />
+
+                <TextView
+                    android:id="@+id/widget_time_remaining"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:textColor="#99FFFFFF"
+                    android:textSize="9sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:visibility="gone" />
+
+            </LinearLayout>
 
         </FrameLayout>
 

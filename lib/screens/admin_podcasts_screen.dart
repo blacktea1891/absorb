@@ -1,12 +1,74 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
+import '../services/socket_service.dart';
+import 'podcast_edit_screen.dart';
 import '../widgets/absorb_page_header.dart';
+import '../widgets/adaptive_modal.dart';
+import '../widgets/desktop_page_body.dart';
+import '../widgets/delete_confirm_dialog.dart';
 import '../widgets/html_description.dart';
+import '../widgets/overlay_toast.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/desktop_workspace.dart';
 import '../utils/duration_format.dart';
+
+/// Opens the podcast lookup used by the admin podcast manager.
+///
+/// When [initialQuery] is provided, the sheet carries it into the search field
+/// and runs the lookup immediately.
+Future<void> showAddPodcastSheet(
+  BuildContext context, {
+  required String libraryId,
+  required String folderId,
+  required VoidCallback onAdded,
+  String initialQuery = '',
+}) {
+  return showAdaptiveActionMenu<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    desktopWidth: 640,
+    desktopScrollWrap: false,
+    builder: (_) => _PodcastSearchSheet(
+      libraryId: libraryId,
+      folderId: folderId,
+      initialQuery: initialQuery,
+      onAdded: onAdded,
+    ),
+  );
+}
+
+Future<void> showPodcastAdminSettings(
+  BuildContext context, {
+  required Map<String, dynamic> item,
+  required String libraryId,
+  required VoidCallback onChanged,
+}) async {
+  if (!context.read<AuthProvider>().isAdmin) return;
+  final navigator = contentNavigator(context);
+  final sourceContext = context;
+  final sourceRoute = ModalRoute.of(context);
+  if (isDesktopWorkspace(context) && sourceRoute is PopupRoute<dynamic>) {
+    Navigator.of(context, rootNavigator: true).removeRoute(sourceRoute);
+  }
+  await navigator.push<void>(
+    MaterialPageRoute<void>(
+      builder: (_) => _PodcastDetailScreen(
+        item: item,
+        libraryId: libraryId,
+        initialTab: 2,
+        onChanged: () {
+          if (sourceContext.mounted) onChanged();
+        },
+      ),
+    ),
+  );
+}
 
 class AdminPodcastsScreen extends StatefulWidget {
   final Map<String, dynamic> library;
@@ -63,10 +125,13 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
     if (mounted) {
       final l = AppLocalizations.of(context)!;
       setState(() => _checkingEpisodes = false);
-      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(
-        content: Text(ok ? l.adminPodcastsCheckingForNew : l.adminPodcastsFailedCheckEpisodes),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+      showOverlayToast(
+        context,
+        ok
+            ? l.adminPodcastsCheckingForNew
+            : l.adminPodcastsFailedCheckEpisodes,
+        icon: ok ? Icons.refresh_rounded : Icons.error_outline_rounded,
+      );
       if (ok) Future.delayed(const Duration(seconds: 3), _loadShows);
     }
   }
@@ -84,7 +149,7 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
         onPressed: () => _showSearchSheet(),
         child: Icon(Icons.add_rounded, color: cs.onPrimary),
       ),
-      body: SafeArea(child: Column(children: [
+      body: DesktopPageBody(maxWidth: 1040, child: SafeArea(child: Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(20, 12, 8, 0),
           child: Row(children: [
@@ -105,7 +170,7 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
               ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
               : RefreshIndicator(onRefresh: _loadShows, child: _buildShowList(cs, tt)),
         ),
-      ])),
+      ]))),
     );
   }
 
@@ -179,15 +244,18 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
   // ─── Search Sheet ───────────────────────────────────────────
 
   void _showSearchSheet() {
-    showModalBottomSheet(
-      context: context, isScrollControlled: true, useSafeArea: true, backgroundColor: Colors.transparent,
-      builder: (_) => _PodcastSearchSheet(libraryId: _libraryId, folderId: _folderId, onAdded: _loadShows));
+    showAddPodcastSheet(
+      context,
+      libraryId: _libraryId,
+      folderId: _folderId,
+      onAdded: _loadShows,
+    );
   }
 
   // ─── Show Detail ────────────────────────────────────────────
 
   void _openShowDetail(Map<String, dynamic> item) {
-    Navigator.push(context, MaterialPageRoute(
+    Navigator.of(context).push(MaterialPageRoute(
       builder: (_) => _PodcastDetailScreen(item: item, libraryId: _libraryId, onChanged: _loadShows)));
   }
 }
@@ -200,13 +268,19 @@ class _AdminPodcastsScreenState extends State<AdminPodcastsScreen> {
 class _PodcastSearchSheet extends StatefulWidget {
   final String libraryId;
   final String folderId;
+  final String initialQuery;
   final VoidCallback onAdded;
-  const _PodcastSearchSheet({required this.libraryId, required this.folderId, required this.onAdded});
+  const _PodcastSearchSheet({
+    required this.libraryId,
+    required this.folderId,
+    required this.initialQuery,
+    required this.onAdded,
+  });
   @override State<_PodcastSearchSheet> createState() => _PodcastSearchSheetState();
 }
 
 class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
-  final _ctrl = TextEditingController();
+  late final TextEditingController _ctrl;
   bool _searching = false;
   List<dynamic> _results = [];
 
@@ -242,7 +316,16 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
   final Set<String> _lookingUp = {};
 
   @override
-  void initState() { super.initState(); _loadChart(); }
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.initialQuery);
+    _loadChart();
+    if (widget.initialQuery.trim().isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _search();
+      });
+    }
+  }
 
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
@@ -302,10 +385,11 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
           return;
         }
       }
-      ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(
-        content: Text(AppLocalizations.of(context)!.adminPodcastsCouldNotFindFeed),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+      showOverlayToast(
+        context,
+        AppLocalizations.of(context)!.adminPodcastsCouldNotFindFeed,
+        icon: Icons.search_off_rounded,
+      );
     } catch (_) {
       if (mounted) setState(() => _lookingUp.remove(itunesId));
     }
@@ -366,11 +450,12 @@ class _PodcastSearchSheetState extends State<_PodcastSearchSheet> {
         color: cs.surfaceContainerHigh,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: DraggableScrollableSheet(
+      child: AdaptiveDraggableScrollableSheet(
         initialChildSize: 0.85,
         minChildSize: 0.05,
         maxChildSize: 0.95,
         expand: false,
+        desktopMaxHeight: 680,
         builder: (ctx, sc) {
           return Column(
             children: [
@@ -715,10 +800,12 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
       setState(() => _adding = false);
       if (result != null) {
         widget.onAdded();
+        _msg(l2.adminPodcastsAddedToLibrary(_title),
+            icon: Icons.check_circle_outline_rounded);
         Navigator.pop(context);
-        _msg(l2.adminPodcastsAddedToLibrary(_title));
       } else {
-        _msg(l2.adminPodcastsFailedToAdd(_title));
+        _msg(l2.adminPodcastsFailedToAdd(_title),
+            icon: Icons.error_outline_rounded);
       }
     }
   }
@@ -731,7 +818,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(
+      body: DesktopPageBody(maxWidth: 1040, child: SafeArea(
         child: Column(
           children: [
             // Header
@@ -890,7 +977,7 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
             ),
           ],
         ),
-      ),
+      )),
     );
   }
 
@@ -900,8 +987,8 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
     child: Icon(Icons.podcasts_rounded, color: cs.primary.withValues(alpha: 0.3), size: 48),
   );
 
-  void _msg(String s) => ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
-    SnackBar(content: Text(s), behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+  void _msg(String s, {IconData? icon}) =>
+      showOverlayToast(context, s, icon: icon);
 }
 
 
@@ -912,8 +999,14 @@ class _PodcastPreviewScreenState extends State<_PodcastPreviewScreen> {
 class _PodcastDetailScreen extends StatefulWidget {
   final Map<String, dynamic> item;
   final String libraryId;
+  final int initialTab;
   final VoidCallback onChanged;
-  const _PodcastDetailScreen({required this.item, required this.libraryId, required this.onChanged});
+  const _PodcastDetailScreen({
+    required this.item,
+    required this.libraryId,
+    this.initialTab = 0,
+    required this.onChanged,
+  });
   @override State<_PodcastDetailScreen> createState() => _PodcastDetailScreenState();
 }
 
@@ -945,12 +1038,28 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
   void initState() {
     super.initState();
     _item = jsonDecode(jsonEncode(widget.item)) as Map<String, dynamic>;
-    _tabCtrl = TabController(length: 3, vsync: this)
+    final initialTab = widget.initialTab >= 0 && widget.initialTab < 3
+        ? widget.initialTab
+        : 0;
+    _lastTabIndex = initialTab;
+    _tabCtrl = TabController(length: 3, initialIndex: initialTab, vsync: this)
       ..addListener(_onTabChanged);
     _initCheckDate();
     _reloadItem(); // Load full item with episodes
     _loadFeed(); // Pre-load feed so it's ready when user switches tabs
     _pollDownloadQueue(); // Check for any in-progress downloads
+    SocketService().addItemUpdatedListener(_onSocketItemUpdated);
+  }
+
+  // Live-refresh when this show changes on the server (episode downloads
+  // finishing, metadata edits from the web UI).
+  Timer? _liveRefreshDebounce;
+  void _onSocketItemUpdated(Map<String, dynamic> data) {
+    if (!mounted || data['id'] != _podcastId) return;
+    _liveRefreshDebounce?.cancel();
+    _liveRefreshDebounce = Timer(const Duration(milliseconds: 800), () {
+      if (mounted) _reloadItem();
+    });
   }
 
   int _lastTabIndex = 0;
@@ -971,19 +1080,26 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
   }
 
   @override
-  void dispose() { _pollingQueue = false; _tabCtrl.removeListener(_onTabChanged); _tabCtrl.dispose(); super.dispose(); }
+  void dispose() {
+    SocketService().removeItemUpdatedListener(_onSocketItemUpdated);
+    _liveRefreshDebounce?.cancel();
+    _pollingQueue = false;
+    _tabCtrl.removeListener(_onTabChanged);
+    _tabCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _removeShow() async {
     final l = AppLocalizations.of(context)!;
-    final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: Text(l.adminPodcastsRemoveShowTitle),
-      content: Text(l.adminPodcastsRemoveShowContent(_title)),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
-        TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.remove, style: TextStyle(color: Colors.red.shade300)))],
-    ));
-    if (yes != true) return;
+    final choice = await showDeleteConfirmDialog(
+      context,
+      title: l.adminPodcastsRemoveShowTitle,
+      message: l.adminPodcastsRemoveShowContent(_title),
+      confirmLabel: l.remove,
+    );
+    if (choice == null || !mounted) return;
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
-    final status = await api.deleteLibraryItem(_podcastId);
+    final status = await api.deleteLibraryItem(_podcastId, hard: choice.hardDelete);
     if (mounted) {
       final l2 = AppLocalizations.of(context)!;
       if (status == 200) { _msg(l2.adminPodcastsRemovedShow(_title)); widget.onChanged(); Navigator.pop(context); }
@@ -1004,6 +1120,90 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     } catch (_) {}
   }
 
+  Future<void> _editMaxEpisodesToKeep() async {
+    final l = AppLocalizations.of(context)!;
+    final rawCurrent = _media['maxEpisodesToKeep'];
+    final current = rawCurrent is num && rawCurrent >= 0
+        ? rawCurrent.toInt()
+        : 0;
+    final controller = TextEditingController(text: '$current');
+    String? errorText;
+
+    final value = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            final parsed = int.tryParse(controller.text.trim());
+            if (parsed == null || parsed < 0) {
+              setDialogState(() => errorText = l.adminPodcastsEpisodeLimitInvalid);
+              return;
+            }
+            Navigator.of(dialogContext).pop(parsed);
+          }
+
+          return AlertDialog(
+            title: Text(l.adminPodcastsMaxEpisodesToKeep),
+            content: SizedBox(
+              width: 360,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    l.adminPodcastsMaxEpisodesToKeepHelp,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: 16),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    keyboardType: TextInputType.number,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: l.adminPodcastsMaxEpisodesToKeep,
+                      errorText: errorText,
+                      border: const OutlineInputBorder(),
+                    ),
+                    onChanged: (_) {
+                      if (errorText != null) {
+                        setDialogState(() => errorText = null);
+                      }
+                    },
+                    onSubmitted: (_) => submit(),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(l.cancel),
+              ),
+              FilledButton(onPressed: submit, child: Text(l.save)),
+            ],
+          );
+        },
+      ),
+    );
+    controller.dispose();
+    if (value == null || value == current || !mounted) return;
+
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null) return;
+    final ok = await api.updatePodcastMedia(
+      _podcastId,
+      {'maxEpisodesToKeep': value},
+    );
+    if (!mounted) return;
+    if (ok) {
+      setState(() => _media['maxEpisodesToKeep'] = value);
+      widget.onChanged();
+    } else {
+      _msg(l.adminPodcastsFailedAutoDownloadUpdate);
+    }
+  }
+
   Future<void> _loadFeed() async {
     if (_feedUrl.isEmpty) { _msg(AppLocalizations.of(context)!.adminPodcastsNoFeedAvailable); return; }
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
@@ -1012,8 +1212,33 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     if (result != null) {
       final podcast = result['podcast'] as Map<String, dynamic>? ?? result;
       _feedEpisodes = podcast['episodes'] as List? ?? [];
+      if (!_feedNewestFirst) _applyFeedSort();
     }
     if (mounted) setState(() => _loadingFeed = false);
+  }
+
+  bool _feedNewestFirst = true;
+
+  // Sort by publish date when the feed provides one; otherwise fall back to
+  // reversing feed order (feeds are conventionally newest-first). The select
+  // mode tracks episodes by index, so selection is cleared on toggle.
+  void _applyFeedSort() {
+    num? dateOf(dynamic e) => (e as Map)['publishedAt'] as num? ?? e['pubDate'] as num?;
+    if (_feedEpisodes.every((e) => dateOf(e) != null)) {
+      _feedEpisodes.sort((a, b) => _feedNewestFirst
+          ? dateOf(b)!.compareTo(dateOf(a)!)
+          : dateOf(a)!.compareTo(dateOf(b)!));
+    } else {
+      _feedEpisodes = _feedEpisodes.reversed.toList();
+    }
+  }
+
+  void _toggleFeedSort() {
+    setState(() {
+      _feedNewestFirst = !_feedNewestFirst;
+      _selectedFeedIndices.clear();
+      _applyFeedSort();
+    });
   }
 
   Future<void> _pollDownloadQueue() async {
@@ -1063,16 +1288,15 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
 
   Future<void> _deleteEpisode(String episodeId, String epTitle) async {
     final l = AppLocalizations.of(context)!;
-    final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: Text(l.adminPodcastsDeleteEpisodeTitle),
-      content: Text(l.adminPodcastsDeleteEpisodeContent(epTitle)),
-      actions: [TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
-        TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.delete, style: TextStyle(color: Colors.red.shade300)))],
-    ));
-    if (yes != true) return;
+    final choice = await showDeleteConfirmDialog(
+      context,
+      title: l.adminPodcastsDeleteEpisodeTitle,
+      message: l.adminPodcastsDeleteEpisodeContent(epTitle),
+    );
+    if (choice == null || !mounted) return;
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
     setState(() => _deleting.add(episodeId));
-    final status = await api.deletePodcastEpisode(_podcastId, episodeId);
+    final status = await api.deletePodcastEpisode(_podcastId, episodeId, hard: choice.hardDelete);
     if (mounted) {
       final l2 = AppLocalizations.of(context)!;
       setState(() => _deleting.remove(episodeId));
@@ -1093,12 +1317,22 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-      body: SafeArea(child: Column(children: [
+      body: DesktopPageBody(maxWidth: 1040, child: SafeArea(child: Column(children: [
         // Back button
         Padding(padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
           child: Row(children: [
             IconButton(icon: Icon(Icons.arrow_back_rounded, color: cs.onSurface.withValues(alpha: 0.54)), onPressed: () => Navigator.pop(context)),
             const Spacer(),
+            if (_tabCtrl.index == 1 && _feedEpisodes.isNotEmpty)
+              IconButton(
+                icon: Icon(
+                  _feedNewestFirst ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                  color: cs.onSurface.withValues(alpha: 0.3),
+                  size: 20,
+                ),
+                tooltip: _feedNewestFirst ? l.adminPodcastsSortNewestFirst : l.adminPodcastsSortOldestFirst,
+                onPressed: _toggleFeedSort,
+              ),
             if ((_tabCtrl.index == 0 && _episodes.isNotEmpty) || (_tabCtrl.index == 1 && _feedEpisodes.isNotEmpty))
               IconButton(
                 icon: Icon(
@@ -1158,7 +1392,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
           _buildFeedTab(cs, tt),
           _buildSettingsTab(cs, tt),
         ])),
-      ])),
+      ]))),
     );
   }
 
@@ -1192,22 +1426,19 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     if (_selectedDownloadedIds.isEmpty) return;
     final count = _selectedDownloadedIds.length;
     final l = AppLocalizations.of(context)!;
-    final yes = await showDialog<bool>(context: context, builder: (ctx) => AlertDialog(
-      title: Text(l.adminPodcastsDeleteEpisodesTitle),
-      content: Text(l.adminPodcastsDeleteEpisodesContent(count)),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(l.cancel)),
-        TextButton(onPressed: () => Navigator.pop(ctx, true), child: Text(l.delete, style: TextStyle(color: Colors.red.shade300))),
-      ],
-    ));
-    if (yes != true) return;
+    final choice = await showDeleteConfirmDialog(
+      context,
+      title: l.adminPodcastsDeleteEpisodesTitle,
+      message: l.adminPodcastsDeleteEpisodesContent(count),
+    );
+    if (choice == null || !mounted) return;
     final api = context.read<AuthProvider>().apiService; if (api == null) return;
     final ids = Set<String>.from(_selectedDownloadedIds);
     setState(() => _selectedDownloadedIds.clear());
     int deleted = 0;
     bool forbidden = false;
     for (final id in ids) {
-      final status = await api.deletePodcastEpisode(_podcastId, id);
+      final status = await api.deletePodcastEpisode(_podcastId, id, hard: choice.hardDelete);
       if (status == 200) deleted++;
       else if (status == 403) { forbidden = true; break; }
     }
@@ -1376,7 +1607,9 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
   bool get _isSelecting => _selectedFeedIndices.isNotEmpty;
 
   void _enterFeedSelectMode() {
-    // Select the first non-downloaded episode to kick off select mode
+    // Prefer the first not-yet-downloaded episode so the common "grab the new
+    // ones" case starts pre-populated; fall back to the first episode so select
+    // mode still engages when everything is already downloaded.
     final dlTitles = _episodes.map((e) => (e['title'] as String? ?? '').toLowerCase()).toSet();
     for (var i = 0; i < _feedEpisodes.length; i++) {
       final ep = _feedEpisodes[i] as Map<String, dynamic>;
@@ -1386,6 +1619,7 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
         return;
       }
     }
+    if (_feedEpisodes.isNotEmpty) setState(() => _selectedFeedIndices.add(0));
   }
 
   void _toggleFeedSelection(int index) {
@@ -1394,6 +1628,26 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
         _selectedFeedIndices.remove(index);
       } else {
         _selectedFeedIndices.add(index);
+      }
+    });
+  }
+
+  void _selectAllFeed() {
+    setState(() {
+      _selectedFeedIndices
+        ..clear()
+        ..addAll(List.generate(_feedEpisodes.length, (i) => i));
+    });
+  }
+
+  void _selectAllNewFeed() {
+    final dlTitles = _episodes.map((e) => (e['title'] as String? ?? '').toLowerCase()).toSet();
+    setState(() {
+      _selectedFeedIndices.clear();
+      for (var i = 0; i < _feedEpisodes.length; i++) {
+        final ep = _feedEpisodes[i] as Map<String, dynamic>;
+        final title = (ep['title'] as String? ?? '').toLowerCase();
+        if (!dlTitles.contains(title)) _selectedFeedIndices.add(i);
       }
     });
   }
@@ -1414,6 +1668,25 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
       if (ok) _pollDownloadQueue();
     }
     widget.onChanged();
+  }
+
+  Widget _feedQuickSelectChip(ColorScheme cs, TextTheme tt, IconData icon, String label, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+        decoration: BoxDecoration(
+          color: cs.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.12), blurRadius: 8, offset: const Offset(0, 2))],
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 15, color: cs.primary),
+          const SizedBox(width: 6),
+          Text(label, style: tt.labelSmall?.copyWith(color: cs.onSurface, fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
   }
 
   Widget _buildFeedTab(ColorScheme cs, TextTheme tt) {
@@ -1485,37 +1758,46 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
       // Download selected bar
       if (_isSelecting)
         Positioned(left: 16, right: 16, bottom: 16,
-          child: Row(children: [
-            GestureDetector(
-              onTap: () => setState(() => _selectedFeedIndices.clear()),
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cs.surfaceContainerHigh,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, 4))],
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // Quick-select helpers
+            Row(children: [
+              _feedQuickSelectChip(cs, tt, Icons.playlist_add_check_rounded, l.adminPodcastsSelectAllNew, _selectAllNewFeed),
+              const SizedBox(width: 8),
+              _feedQuickSelectChip(cs, tt, Icons.done_all_rounded, l.adminPodcastsSelectAll, _selectAllFeed),
+            ]),
+            const SizedBox(height: 10),
+            Row(children: [
+              GestureDetector(
+                onTap: () => setState(() => _selectedFeedIndices.clear()),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: cs.surfaceContainerHigh,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 12, offset: const Offset(0, 4))],
+                  ),
+                  child: Icon(Icons.close_rounded, size: 20, color: cs.onSurface.withValues(alpha: 0.6)),
                 ),
-                child: Icon(Icons.close_rounded, size: 20, color: cs.onSurface.withValues(alpha: 0.6)),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(child: GestureDetector(
-              onTap: _downloadSelected,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14),
-                decoration: BoxDecoration(
-                  color: cs.primary,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [BoxShadow(color: cs.primary.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
+              const SizedBox(width: 10),
+              Expanded(child: GestureDetector(
+                onTap: _downloadSelected,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color: cs.primary,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [BoxShadow(color: cs.primary.withValues(alpha: 0.3), blurRadius: 12, offset: const Offset(0, 4))],
+                  ),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(Icons.download_rounded, size: 18, color: cs.onPrimary),
+                    const SizedBox(width: 8),
+                    Text(l.adminPodcastsDownloadEpisodesCount(_selectedFeedIndices.length),
+                      style: tt.bodySmall?.copyWith(color: cs.onPrimary, fontWeight: FontWeight.w700)),
+                  ]),
                 ),
-                child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  Icon(Icons.download_rounded, size: 18, color: cs.onPrimary),
-                  const SizedBox(width: 8),
-                  Text(l.adminPodcastsDownloadEpisodesCount(_selectedFeedIndices.length),
-                    style: tt.bodySmall?.copyWith(color: cs.onPrimary, fontWeight: FontWeight.w700)),
-                ]),
-              ),
-            )),
+              )),
+            ]),
           ]),
         ),
     ]);
@@ -1646,6 +1928,27 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
         );
       }),
 
+      // Edit show info
+      if (context.read<AuthProvider>().isAdmin)
+        GestureDetector(
+          onTap: _openEditInfo,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            decoration: BoxDecoration(color: cs.surfaceContainerHigh, borderRadius: BorderRadius.circular(14)),
+            child: Row(children: [
+              Icon(Icons.edit_note_rounded, size: 20, color: cs.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(l.adminPodcastsEditInfo, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface)),
+                const SizedBox(height: 2),
+                Text(l.adminPodcastsEditInfoSubtitle, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+              ])),
+              Icon(Icons.chevron_right_rounded, size: 20, color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
+            ]),
+          ),
+        ),
+
       // Match podcast metadata
       GestureDetector(
         onTap: () => _showMatchSheet(cs, tt),
@@ -1720,11 +2023,18 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
       if (autoDownload)
         StatefulBuilder(builder: (ctx, setScheduleState) {
           final currentCron = _media['autoDownloadSchedule'] as String? ?? '0 * * * *';
+          final rawMaxEpisodesToKeep = _media['maxEpisodesToKeep'];
+          final maxEpisodesToKeep =
+              rawMaxEpisodesToKeep is num && rawMaxEpisodesToKeep >= 0
+                  ? rawMaxEpisodesToKeep.toInt()
+                  : 0;
           final parsed = _parseCron(currentCron);
           final freq = parsed.$1;      // 'hourly', 'daily', 'weekly'
           final hour = parsed.$2;      // 0-23
           final minute = parsed.$3;    // 0-59
           final dayOfWeek = parsed.$4; // 0-6 (Sun-Sat)
+          final serverTimeZone = context.read<AuthProvider>()
+              .serverSettings?['timeZone'] as String?;
 
           void saveCron(String f, int h, int m, int d) {
             String cron;
@@ -1770,6 +2080,46 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
                 Icon(Icons.schedule_rounded, size: 20, color: cs.onSurfaceVariant),
                 const SizedBox(width: 12),
                 Text(l.adminPodcastsCheckSchedule, style: tt.bodyMedium?.copyWith(fontWeight: FontWeight.w600, color: cs.onSurface)),
+              ]),
+              Padding(
+                padding: const EdgeInsets.only(left: 32, top: 4),
+                child: Text(serverTimeZone == null
+                    ? l.podcastScheduleServerTimeUnknown
+                    : l.podcastScheduleServerTime(serverTimeZone),
+                  style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+              ),
+              const SizedBox(height: 14),
+              Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l.adminPodcastsMaxEpisodesToKeep,
+                        style: tt.bodySmall?.copyWith(
+                          color: cs.onSurface,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        l.adminPodcastsMaxEpisodesToKeepHelp,
+                        style: tt.labelSmall?.copyWith(
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                OutlinedButton(
+                  onPressed: _editMaxEpisodesToKeep,
+                  child: Text(
+                    maxEpisodesToKeep == 0
+                        ? l.adminPodcastsNoEpisodeLimit
+                        : '$maxEpisodesToKeep',
+                  ),
+                ),
               ]),
               const SizedBox(height: 10),
               // Frequency
@@ -1846,12 +2196,29 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
     ]);
   }
 
+  void _openEditInfo() {
+    final tags = (_media['tags'] as List<dynamic>?)?.whereType<String>().toList() ?? <String>[];
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => PodcastEditScreen(
+        itemId: _podcastId,
+        metadata: Map<String, dynamic>.from(_metadata),
+        tags: tags,
+        onSaved: () {
+          _reloadItem();
+          widget.onChanged();
+        },
+      ),
+    ));
+  }
+
   void _showMatchSheet(ColorScheme cs, TextTheme tt) {
-    showModalBottomSheet(
+    showAdaptiveActionMenu(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      desktopWidth: 640,
+      desktopScrollWrap: false,
       builder: (_) => _PodcastMatchSheet(
         podcastId: _podcastId,
         initialQuery: _title,
@@ -1865,11 +2232,13 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
 
   void _showEpisodeDetail(Map<String, dynamic> ep, bool alreadyDownloaded) {
     final canDownload = context.read<AuthProvider>().isAdmin;
-    showModalBottomSheet(
+    showAdaptiveActionMenu(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      desktopWidth: 640,
+      desktopScrollWrap: false,
       builder: (_) => _EpisodeDetailSheet(
         episode: ep,
         alreadyDownloaded: alreadyDownloaded,
@@ -1885,11 +2254,13 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
   void _showDownloadedEpisodeDetail(Map<String, dynamic> ep) {
     final epId = ep['id']?.toString() ?? '';
     final epTitle = ep['title']?.toString() ?? AppLocalizations.of(context)!.adminPodcastsEpisodeFallback;
-    showModalBottomSheet(
+    showAdaptiveActionMenu(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      desktopWidth: 640,
+      desktopScrollWrap: false,
       builder: (_) => _DownloadedEpisodeDetailSheet(
         episode: ep,
         isDeleting: _deleting.contains(epId),
@@ -1963,8 +2334,8 @@ class _PodcastDetailScreenState extends State<_PodcastDetailScreen> with SingleT
   // are date format primitives consistent with how _fmtDate is used in
   // similar admin/users context. Could be moved to ARB later if needed.
 
-  void _msg(String s) => ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(
-    SnackBar(content: Text(s), behavior: SnackBarBehavior.floating, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+  void _msg(String s, {IconData? icon}) =>
+      showOverlayToast(context, s, icon: icon);
 }
 
 
@@ -2290,22 +2661,30 @@ class _PodcastMatchSheetState extends State<_PodcastMatchSheet> {
     setState(() => _applying = true);
     final title = pod['title'] as String? ?? pod['trackName'] as String? ?? pod['collectionName'] as String?;
     final author = pod['artistName'] as String? ?? pod['author'] as String?;
-    final result = await api.matchLibraryItem(widget.podcastId, title: title, author: author);
+    final result = await api.matchLibraryItem(
+      widget.podcastId,
+      title: title,
+      author: author,
+      overrideCover: true,
+      overrideDetails: true,
+    );
     if (mounted) {
       final l = AppLocalizations.of(context)!;
       setState(() => _applying = false);
       if (result != null) {
         widget.onMatched();
+        showOverlayToast(
+          context,
+          l.adminPodcastsPodcastMatched,
+          icon: Icons.check_circle_outline_rounded,
+        );
         Navigator.pop(context);
-        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(
-          content: Text(l.adminPodcastsPodcastMatched),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
       } else {
-        ScaffoldMessenger.of(context)..clearSnackBars()..showSnackBar(SnackBar(
-          content: Text(l.adminPodcastsFailedMatch),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+        showOverlayToast(
+          context,
+          l.adminPodcastsFailedMatch,
+          icon: Icons.error_outline_rounded,
+        );
       }
     }
   }
@@ -2329,11 +2708,12 @@ class _PodcastMatchSheetState extends State<_PodcastMatchSheet> {
         color: cs.surfaceContainerHigh,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: DraggableScrollableSheet(
+      child: AdaptiveDraggableScrollableSheet(
         initialChildSize: 0.75,
         minChildSize: 0.05,
         maxChildSize: 0.95,
         expand: false,
+        desktopMaxHeight: 680,
         builder: (ctx, sc) => Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 14, 8, 0),
@@ -2382,7 +2762,7 @@ class _PodcastMatchSheetState extends State<_PodcastMatchSheet> {
                         ? Center(child: Text(l.adminPodcastsNoResults, style: tt.bodySmall?.copyWith(color: cs.onSurface.withValues(alpha: 0.24))))
                         : ListView.builder(
                             controller: sc,
-                            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                            padding: EdgeInsets.fromLTRB(16, 8, 16, 32 + MediaQuery.of(context).viewPadding.bottom),
                             itemCount: _results.length,
                             itemBuilder: (_, i) {
                               final pod = _extractPod(_results[i]);

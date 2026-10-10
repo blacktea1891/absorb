@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
 import '../providers/auth_provider.dart';
+import 'cover_badges.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import 'book_detail_sheet.dart';
+import 'books_sheet_shared.dart' show coverGridCount;
 import 'overlay_toast.dart';
 import 'stackable_sheet.dart';
 
@@ -213,8 +215,6 @@ class _FinishedBooksThisYearSheetState
 
   Widget _buildList(ColorScheme cs, TextTheme tt, LibraryProvider lib,
       AppLocalizations l) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
     final bottomPad = 24 + MediaQuery.of(context).viewPadding.bottom;
 
     return ListView.builder(
@@ -256,7 +256,7 @@ class _FinishedBooksThisYearSheetState
                     aspectRatio: 1.0,
                     child: Stack(children: [
                       Positioned.fill(child: _cover(coverUrl, lib, cs)),
-                      _finishedBadge(doneColor, isDownloaded, cs, l),
+                      _finishedBadge(isDownloaded),
                     ]),
                   ),
                   Expanded(
@@ -303,17 +303,15 @@ class _FinishedBooksThisYearSheetState
 
   Widget _buildGrid(ColorScheme cs, TextTheme tt, LibraryProvider lib,
       AppLocalizations l) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
     final bottomPad = 24 + MediaQuery.of(context).viewPadding.bottom;
 
     return GridView.builder(
       controller: widget.scrollController,
       padding: EdgeInsets.fromLTRB(16, 4, 16, bottomPad),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: coverGridCount(context),
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
         childAspectRatio: 0.55,
       ),
       itemCount: _items.length,
@@ -343,7 +341,7 @@ class _FinishedBooksThisYearSheetState
                   borderRadius: BorderRadius.circular(10),
                   child: Stack(children: [
                     Positioned.fill(child: _cover(coverUrl, lib, cs)),
-                    _finishedBadge(doneColor, isDownloaded, cs, l),
+                    _finishedBadge(isDownloaded),
                   ]),
                 ),
               ),
@@ -421,52 +419,10 @@ class _FinishedBooksThisYearSheetState
     return '${months[d.month - 1]} ${d.day}, ${d.year}';
   }
 
-  Widget _finishedBadge(Color doneColor, bool isDownloaded, ColorScheme cs,
-          AppLocalizations l) =>
-      Positioned(
+  Widget _finishedBadge(bool isDownloaded) => Positioned(
         left: 0,
         right: 0,
         bottom: 0,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.bottomCenter,
-              end: Alignment.topCenter,
-              colors: [
-                Colors.black.withValues(alpha: 0.85),
-                Colors.black.withValues(alpha: 0.0),
-              ],
-            ),
-          ),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.check_circle_rounded, size: 10, color: doneColor),
-                  const SizedBox(width: 3),
-                  Text(l.sectionDetailDoneBadge,
-                      style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: doneColor)),
-                ]),
-            if (isDownloaded)
-              Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.download_done_rounded,
-                        size: 10, color: cs.primary),
-                    const SizedBox(width: 3),
-                    Text(l.saved,
-                        style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w600,
-                            color: cs.primary)),
-                  ]),
-          ]),
-        ),
+        child: CoverStateBadges(isDownloaded: isDownloaded, isFinished: true),
       );
 }

@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import '../services/audio_player_service.dart';
+import '../services/chapter_lookup.dart';
 import '../services/chromecast_service.dart';
 import 'absorb_slider.dart';
 
@@ -22,7 +23,11 @@ class CardDualProgressBar extends StatefulWidget {
   final int totalChapters;
   final String? itemId;
   final bool compact;
-  const CardDualProgressBar({super.key, required this.player, required this.accent, required this.isActive, required this.staticProgress, required this.staticDuration, required this.chapters, this.showBookBar = true, this.showChapterBar = true, this.chapterName, this.chapterIndex = 0, this.totalChapters = 0, this.itemId, this.compact = false});
+  /// Render the book percentage centered in the book bar's own time row
+  /// (between elapsed and remaining) instead of the caller stacking a
+  /// separate percent line above - saves a row on the full screen player.
+  final bool showCenterPercent;
+  const CardDualProgressBar({super.key, required this.player, required this.accent, required this.isActive, required this.staticProgress, required this.staticDuration, required this.chapters, this.showBookBar = true, this.showChapterBar = true, this.chapterName, this.chapterIndex = 0, this.totalChapters = 0, this.itemId, this.compact = false, this.showCenterPercent = false});
   @override State<CardDualProgressBar> createState() => _CardDualProgressBarState();
 }
 
@@ -33,7 +38,7 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
   double _chapterDragStartDy = 0;
   double _bookScrubSpeed = 1.0;
   double _chapterScrubSpeed = 1.0;
-  bool _showBookSlider = false;
+  CardScrubberMode _scrubberMode = CardScrubberMode.chapter;
   bool _speedAdjustedTime = true;
   Timer? _smoothTicker;
   final _tickNotifier = ChangeNotifier(); // drives ListenableBuilder rebuilds
@@ -62,7 +67,11 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
   }
 
   void _loadSettings() {
-    PlayerSettings.getShowBookSlider().then((v) { if (mounted && v != _showBookSlider) setState(() => _showBookSlider = v); });
+    PlayerSettings.getCardScrubberMode().then((mode) {
+      if (mounted && mode != _scrubberMode) {
+        setState(() => _scrubberMode = mode);
+      }
+    });
     PlayerSettings.getSpeedAdjustedTime().then((v) { if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v); });
     PlayerSettings.getProgressTextScale().then((v) { if (mounted && v != _progressTextScale) setState(() => _progressTextScale = v); });
     _loadSavedSpeed();
@@ -201,6 +210,15 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
     if (seekTarget != null && (seekTarget - _lastKnownPos).abs() > 2.0) {
       return seekTarget;
     }
+    // Paused while active: trust the engine's real position. The position
+    // stream only ticks during playback, so a stale seed / last-known value
+    // could otherwise leave the bar sitting ahead of the actual position until
+    // the next play (TestFlight: bar appears further than it is, snaps back on
+    // play).
+    if (widget.isActive && !_isPlaying) {
+      final realPos = widget.player.position.inMilliseconds / 1000.0;
+      if (realPos > 0) return realPos;
+    }
     if (!widget.isActive || !_isPlaying) return _lastKnownPos;
     // Use the player's real position as the baseline instead of interpolating
     // from a potentially stale stream event. This prevents overshoot when the
@@ -291,15 +309,23 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
               break;
             }
           }
-          // Past last chapter end - use last chapter
+          // Slightly past the last chapter end still counts as the last
+          // chapter. Grossly past means the chapters don't cover the item's
+          // timeline (e.g. duplicate audio files, GH #345) - keep the
+          // whole-book span so the pill stays honest and keeps moving.
           if (resolvedChapterIdx < 0 && posS > 0) {
             final last = chapterSource.last as Map<String, dynamic>;
-            chapterStart = (last['start'] as num?)?.toDouble() ?? 0;
-            chapterEnd = (last['end'] as num?)?.toDouble() ?? totalDur;
-            resolvedChapterName = last['title'] as String?;
-            resolvedChapterIdx = chapterSource.length - 1;
+            final lastEnd = (last['end'] as num?)?.toDouble() ?? totalDur;
+            if (posS <= lastEnd + ChapterLookup.graceSeconds) {
+              chapterStart = (last['start'] as num?)?.toDouble() ?? 0;
+              chapterEnd = lastEnd;
+              resolvedChapterName = last['title'] as String?;
+              resolvedChapterIdx = chapterSource.length - 1;
+            }
           }
         }
+        final chapterUnresolved =
+            chapterSource.isNotEmpty && resolvedChapterIdx < 0 && posS > 0;
         final chapterDur = chapterEnd - chapterStart;
         final chapterPos = (posS - chapterStart).clamp(0.0, chapterDur);
         final chapterProgress = chapterDur > 0 ? chapterPos / chapterDur : 0.0;
@@ -318,7 +344,7 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
           child: Column(children: [
             // Book bar
             if (widget.showBookBar) ...[
-            if (_showBookSlider) ...[
+            if (_scrubberMode.allowsBookSeeking) ...[
               SizedBox(height: 32, child: LayoutBuilder(builder: (_, cons) {
                 final w = cons.maxWidth;
                 final p = _bookDragValue ?? bookProgress;
@@ -331,22 +357,37 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
                   child: CustomPaint(size: Size(w, 32), painter: AbsorbProgressPainter(progress: p, accent: widget.accent.withValues(alpha: 0.5), isDragging: _bookDragValue != null)),
                 );
               })),
-              Padding(padding: const EdgeInsets.only(top: 2, bottom: 6), child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Padding(padding: const EdgeInsets.only(top: 2, bottom: 6), child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  Text(_fmt(_bookDragValue != null ? _bookDragValue! * totalDur : bookElapsed), style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurfaceVariant, fontSize: 12 * _progressTextScale, fontWeight: FontWeight.w600, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
-                  if (_bookDragValue != null && _bookScrubSpeed < 1.0) Text(_scrubSpeedLabel(l, _bookScrubSpeed), style: tt.labelSmall?.copyWith(color: widget.accent, fontSize: 11, fontWeight: FontWeight.w500)),
-                  Text('-${_fmt(_bookDragValue != null ? (1.0 - _bookDragValue!) * totalDur : bookRemaining)}', style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurfaceVariant, fontSize: 12 * _progressTextScale, fontWeight: FontWeight.w600, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(_fmt(_bookDragValue != null ? _bookDragValue! * totalDur / speedDiv : bookElapsed), style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurfaceVariant, fontSize: 12 * _progressTextScale, fontWeight: FontWeight.w600, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
+                      Text('-${_fmt(_bookDragValue != null ? (1.0 - _bookDragValue!) * totalDur / speedDiv : bookRemaining)}', style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.7) : cs.onSurfaceVariant, fontSize: 12 * _progressTextScale, fontWeight: FontWeight.w600, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
+                    ],
+                  ),
+                  if (_bookDragValue != null && _bookScrubSpeed < 1.0)
+                    Text(_scrubSpeedLabel(l, _bookScrubSpeed), style: tt.labelSmall?.copyWith(color: widget.accent, fontSize: 11, fontWeight: FontWeight.w500))
+                  else if (widget.showCenterPercent)
+                    Text('${(( _bookDragValue ?? bookProgress) * 100).clamp(0, 100).toStringAsFixed(1)}%', style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant, fontSize: 12 * _progressTextScale, fontWeight: FontWeight.w600, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
                 ],
               )),
             ] else ...[
+              // No book seeking: the caller relying on showCenterPercent has
+              // dropped its own percent line, so render one here instead.
+              if (widget.showCenterPercent)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 2),
+                  child: Text('${(bookProgress * 100).clamp(0, 100).toStringAsFixed(1)}%', style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant, fontSize: 11 * _progressTextScale, fontWeight: FontWeight.w500, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
+                ),
               Row(children: [
-                Text(_fmt(_bookDragValue != null ? _bookDragValue! * totalDur : bookElapsed), style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.6) : cs.onSurface.withValues(alpha: 0.5), fontSize: 11 * _progressTextScale, fontWeight: FontWeight.w500, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
+                Text(_fmt(_bookDragValue != null ? _bookDragValue! * totalDur / speedDiv : bookElapsed), style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.6) : cs.onSurface.withValues(alpha: 0.5), fontSize: 11 * _progressTextScale, fontWeight: FontWeight.w500, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
                 const SizedBox(width: 8),
                 Expanded(child: ClipRRect(borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(value: bookProgress, minHeight: 3, backgroundColor: cs.onSurface.withValues(alpha: 0.08), valueColor: AlwaysStoppedAnimation(widget.accent.withValues(alpha: 0.5))))),
                 const SizedBox(width: 8),
-                Text('-${_fmt(_bookDragValue != null ? (1.0 - _bookDragValue!) * totalDur : bookRemaining)}', style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.6) : cs.onSurface.withValues(alpha: 0.5), fontSize: 11 * _progressTextScale, fontWeight: FontWeight.w500, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
+                Text('-${_fmt(_bookDragValue != null ? (1.0 - _bookDragValue!) * totalDur / speedDiv : bookRemaining)}', style: tt.labelSmall?.copyWith(color: _bookDragValue != null ? cs.onSurface.withValues(alpha: 0.6) : cs.onSurface.withValues(alpha: 0.5), fontSize: 11 * _progressTextScale, fontWeight: FontWeight.w500, shadows: [Shadow(color: Theme.of(context).brightness == Brightness.dark ? Colors.black.withValues(alpha: 0.5) : Colors.white.withValues(alpha: 0.5), blurRadius: 3)])),
               ]),
               SizedBox(height: widget.compact ? 4 : 10),
             ],
@@ -361,18 +402,21 @@ class _CardDualProgressBarState extends State<CardDualProgressBar> with WidgetsB
               // Prefer the chapter name resolved from posS (consistent with
               // the fill position) over the externally-passed name which
               // may come from player.currentChapter (different position source).
-              final rawName = resolvedChapterName ?? widget.chapterName;
+              final rawName = resolvedChapterName ??
+                  (chapterUnresolved ? null : widget.chapterName);
               final chIdx = resolvedChapterIdx >= 0 ? resolvedChapterIdx : widget.chapterIndex;
               final chName = rawName != null
                   ? _smartChapterName(l, rawName, chIdx, widget.totalChapters)
                   : null;
+              final chapterInteractive =
+                  active && _scrubberMode.allowsChapterSeeking;
 
               return GestureDetector(
                 behavior: HitTestBehavior.opaque,
-                onHorizontalDragStart: active ? (d) { _chapterDragStartDy = d.localPosition.dy; _chapterScrubSpeed = 1.0; setState(() => _chapterDragValue = (d.localPosition.dx / w).clamp(0.0, 1.0)); } : null,
-                onHorizontalDragUpdate: active ? (d) { _chapterScrubSpeed = _scrubScale((d.localPosition.dy - _chapterDragStartDy).abs()); setState(() => _chapterDragValue = ((_chapterDragValue ?? chapterProgress) + d.delta.dx / w * _chapterScrubSpeed).clamp(0.0, 1.0)); } : null,
-                onHorizontalDragEnd: active ? (_) { if (_chapterDragValue != null) { final seekMs = ((chapterStart + _chapterDragValue! * chapterDur) * 1000).round(); _doSeek(seekMs); } setState(() => _chapterDragValue = null); } : null,
-                onTapUp: active ? (d) { final v = (d.localPosition.dx / w).clamp(0.0, 1.0); final seekMs = ((chapterStart + v * chapterDur) * 1000).round(); _doSeek(seekMs); } : null,
+                onHorizontalDragStart: chapterInteractive ? (d) { _chapterDragStartDy = d.localPosition.dy; _chapterScrubSpeed = 1.0; setState(() => _chapterDragValue = (d.localPosition.dx / w).clamp(0.0, 1.0)); } : null,
+                onHorizontalDragUpdate: chapterInteractive ? (d) { _chapterScrubSpeed = _scrubScale((d.localPosition.dy - _chapterDragStartDy).abs()); setState(() => _chapterDragValue = ((_chapterDragValue ?? chapterProgress) + d.delta.dx / w * _chapterScrubSpeed).clamp(0.0, 1.0)); } : null,
+                onHorizontalDragEnd: chapterInteractive ? (_) { if (_chapterDragValue != null) { final seekMs = ((chapterStart + _chapterDragValue! * chapterDur) * 1000).round(); _doSeek(seekMs); } setState(() => _chapterDragValue = null); } : null,
+                onTapUp: chapterInteractive ? (d) { final v = (d.localPosition.dx / w).clamp(0.0, 1.0); final seekMs = ((chapterStart + v * chapterDur) * 1000).round(); _doSeek(seekMs); } : null,
                 child: CustomPaint(
                   size: Size(w, 30),
                   painter: ChapterPillPainter(

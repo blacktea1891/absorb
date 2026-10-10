@@ -11,7 +11,11 @@ import 'user_account_service.dart';
 class ScopedPrefs {
   ScopedPrefs._();
 
-  static String _scope(String key) => UserAccountService().scopedKey(key);
+  static String keyForScope(String scope, String key) =>
+      scope.isEmpty ? key : '$scope:$key';
+
+  static String _scope(String key) =>
+      keyForScope(UserAccountService().activeScopeKey, key);
 
   /// Only fall back to un-scoped data when there is no active scope
   /// (i.e. pre-multi-user migration). Once scoped, a missing key means
@@ -25,8 +29,9 @@ class ScopedPrefs {
     'server_url', 'token', 'username', 'user_id', 'default_library_id',
     'custom_headers',
     'loggingEnabled', 'manual_offline_mode',
-    'custom_download_path', 'downloads',
+    'custom_download_path', 'custom_download_uri', 'downloads',
     'absorb_device_id',
+    'desktop_sidebar_pinned',
     'widget_item_id', 'widget_episode_id',
     'cached_stats', 'cached_sessions',
     'update_last_check', 'update_dismissed_version',
@@ -54,6 +59,7 @@ class ScopedPrefs {
       if (key.startsWith('flutter.')) continue;
       // Skip per-podcast sort keys (global, keyed by item ID)
       if (key.startsWith('podcast_sort_newest_')) continue;
+      if (key.startsWith('podcast_sort_mode_')) continue;
 
       final scopedKey = '$scope:$key';
       if (prefs.containsKey(scopedKey)) continue; // already exists
@@ -162,6 +168,23 @@ class ScopedPrefs {
   }
 
   // ── Convenience ──
+
+  /// The item-keyed tails of every stored key starting with [prefix], for
+  /// prefix-keyed stores like `ebook_annotations_<itemId>` that have no index
+  /// of their own.
+  static Future<List<String>> suffixesWithPrefix(String prefix) async {
+    final prefs = await SharedPreferences.getInstance();
+    final scoped = _scope(prefix);
+    final out = <String>{};
+    for (final key in prefs.getKeys()) {
+      if (key.startsWith(scoped)) {
+        out.add(key.substring(scoped.length));
+      } else if (_shouldFallback && key.startsWith(prefix)) {
+        out.add(key.substring(prefix.length));
+      }
+    }
+    return out.toList();
+  }
 
   static Future<bool> containsKey(String key) async {
     final prefs = await SharedPreferences.getInstance();

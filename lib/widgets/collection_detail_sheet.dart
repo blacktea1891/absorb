@@ -1,17 +1,26 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../services/player_settings.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'overlay_toast.dart';
+import 'absorb_placement.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import 'cover_badges.dart';
 import '../services/wording.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import 'add_books_search_sheet.dart';
 import 'book_detail_sheet.dart';
+import 'books_sheet_shared.dart' show coverGridCount;
+import 'editable_sheet_item.dart';
 import 'stackable_sheet.dart';
+import 'swipe_action.dart';
+import '../screens/app_shell.dart';
 
 class CollectionDetailSheet extends StatefulWidget {
   final String collectionId;
@@ -41,12 +50,87 @@ class CollectionDetailSheet extends StatefulWidget {
 }
 
 class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
-  bool _reordering = false;
-  bool _gridView = false;
-  List<Map<String, dynamic>>? _reorderItems;
+  bool _editing = false;
+  bool _savingPublic = false;
 
-  Future<void> _removeItem(LibraryProvider lib, String libraryItemId) async {
-    await lib.removeFromCollection(widget.collectionId, libraryItemId);
+  Future<void> _setPublic(LibraryProvider lib, bool isPublic) async {
+    setState(() => _savingPublic = true);
+    final ok = await lib.setCollectionPublic(widget.collectionId, isPublic);
+    if (!mounted) return;
+    setState(() => _savingPublic = false);
+    if (!ok) {
+      showOverlayToast(context, AppLocalizations.of(context)!.failedToUpdateCheckConnection,
+          icon: Icons.error_outline_rounded);
+    }
+  }
+  bool _gridView = false;
+  List<Map<String, dynamic>>? _editItems;
+  final Set<String> _selectedItemIds = {};
+  bool _isRemovingSelected = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Same list or grid choice as the Home section sheets, so the view you
+    // picked last time comes back instead of the list every time.
+    PlayerSettings.getSectionGridView().then((v) {
+      if (mounted && v != _gridView) setState(() => _gridView = v);
+    });
+  }
+
+  void _toggleGridView() {
+    setState(() => _gridView = !_gridView);
+    PlayerSettings.setSectionGridView(_gridView);
+  }
+
+  void _openAddBooks(LibraryProvider lib, Map<String, dynamic> collection,
+      String name, List<dynamic> books) {
+    final libraryId = collection['libraryId'] as String? ?? lib.selectedLibraryId;
+    if (libraryId == null) return;
+    final memberIds = books
+        .whereType<Map<String, dynamic>>()
+        .map((b) => b['id'] as String? ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    AddBooksSearchSheet.show(
+      context,
+      title: name,
+      libraryId: libraryId,
+      initialMemberIds: memberIds,
+      onAdd: (id) => lib.addToCollection(widget.collectionId, id),
+      onRemove: (id) => lib.removeFromCollection(widget.collectionId, id),
+    );
+  }
+
+  /// Header icon with a comfortable (>=44px tall) tap target and ripple, so
+  /// the small top-row controls aren't fiddly to press.
+  Widget _headerIconButton(ColorScheme cs, IconData icon, VoidCallback onTap,
+      {String? tooltip}) {
+    return IconButton(
+      icon: Icon(icon, size: 20, color: cs.onSurfaceVariant),
+      onPressed: onTap,
+      tooltip: tooltip,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 44),
+      style: IconButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+      ),
+    );
+  }
+
+  Widget _headerTextButton(ColorScheme cs, String label, VoidCallback? onTap,
+      {required Color color}) {
+    return TextButton(
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        foregroundColor: color,
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
+    );
   }
 
   Future<void> _deleteCollection(BuildContext context, LibraryProvider lib) async {
@@ -83,31 +167,62 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
     }
   }
 
-  void _startReorder(List<dynamic> books) {
+  void _startEdit(List<dynamic> books) {
     setState(() {
-      _reordering = true;
-      _reorderItems = books
+      _editing = true;
+      _editItems = books
           .map((b) => Map<String, dynamic>.from(b as Map))
           .toList();
+      _selectedItemIds.clear();
     });
   }
 
-  Future<void> _saveReorder(LibraryProvider lib) async {
-    if (_reorderItems != null) {
-      final bookIds = _reorderItems!
+  void _saveEdit(LibraryProvider lib) {
+    final items = _editItems;
+    if (items != null) {
+      final bookIds = items
           .map((b) => b['id'] as String? ?? '')
           .where((id) => id.isNotEmpty)
           .toList();
-      await lib.reorderCollectionBooks(widget.collectionId, bookIds);
+      // Persist in the background so "Done" closes instantly instead of
+      // hanging on the PATCH + collections reload.
+      unawaited(lib.reorderCollectionBooks(widget.collectionId, bookIds));
     }
-    if (mounted) Navigator.pop(context);
+    Navigator.pop(context);
   }
 
-  void _cancelReorder() {
+  void _cancelEdit() {
     setState(() {
-      _reordering = false;
-      _reorderItems = null;
+      _editing = false;
+      _editItems = null;
+      _selectedItemIds.clear();
     });
+  }
+
+  Future<void> _removeSelected(LibraryProvider lib) async {
+    if (_selectedItemIds.isEmpty) return;
+    setState(() => _isRemovingSelected = true);
+
+    final removedIds = <String>{};
+    for (final itemId in List<String>.from(_selectedItemIds)) {
+      if (await lib.removeFromCollection(widget.collectionId, itemId)) {
+        removedIds.add(itemId);
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _editItems?.removeWhere((item) => removedIds.contains(item['id']));
+      _selectedItemIds.removeAll(removedIds);
+      _isRemovingSelected = false;
+    });
+    if (removedIds.isNotEmpty) {
+      showOverlayToast(
+        context,
+        AppLocalizations.of(context)!.playlistDetailItemsRemoved(removedIds.length),
+        icon: Icons.playlist_remove_rounded,
+      );
+    }
   }
 
   @override
@@ -117,11 +232,6 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
     final l = AppLocalizations.of(context)!;
     final lib = context.watch<LibraryProvider>();
     final auth = context.read<AuthProvider>();
-    // Both gated at isAdmin in the UI; server returns 403 when admin lacks
-    // the `delete` permission flag and we show a friendly toast then.
-    final canEditCollection = auth.isAdmin;
-    final canDeleteCollection = auth.isAdmin;
-
     final collection = lib.collections.cast<Map<String, dynamic>>().where(
       (c) => c['id'] == widget.collectionId,
     ).firstOrNull;
@@ -129,6 +239,14 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
     if (collection == null) {
       return Center(child: Text(l.collectionNotFound));
     }
+
+    // Both gated at isAdmin in the UI; server returns 403 when admin lacks
+    // the `delete` permission flag and we show a friendly toast then. A
+    // BookOrbit collection belongs to whoever made it.
+    final ownsBookOrbitCollection = auth.isBookOrbit &&
+        (collection['bookOrbit'] as Map?)?['isOwner'] == true;
+    final canEditCollection = auth.isAdmin || ownsBookOrbitCollection;
+    final canDeleteCollection = auth.isAdmin || ownsBookOrbitCollection;
 
     final name = collection['name'] as String? ?? l.collectionDetailDefaultName;
     final description = collection['description'] as String? ?? '';
@@ -139,33 +257,26 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Row(children: [
-          if (_reordering) ...[
-            GestureDetector(
-              onTap: _cancelReorder,
-              child: Text(l.cancel, style: tt.labelMedium?.copyWith(
-                color: cs.onSurfaceVariant, fontWeight: FontWeight.w500,
-              )),
+          if (_editing) ...[
+            _headerTextButton(cs, l.cancel, _cancelEdit, color: cs.onSurfaceVariant),
+            const Spacer(),
+            Flexible(
+              child: Text(
+                _selectedItemIds.isEmpty
+                    ? name
+                    : l.selectedCount(_selectedItemIds.length),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: tt.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600, color: cs.onSurface)),
             ),
             const Spacer(),
-            Text(name, style: tt.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600, color: cs.onSurface,
-            )),
-            const Spacer(),
-            GestureDetector(
-              onTap: () => _saveReorder(lib),
-              child: Text(l.done, style: tt.labelMedium?.copyWith(
-                color: cs.primary, fontWeight: FontWeight.w600,
-              )),
+            _headerTextButton(
+              cs,
+              l.done,
+              _isRemovingSelected ? null : () => _saveEdit(lib),
+              color: cs.primary,
             ),
           ] else ...[
-            if (canDeleteCollection) ...[
-              GestureDetector(
-                onTap: () => _deleteCollection(context, lib),
-                child: Icon(Icons.delete_outline_rounded, size: 20,
-                  color: cs.onSurfaceVariant),
-              ),
-              const SizedBox(width: 12),
-            ],
             Icon(Icons.collections_bookmark_rounded, size: 20, color: cs.primary),
             const SizedBox(width: 8),
             Expanded(
@@ -176,25 +287,28 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
             Text(l.collectionDetailBookCount(books.length),
               style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
             ),
-            const SizedBox(width: 12),
-            GestureDetector(
-              onTap: () => setState(() => _gridView = !_gridView),
-              child: Icon(
-                _gridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
-                size: 20, color: cs.onSurfaceVariant),
-            ),
-            if (canEditCollection && books.length > 1) ...[
-              const SizedBox(width: 12),
-              GestureDetector(
-                onTap: () => _startReorder(books),
-                child: Icon(Icons.tune_rounded, size: 20,
-                  color: cs.onSurfaceVariant),
-              ),
-            ],
+            if (canEditCollection)
+              _headerIconButton(cs, Icons.library_add_rounded,
+                () => _openAddBooks(lib, collection, name, books)),
+            _headerIconButton(cs,
+              lib.isRollingDownloadEnabled(widget.collectionId)
+                  ? Icons.downloading_rounded
+                  : Icons.download_outlined,
+              () => lib.toggleRollingDownload(widget.collectionId,
+                  name: name, kind: 'collection'),
+              tooltip: lib.isRollingDownloadEnabled(widget.collectionId)
+                  ? l.turnAutoDownloadOff
+                  : l.turnAutoDownloadOn),
+            _headerIconButton(cs,
+              _gridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+              _toggleGridView),
+            if (canEditCollection)
+              _headerIconButton(cs, Icons.edit_rounded, () => _startEdit(books),
+                tooltip: l.edit),
           ],
         ]),
       ),
-      if (!_reordering && description.isNotEmpty) ...[
+      if (!_editing && description.isNotEmpty) ...[
         const SizedBox(height: 4),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -207,21 +321,109 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
       const SizedBox(height: 12),
       Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.3),
         indent: 20, endIndent: 20),
+      if (_editing && ownsBookOrbitCollection)
+        SwitchListTile(
+          dense: true,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+          title: Text(l.collectionPublicTitle),
+          subtitle: Text(l.collectionPublicSubtitle),
+          value: (collection['bookOrbit'] as Map?)?['isPublic'] == true,
+          onChanged: _savingPublic ? null : (v) => _setPublic(lib, v),
+        ),
+      if (!_editing)
+        _buildPlayButton(cs, lib, books, name, l),
       // Content
       Expanded(
-        child: _reordering
-            ? _buildReorderList(cs, tt, lib, l)
+        child: _editing
+            ? _buildEditList(cs, tt, lib, l)
             : _gridView
-                ? _buildGrid(cs, tt, lib, books, l)
-                : _buildItemList(cs, tt, lib, books, l, canEditCollection: canEditCollection),
+                ? _buildGrid(cs, tt, lib, books, name, l)
+                : _buildItemList(
+                    cs,
+                    tt,
+                    lib,
+                    books,
+                    name,
+                    l,
+                    canEditCollection: canEditCollection,
+                  ),
       ),
+      if (_editing && canDeleteCollection)
+        Container(
+          width: double.infinity,
+          padding: EdgeInsets.fromLTRB(16, 8, 16,
+            8 + MediaQuery.of(context).viewPadding.bottom),
+          decoration: BoxDecoration(
+            color: cs.surfaceContainer,
+            border: Border(top: BorderSide(
+              color: cs.outlineVariant.withValues(alpha: 0.3))),
+          ),
+          child: _isRemovingSelected
+              ? Center(child: SizedBox(width: 20, height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary)))
+              : _selectedItemIds.isNotEmpty
+                  ? FilledButton.tonalIcon(
+                      onPressed: () => _removeSelected(lib),
+                      icon: const Icon(Icons.playlist_remove_rounded),
+                      label: Text('${l.remove} (${_selectedItemIds.length})'),
+                      style: FilledButton.styleFrom(foregroundColor: cs.error),
+                    )
+                  : OutlinedButton.icon(
+                      onPressed: () => _deleteCollection(context, lib),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: Text(l.deleteCollection),
+                      style: OutlinedButton.styleFrom(foregroundColor: cs.error),
+                    ),
+        ),
     ]);
   }
 
-  Widget _buildReorderList(ColorScheme cs, TextTheme tt, LibraryProvider lib, AppLocalizations l) {
-    final items = _reorderItems!;
+  Widget _buildPlayButton(ColorScheme cs, LibraryProvider lib, List<dynamic> books, String name, AppLocalizations l) {
+    int firstIdx = -1;
+    for (var i = 0; i < books.length; i++) {
+      final b = books[i];
+      if (b is! Map<String, dynamic>) continue;
+      final id = b['id'] as String? ?? '';
+      if (id.isEmpty) continue;
+      if (!lib.isItemFinishedByKey(id)) { firstIdx = i; break; }
+    }
+    final allFinished = books.isNotEmpty && firstIdx < 0;
+    final enabled = books.isNotEmpty && firstIdx >= 0;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+      child: SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: enabled
+              ? () async {
+                  HapticFeedback.selectionClick();
+                  final id = widget.collectionId;
+                  Navigator.pop(context);
+                  AppShell.goToAbsorbingGlobal();
+                  await PlayerSettings.setQueueModeCollection(id, name);
+                  final started = await lib.playCollectionFromStart(id);
+                  if (started) {
+                    unawaited(lib.syncQueueAutoDownloads());
+                  } else {
+                    unawaited(
+                      PlayerSettings.clearQueueModeCollectionIfActive(id),
+                    );
+                  }
+                }
+              : null,
+          icon: Icon(allFinished
+              ? Icons.check_circle_outline_rounded
+              : Icons.play_arrow_rounded),
+          label: Text(allFinished ? l.playlistAllFinished : l.playlistPlayAction),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEditList(ColorScheme cs, TextTheme tt, LibraryProvider lib, AppLocalizations l) {
+    final items = _editItems!;
     return ReorderableListView.builder(
-      padding: EdgeInsets.only(top: 8, bottom: 8 + MediaQuery.of(context).viewPadding.bottom),
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
       onReorderStart: (_) => HapticFeedback.mediumImpact(),
       onReorder: (oldIndex, newIndex) {
         setState(() {
@@ -237,56 +439,47 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
         final media = book['media'] as Map<String, dynamic>? ?? {};
         final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
         final title = metadata['title'] as String? ?? l.unknown;
+        final author = metadata['authorName'] as String? ?? '';
         final coverUrl = lib.getCoverUrl(itemId);
 
-        return Container(
+        return EditableSheetItem(
           key: ValueKey(itemId),
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
-          decoration: BoxDecoration(
-            color: cs.onSurface.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
-          ),
-          child: ListTile(
-            dense: true,
-            leading: SizedBox(
-              width: 36, height: 36,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(4),
-                child: coverUrl != null
-                    ? (coverUrl.startsWith('/')
-                        ? Image.file(File(coverUrl), fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => _placeholder(cs))
-                        : Image.network(coverUrl, fit: BoxFit.cover,
-                            headers: lib.mediaHeaders,
-                            errorBuilder: (_, __, ___) => _placeholder(cs)))
-                    : _placeholder(cs),
-              ),
-            ),
-            title: Text(
-              title,
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500,
-                color: cs.onSurface),
-            ),
-            trailing: ReorderableDragStartListener(
-              index: index,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Icon(Icons.drag_handle_rounded, size: 18,
-                  color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
-              ),
-            ),
+          index: index,
+          selected: _selectedItemIds.contains(itemId),
+          onSelectedChanged: (selected) => setState(() {
+            if (selected) {
+              _selectedItemIds.add(itemId);
+            } else {
+              _selectedItemIds.remove(itemId);
+            }
+          }),
+          title: title,
+          subtitle: author.isEmpty ? null : author,
+          leading: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: coverUrl != null
+                ? (coverUrl.startsWith('/')
+                    ? Image.file(File(coverUrl), fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => _placeholder(cs))
+                    : Image.network(coverUrl, fit: BoxFit.cover,
+                        headers: lib.mediaHeaders,
+                        errorBuilder: (_, __, ___) => _placeholder(cs)))
+                : _placeholder(cs),
           ),
         );
       },
     );
   }
 
-  Widget _buildItemList(ColorScheme cs, TextTheme tt, LibraryProvider lib, List<dynamic> books, AppLocalizations l, {required bool canEditCollection}) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
-
+  Widget _buildItemList(
+    ColorScheme cs,
+    TextTheme tt,
+    LibraryProvider lib,
+    List<dynamic> books,
+    String collectionName,
+    AppLocalizations l, {
+    required bool canEditCollection,
+  }) {
     return ListView.builder(
       controller: widget.scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4).copyWith(bottom: 40),
@@ -312,7 +505,12 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
-              onTap: () => showBookDetailSheet(context, itemId),
+              onTap: () => showBookDetailSheet(
+                context,
+                itemId,
+                sourceCollectionId: widget.collectionId,
+                sourceCollectionName: collectionName,
+              ),
               borderRadius: BorderRadius.circular(14),
               child: SizedBox(
                 height: 112,
@@ -358,33 +556,7 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
                       if (isFinished || isDownloaded)
                         Positioned(
                           left: 0, right: 0, bottom: 0,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                            decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                begin: Alignment.bottomCenter,
-                                end: Alignment.topCenter,
-                                colors: [
-                                  Colors.black.withValues(alpha: 0.85),
-                                  Colors.black.withValues(alpha: 0.0),
-                                ],
-                              ),
-                            ),
-                            child: Column(mainAxisSize: MainAxisSize.min, children: [
-                              if (isFinished)
-                                Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                  Icon(Icons.check_circle_rounded, size: 10, color: doneColor),
-                                  const SizedBox(width: 3),
-                                  Text(l.collectionDetailDone, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: doneColor)),
-                                ]),
-                              if (isDownloaded)
-                                Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                  Icon(Icons.download_done_rounded, size: 10, color: cs.primary),
-                                  const SizedBox(width: 3),
-                                  Text(l.saved, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: cs.primary)),
-                                ]),
-                            ]),
-                          ),
+                          child: CoverStateBadges(isDownloaded: isDownloaded, isFinished: isFinished),
                         ),
                     ]),
                   ),
@@ -414,81 +586,43 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
 
         final isOnAbsorbing = lib.isOnAbsorbingList(itemId);
 
-        if (!canEditCollection) {
-          return Dismissible(
-            key: ValueKey('absorb-$itemId'),
-            direction: isOnAbsorbing ? DismissDirection.none : DismissDirection.startToEnd,
-            confirmDismiss: (_) async {
-              await lib.addToAbsorbingQueue(itemId);
-              lib.absorbingItemCache[itemId] = Map<String, dynamic>.from(book);
-              HapticFeedback.mediumImpact();
-              if (context.mounted) {
-                showOverlayToast(context, Wording.of(context).collectionDetailAddedToAbsorbing(title), icon: Icons.add_circle_outline_rounded);
-              }
-              return false;
-            },
-            background: Container(
-              alignment: Alignment.centerLeft,
-              padding: const EdgeInsets.only(left: 20),
-              decoration: BoxDecoration(
-                color: cs.primary.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(14),
-              ),
-              child: Icon(Icons.add_circle_outline_rounded, color: cs.primary),
-            ),
-            child: card,
-          );
-        }
-
-        return Dismissible(
-          key: ValueKey(itemId),
-          direction: isOnAbsorbing ? DismissDirection.endToStart : DismissDirection.horizontal,
-          confirmDismiss: (direction) async {
-            if (direction == DismissDirection.startToEnd) {
-              await lib.addToAbsorbingQueue(itemId);
-              lib.absorbingItemCache[itemId] = Map<String, dynamic>.from(book);
-              HapticFeedback.mediumImpact();
-              if (context.mounted) {
-                showOverlayToast(context, Wording.of(context).collectionDetailAddedToAbsorbing(title), icon: Icons.add_circle_outline_rounded);
-              }
-              return false;
-            }
-            _removeItem(lib, itemId);
-            return true;
-          },
-          background: Container(
-            alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.only(left: 20),
-            decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(Icons.add_circle_outline_rounded, color: cs.primary),
-          ),
-          secondaryBackground: Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            color: cs.error.withValues(alpha: 0.1),
-            child: Icon(Icons.delete_rounded, color: cs.error),
-          ),
+        // Removing an item lives in the edit mode. It used to be a left swipe,
+        // which put an un-undoable server change one stray scroll away.
+        return SwipeAction(
+          key: ValueKey('absorb-$itemId'),
+          onStartToEnd: isOnAbsorbing
+              ? null
+              : SwipeActionSpec(
+                  icon: Icons.add_circle_outline_rounded,
+                  color: cs.primary,
+                  onTrigger: () async {
+                    await addToAbsorbingWithPicker(context, itemId,
+                        item: book,
+                        addedToast: Wording.of(context).collectionDetailAddedToAbsorbing(title));
+                  },
+                ),
           child: card,
         );
       },
     );
   }
 
-  Widget _buildGrid(ColorScheme cs, TextTheme tt, LibraryProvider lib, List<dynamic> books, AppLocalizations l) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
-
+  Widget _buildGrid(
+    ColorScheme cs,
+    TextTheme tt,
+    LibraryProvider lib,
+    List<dynamic> books,
+    String collectionName,
+    AppLocalizations l,
+  ) {
     return GridView.builder(
       controller: widget.scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4)
           .copyWith(bottom: 40),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: coverGridCount(context),
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
         childAspectRatio: 0.62,
       ),
       itemCount: books.length,
@@ -506,7 +640,12 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
         final isDownloaded = DownloadService().isDownloaded(itemId);
 
         return GestureDetector(
-          onTap: () => showBookDetailSheet(context, itemId),
+          onTap: () => showBookDetailSheet(
+            context,
+            itemId,
+            sourceCollectionId: widget.collectionId,
+            sourceCollectionName: collectionName,
+          ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -553,33 +692,7 @@ class _CollectionDetailSheetState extends State<CollectionDetailSheet> {
                     if (isFinished || isDownloaded)
                       Positioned(
                         left: 0, right: 0, bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                Colors.black.withValues(alpha: 0.85),
-                                Colors.black.withValues(alpha: 0.0),
-                              ],
-                            ),
-                          ),
-                          child: Column(mainAxisSize: MainAxisSize.min, children: [
-                            if (isFinished)
-                              Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.check_circle_rounded, size: 10, color: doneColor),
-                                const SizedBox(width: 3),
-                                Text(l.collectionDetailDone, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: doneColor)),
-                              ]),
-                            if (isDownloaded)
-                              Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.download_done_rounded, size: 10, color: cs.primary),
-                                const SizedBox(width: 3),
-                                Text(l.saved, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: cs.primary)),
-                              ]),
-                          ]),
-                        ),
+                        child: CoverStateBadges(isDownloaded: isDownloaded, isFinished: isFinished),
                       ),
                   ]),
                 ),

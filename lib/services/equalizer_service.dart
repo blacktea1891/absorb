@@ -87,7 +87,11 @@ class EqualizerService extends ChangeNotifier {
         if (_bandLevels.length != numBands) {
           _bandLevels = List.filled(numBands, 0.0);
         }
-        debugPrint('[EQ] Platform EQ available: ${_bandFrequencies.length} bands');
+        if (result['deferred'] == true) {
+          debugPrint('[EQ] Platform EQ will initialize when playback starts');
+        } else {
+          debugPrint('[EQ] Platform EQ available: ${_bandFrequencies.length} bands');
+        }
         if (_enabled) _applyCurrentSettings();
       }
     } on MissingPluginException {
@@ -253,7 +257,9 @@ class EqualizerService extends ChangeNotifier {
     if (sessionId <= 0) return;
     try {
       await _channel.invokeMethod('attachSession', {'sessionId': sessionId});
-      debugPrint('[EQ] Attached to audio session $sessionId');
+      debugPrint('[EQ] Attached to audio session $sessionId — enabled=$_enabled '
+          'perItem=$_perItem item=$_currentItemId preset=$_activePreset '
+          'bands=$_bandLevels bass=$_bassBoost loud=$_loudnessGain mono=$_mono');
       if (_enabled) {
         _applyCurrentSettings();
       } else {

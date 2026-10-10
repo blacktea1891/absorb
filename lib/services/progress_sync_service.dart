@@ -18,6 +18,7 @@ class ProgressSyncService {
   bool _isOnline = true;
   bool _isFlushing = false;
   bool _flushAgain = false;
+  Completer<void>? _flushCompleter;
   bool _isFlushingOfflineListening = false;
   int _consecutiveFailures = 0;
   static const _maxConsecutiveFailures = 10;
@@ -47,10 +48,17 @@ class ProgressSyncService {
     required double speed,
     bool? isFinished,
   }) async {
+    final existing = await getLocal(itemId);
     // Preserve existing isFinished flag if not explicitly provided
-    if (isFinished == null) {
-      final existing = await getLocal(itemId);
-      isFinished = existing?['isFinished'] as bool? ?? false;
+    isFinished ??= existing?['isFinished'] as bool? ?? false;
+    // Tripwire for the progress-loss family: a save that moves an item
+    // backward by minutes is almost always a bug upstream, not listening.
+    final previous = (existing?['currentTime'] as num?)?.toDouble();
+    if (previous != null && previous - currentTime > 300) {
+      debugPrint(
+        '[ProgressDiag] $itemId local save drops '
+        '${previous.toStringAsFixed(1)}s -> ${currentTime.toStringAsFixed(1)}s',
+      );
     }
     final data = {
       'itemId': itemId,
@@ -73,14 +81,19 @@ class ProgressSyncService {
   /// Skips items with a pending sync so unsynced local writes (e.g. a finished
   /// state saved while offline) are not clobbered by a stale server snapshot.
   /// Returns true if the cache was written, false if it was refused.
+  ///
+  /// [overridePending] is for the flush itself: it has just compared the
+  /// pending entry against a fresh server read and decided the server wins,
+  /// so the guard would only be refusing the very entry being resolved.
   Future<bool> cacheServerProgress({
     required String itemId,
     required double currentTime,
     required double duration,
     bool isFinished = false,
+    bool overridePending = false,
   }) async {
     final pendingList = await ScopedPrefs.getStringList('pending_syncs');
-    if (pendingList.contains(itemId)) {
+    if (!overridePending && pendingList.contains(itemId)) {
       debugPrint('[Sync] Skipping server cache for $itemId - pending local sync would be clobbered (isFinished=$isFinished)');
       return false;
     }
@@ -134,6 +147,46 @@ class ProgressSyncService {
     await ScopedPrefs.setStringList('pending_syncs', pendingList);
   }
 
+  /// The duration sent with a progress write becomes the divisor for the
+  /// server's percentage, so a bad local duration corrupts the displayed
+  /// percent forever even while currentTime stays right (abs issue #5468).
+  /// Prefer the item's own server-side duration whenever it can be fetched.
+  final Map<String, double> _serverDurationCache = {};
+
+  Future<double> serverTrustedDuration(
+      ApiService api, String itemId, double localDuration) async {
+    final cached = _serverDurationCache[itemId];
+    if (cached != null) return cached;
+    final isCompound = itemId.length > 36;
+    final apiItemId = isCompound ? itemId.substring(0, 36) : itemId;
+    final episodeId = isCompound ? itemId.substring(37) : null;
+    try {
+      final item = await api.getLibraryItem(apiItemId);
+      final media = item?['media'] as Map<String, dynamic>?;
+      double serverDur = 0;
+      if (episodeId != null) {
+        for (final e in (media?['episodes'] as List<dynamic>? ?? const [])) {
+          if (e is Map<String, dynamic> && e['id'] == episodeId) {
+            serverDur = (e['duration'] as num?)?.toDouble() ?? 0;
+            break;
+          }
+        }
+      } else {
+        serverDur = (media?['duration'] as num?)?.toDouble() ?? 0;
+      }
+      if (serverDur > 0) {
+        if ((serverDur - localDuration).abs() > 1) {
+          debugPrint('[Sync] $itemId: using server duration '
+              '${serverDur.toStringAsFixed(0)}s over local '
+              '${localDuration.toStringAsFixed(0)}s');
+        }
+        _serverDurationCache[itemId] = serverDur;
+        return serverDur;
+      }
+    } catch (_) {}
+    return localDuration;
+  }
+
   /// Sync a single item to the server. Returns true if synced.
   Future<bool> syncToServer({
     required ApiService api,
@@ -164,12 +217,16 @@ class ProgressSyncService {
           duration: duration,
         );
       } else {
-        await api.updateProgress(
+        final ok = await api.updateProgress(
           itemId,
           currentTime: currentTime,
-          duration: duration,
-          isFinished: isFinished,
+          duration: await serverTrustedDuration(api, itemId, duration),
+          isFinished: isFinished ? true : null,
         );
+        if (!ok) {
+          debugPrint('[Sync] Server did not take $itemId - keeping it pending');
+          return false;
+        }
       }
 
       final pendingList = await ScopedPrefs.getStringList('pending_syncs');
@@ -191,15 +248,21 @@ class ProgressSyncService {
 
     if (_isFlushing) {
       _flushAgain = true;
+      final activeFlush = _flushCompleter;
+      if (activeFlush != null) await activeFlush.future;
       return;
     }
 
     _isFlushing = true;
+    final flushCompleter = Completer<void>();
+    _flushCompleter = flushCompleter;
+    var pendingAtStart = 0;
     try {
       final pendingList = List<String>.from(
           await ScopedPrefs.getStringList('pending_syncs'));
 
       if (pendingList.isEmpty) return;
+      pendingAtStart = pendingList.length;
 
       final batch = pendingList.take(maxItems).toList();
       debugPrint('[Sync] Flushing ${batch.length}/${pendingList.length} pending syncs');
@@ -243,22 +306,35 @@ class ProgressSyncService {
               hasOfflineListening: hasOfflineListening,
             )) {
               debugPrint('[Sync] Server is newer for $itemId: server=$serverTime s ($serverTimestamp) vs local=$localTime s ($localTimestamp) — pulling');
-              final cached = await cacheServerProgress(
+              // The player may have saved again while the server read was in
+              // flight. Then the entry we compared is gone: leave it pending
+              // and let the next flush compare the new one, which will push.
+              final latest = await getLocal(itemId);
+              final latestTimestamp =
+                  (latest?['timestamp'] as num?)?.toInt() ?? 0;
+              if (latestTimestamp != localTimestamp) {
+                debugPrint('[Sync] Local changed during the pull for $itemId - comparing again on the next flush');
+                continue;
+              }
+              // This entry lost to the server, so it is no longer worth
+              // protecting: replace it and clear it from pending. Refusing the
+              // write here (as the clobber guard used to) and keeping the
+              // entry pending retried every 250ms forever - hundreds of
+              // server reads a minute, and the other device's newer position
+              // never landed.
+              await cacheServerProgress(
                 itemId: itemId,
                 currentTime: serverTime,
                 duration: localDuration,
                 isFinished: serverProgress['isFinished'] as bool? ?? false,
+                overridePending: true,
               );
-              if (cached) {
-                // Pull succeeded - safe to clear pending.
-                final updated = await ScopedPrefs.getStringList('pending_syncs');
-                updated.remove(itemId);
-                await ScopedPrefs.setStringList('pending_syncs', updated);
-              } else {
-                // Clobber guard refused. Keep pending so the next flush retries
-                // and eventually pushes local; otherwise the unsynced local
-                // entry sits in limbo and gets overwritten on next playback.
-                debugPrint('[Sync] Keeping $itemId in pending_syncs after pull was refused by clobber guard');
+              final updated = await ScopedPrefs.getStringList('pending_syncs');
+              updated.remove(itemId);
+              await ScopedPrefs.setStringList('pending_syncs', updated);
+              if (_consecutiveFailures > 0) {
+                debugPrint('[Sync] Backoff reset (was $_consecutiveFailures)');
+                _consecutiveFailures = 0;
               }
               continue;
             }
@@ -274,20 +350,30 @@ class ProgressSyncService {
           final episodeId = isCompound ? itemId.substring(37) : null;
 
           final localFinished = data['isFinished'] as bool? ?? false;
+          final syncDuration =
+              await serverTrustedDuration(api, itemId, localDuration);
+          final bool pushed;
           if (episodeId != null) {
-            await api.updateEpisodeProgress(
+            pushed = await api.updateEpisodeProgress(
               apiItemId, episodeId,
               currentTime: localTime,
-              duration: localDuration,
-              isFinished: localFinished,
+              duration: syncDuration,
+              isFinished: localFinished ? true : null,
             );
           } else {
-            await api.updateProgress(
+            pushed = await api.updateProgress(
               apiItemId,
               currentTime: localTime,
-              duration: localDuration,
-              isFinished: localFinished,
+              duration: syncDuration,
+              isFinished: localFinished ? true : null,
             );
+          }
+          if (!pushed) {
+            // Dropping it as flushed is how a refused push lost a position
+            // overnight: the next start resumed from the stale spot.
+            debugPrint('[Sync] Push for $itemId did not reach the server - keeping it for the next flush');
+            _consecutiveFailures++;
+            break;
           }
           debugPrint('[Sync] Flushed $itemId via progress update: ${localTime}s');
           // Reset backoff on success - a successful response proves
@@ -319,19 +405,37 @@ class ProgressSyncService {
           }
         }
       }
-      // Also flush offline listening time while we have a connection
+      // Also flush offline listening time and queued ebook positions while
+      // we have a connection
       if (_consecutiveFailures == 0) {
         await _flushOfflineListeningTimeInternal(api: api);
+        await _flushPendingEbookProgress(api);
       }
     } finally {
       _isFlushing = false;
+      if (!flushCompleter.isCompleted) flushCompleter.complete();
+      if (identical(_flushCompleter, flushCompleter)) {
+        _flushCompleter = null;
+      }
     }
 
     final remaining = await ScopedPrefs.getStringList('pending_syncs');
     final pendingOffline = await ScopedPrefs.getStringList('pending_offline_listening');
-    if ((_flushAgain || remaining.isNotEmpty || pendingOffline.isNotEmpty) && _isOnline) {
+    final pendingEbook = await getPendingEbookProgress();
+    if ((_flushAgain || remaining.isNotEmpty || pendingOffline.isNotEmpty || pendingEbook.isNotEmpty) && _isOnline) {
       _flushAgain = false;
 
+      // A flush that cleared nothing without a network error is stuck on
+      // something the next attempt will hit again (a server error, an entry
+      // that keeps losing the comparison). The 250ms fast retry is for
+      // finishing a partial batch, not for that - count it as a failure so
+      // the backoff below applies instead of hammering the server.
+      if (_consecutiveFailures == 0 &&
+          pendingAtStart > 0 &&
+          remaining.length >= pendingAtStart) {
+        _consecutiveFailures++;
+        debugPrint('[Sync] Flush made no progress (${remaining.length} still pending) - backing off');
+      }
       // Exponential backoff: 5s, 10s, 20s, 40s, ... capped at 5 minutes
       if (_consecutiveFailures >= _maxConsecutiveFailures) {
         debugPrint('[Sync] Too many consecutive failures ($_consecutiveFailures) - waiting for next connectivity change');
@@ -347,6 +451,77 @@ class ProgressSyncService {
       );
     } else {
       _flushAgain = false;
+    }
+  }
+
+  // ── Ebook reading progress (durable offline queue) ──
+
+  /// Push an ebook position to the server. A failed PATCH is persisted
+  /// (newest position per item) and retried by flushPendingSync when
+  /// connectivity returns, so pages read offline survive an app restart.
+  Future<void> pushEbookProgress(
+    ApiService api,
+    String itemId, {
+    required String location,
+    required double progress,
+  }) async {
+    final ok = _isOnline &&
+        await api.updateEbookProgress(itemId,
+            ebookLocation: location, ebookProgress: progress);
+    if (ok) {
+      await _removePendingEbook(itemId);
+      return;
+    }
+    final pending = await getPendingEbookProgress();
+    pending[itemId] = {
+      'loc': location,
+      'prog': progress,
+      'ts': DateTime.now().millisecondsSinceEpoch,
+    };
+    await ScopedPrefs.setString('pending_ebook_progress', jsonEncode(pending));
+    debugPrint('[Sync] Queued ebook progress for $itemId (offline or PATCH failed)');
+  }
+
+  /// Queued ebook positions whose PATCH hasn't landed yet
+  /// (itemId -> {loc, prog, ts}).
+  Future<Map<String, Map<String, dynamic>>> getPendingEbookProgress() async {
+    final raw = await ScopedPrefs.getString('pending_ebook_progress');
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final map = jsonDecode(raw) as Map<String, dynamic>;
+      return map.map((k, v) => MapEntry(k, Map<String, dynamic>.from(v as Map)));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _removePendingEbook(String itemId) async {
+    final pending = await getPendingEbookProgress();
+    if (pending.remove(itemId) == null) return;
+    await ScopedPrefs.setString('pending_ebook_progress', jsonEncode(pending));
+  }
+
+  Future<void> _flushPendingEbookProgress(ApiService api) async {
+    final pending = await getPendingEbookProgress();
+    if (pending.isEmpty) return;
+    debugPrint('[Sync] Flushing ${pending.length} pending ebook positions');
+    for (final entry in pending.entries) {
+      final loc = entry.value['loc'] as String?;
+      final prog = (entry.value['prog'] as num?)?.toDouble();
+      if (loc == null || prog == null) {
+        await _removePendingEbook(entry.key);
+        continue;
+      }
+      final ok = await api.updateEbookProgress(entry.key,
+          ebookLocation: loc, ebookProgress: prog);
+      if (ok) {
+        await _removePendingEbook(entry.key);
+        _consecutiveFailures = 0;
+      } else {
+        // Server unreachable - let the existing backoff schedule the retry.
+        _consecutiveFailures++;
+        break;
+      }
     }
   }
 
@@ -366,6 +541,63 @@ class ProgressSyncService {
       pending.add(itemId);
       await ScopedPrefs.setStringList('pending_offline_listening', pending);
     }
+  }
+
+  /// Buffer listening time for an item that is streaming with a live server
+  /// session. This is a durable safety net only: the live session sync is what
+  /// reports the time, and [reduceStreamingPendingTime] clears the buffer once
+  /// a sync confirms. Whatever survives a kill is shipped by
+  /// [migrateOrphanStreamingTime] on the next launch, so the most that can be
+  /// lost is one accrual tick.
+  Future<void> addStreamingPendingTime(String itemId, int seconds) async {
+    if (seconds <= 0) return;
+    final key = 'streaming_pending_$itemId';
+    final existing = await ScopedPrefs.getInt(key) ?? 0;
+    await ScopedPrefs.setInt(key, existing + seconds);
+    final pending = await ScopedPrefs.getStringList('pending_streaming_listening');
+    if (!pending.contains(itemId)) {
+      pending.add(itemId);
+      await ScopedPrefs.setStringList('pending_streaming_listening', pending);
+    }
+  }
+
+  Future<int> getStreamingPendingTime(String itemId) async =>
+      await ScopedPrefs.getInt('streaming_pending_$itemId') ?? 0;
+
+  /// Clear [seconds] from the streaming safety buffer after a sync confirmed
+  /// that much listening reached the server. Anything accrued during the
+  /// in-flight sync is left for the next round.
+  Future<void> reduceStreamingPendingTime(String itemId, int seconds) async {
+    if (seconds <= 0) return;
+    final key = 'streaming_pending_$itemId';
+    final cur = await ScopedPrefs.getInt(key) ?? 0;
+    final next = cur - seconds;
+    if (next > 0) {
+      await ScopedPrefs.setInt(key, next);
+    } else {
+      await ScopedPrefs.remove(key);
+      final pending =
+          List<String>.from(await ScopedPrefs.getStringList('pending_streaming_listening'));
+      pending.remove(itemId);
+      await ScopedPrefs.setStringList('pending_streaming_listening', pending);
+    }
+  }
+
+  /// On launch, a non-empty streaming buffer means a stream was killed before
+  /// its last span synced. Move it into the offline ledger so the normal flush
+  /// ships it (via a fresh session). Run once at startup before playback opens
+  /// any new streaming session.
+  Future<void> migrateOrphanStreamingTime() async {
+    final pending = List<String>.from(
+        await ScopedPrefs.getStringList('pending_streaming_listening'));
+    if (pending.isEmpty) return;
+    for (final itemId in pending) {
+      final key = 'streaming_pending_$itemId';
+      final secs = await ScopedPrefs.getInt(key) ?? 0;
+      if (secs > 0) await addOfflineListeningTime(itemId, secs);
+      await ScopedPrefs.remove(key);
+    }
+    await ScopedPrefs.setStringList('pending_streaming_listening', []);
   }
 
   /// Bank time saved by playback speed: [elapsedSeconds] of wall-clock
@@ -417,8 +649,37 @@ class ProgressSyncService {
         }
 
         final data = await getLocal(itemId);
-        final currentTime = (data?['currentTime'] as num?)?.toDouble() ?? 0;
+        var currentTime = (data?['currentTime'] as num?)?.toDouble() ?? 0;
         final duration = (data?['duration'] as num?)?.toDouble() ?? 0;
+
+        // The session opened below carries a position, and the server writes
+        // that position into progress. This ledger entry can be hours older
+        // than the server's own position (another device, or this one, carried
+        // on listening since), so report the time at whichever position is
+        // further in. Crediting listening must never drag progress backwards.
+        try {
+          final serverProgress = await api.getItemProgress(itemId);
+          final serverTime =
+              (serverProgress?['currentTime'] as num?)?.toDouble() ?? 0;
+          if (serverTime > currentTime) {
+            debugPrint(
+                '[Sync] Server is ahead for $itemId (${serverTime}s vs ${currentTime}s) - reporting listening at the server position');
+            currentTime = serverTime;
+          }
+        } catch (e) {
+          debugPrint('[Sync] Could not read server progress for $itemId: $e');
+        }
+
+        // A ledger holding more listening than the item is long is not a real
+        // backlog, it is an accrual that ran away - a player that reported
+        // playing while its position stood still. Report what is plausible and
+        // say what was dropped rather than writing fiction into the stats.
+        var reported = seconds;
+        if (duration > 0 && reported > duration) {
+          debugPrint(
+              '[Sync] Offline listening for $itemId holds ${seconds}s but the item is only ${duration.round()}s - reporting ${duration.round()}s and dropping the rest');
+          reported = duration.round();
+        }
 
         try {
           final isCompound = itemId.length > 36;
@@ -436,10 +697,10 @@ class ProgressSyncService {
                 sid,
                 currentTime: currentTime,
                 duration: duration,
-                timeListened: seconds,
+                timeListened: reported,
               );
               await api.closePlaybackSession(sid);
-              debugPrint('[Sync] Flushed ${seconds}s offline listening for $itemId');
+              debugPrint('[Sync] Flushed ${reported}s offline listening for $itemId');
             }
           }
           // Subtract only what we actually synced. Any ticks added to the

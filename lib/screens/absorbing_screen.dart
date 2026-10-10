@@ -7,14 +7,16 @@ import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/chromecast_service.dart';
 import '../services/download_service.dart';
+import '../services/queue_download_policy.dart';
 import '../services/scoped_prefs.dart';
 import '../widgets/absorb_page_header.dart';
-import '../main.dart' show oledNotifier, rootNavigatorKey;
+import '../main.dart' show flatNotifier, gradientIntensityNotifier, rootNavigatorKey;
 import '../widgets/absorbing_card.dart';
 import '../widgets/offline_status_icon.dart';
 import '../widgets/overlay_toast.dart';
 import '../widgets/series_books_sheet.dart';
 import '../widgets/playlist_detail_sheet.dart';
+import '../widgets/collection_detail_sheet.dart';
 import '../widgets/episode_list_sheet.dart';
 import '../l10n/app_localizations.dart';
 import '../services/wording.dart';
@@ -28,6 +30,17 @@ class AbsorbingScreen extends StatefulWidget {
   /// Scroll to the currently playing book card
   static void scrollToActive() {
     globalKey.currentState?._scrollToActiveCard();
+  }
+
+  /// Open the Manage Queue sheet from outside the screen (the nav-tab hold
+  /// shortcut). Returns false when the screen hasn't been built yet, so the
+  /// caller can switch to the tab and try again.
+  static bool openQueueManager(BuildContext context) {
+    final state = globalKey.currentState;
+    if (state == null || !state.mounted) return false;
+    final lib = context.read<LibraryProvider>();
+    state._showReorderSheet(state.context, lib, state._getAbsorbingBooks(lib));
+    return true;
   }
 
   /// Scroll to the first card (used when re-tapping the Absorbing tab)
@@ -66,6 +79,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
   String _bookQueueMode = 'off';
   String _podcastQueueMode = 'off';
   String? _queuePlaylistId;
+  String? _queueCollectionName;
 
   @override
   void initState() {
@@ -103,13 +117,24 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     return n.length > 24 ? '${n.substring(0, 23)}…' : n;
   }
 
+  String _activeCollectionChipLabel(AppLocalizations l) {
+    final n = _queueCollectionName;
+    if (n == null || n.isEmpty) return l.queueModeCollection;
+    return n.length > 24 ? '${n.substring(0, 23)}…' : n;
+  }
+
   Future<void> _loadQueueMode() async {
     final lib = context.read<LibraryProvider>();
     String mode;
     final bm = await PlayerSettings.getBookQueueMode();
     final pm = await PlayerSettings.getPodcastQueueMode();
+    final activeIsPodcast = _player.currentItemId == null
+        ? lib.isPodcastLibrary
+        : _player.currentEpisodeId != null;
     if (bm == 'playlist' || pm == 'playlist') {
       mode = 'playlist';
+    } else if (bm == 'collection') {
+      mode = activeIsPodcast ? pm : 'collection';
     } else if (_mergeLibraries) {
       // When merged, use the more restrictive of the two modes
       // (matches Settings screen's _mergedQueueMode logic)
@@ -118,9 +143,10 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
       final pi = order.indexOf(pm);
       mode = order[(bi < pi ? bi : pi).clamp(0, 2)];
     } else {
-      mode = lib.isPodcastLibrary ? pm : bm;
+      mode = activeIsPodcast ? pm : bm;
     }
     final qpId = await PlayerSettings.getQueuePlaylistId();
+    final qcName = await PlayerSettings.getQueueCollectionName();
     final showUpNext = await PlayerSettings.getShowUpNextLabel();
     if (mounted) {
       setState(() {
@@ -128,6 +154,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
         _bookQueueMode = bm;
         _podcastQueueMode = pm;
         _queuePlaylistId = qpId;
+        _queueCollectionName = qcName;
         _showUpNextLabel = showUpNext;
       });
       _refreshUpNext();
@@ -147,7 +174,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     // the front changes what's up next without changing the first key.
     final queueOrder = lib.absorbingBookIds.join(',');
     final stamp = '$_queueMode|$_bookQueueMode|$_podcastQueueMode|$_mergeLibraries'
-        '|$_queuePlaylistId|$currentId|$queueOrder';
+        '|$_queuePlaylistId|$_queueCollectionName|$currentId|$queueOrder';
     if (stamp == _upNextComputedFor) return;
     _upNextComputedFor = stamp;
     final label = await lib.peekUpNext(currentItemId: currentId);
@@ -494,7 +521,11 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
         final activeKey = activeEpId != null ? '$activeId-$activeEpId' : activeId;
 
         final existingIdx = items.indexWhere((b) => _absorbingKey(b) == activeKey);
-        if (!_suppressReorder && existingIdx > 0) {
+        // Only pull the active item to the top while it's actually playing.
+        // When paused, leave the queue order alone so a freshly-queued
+        // "beginning" episode stays first instead of being bumped to 2nd.
+        final activePlaying = _player.hasBook ? _player.isPlaying : _cast.isCasting;
+        if (!_suppressReorder && existingIdx > 0 && activePlaying) {
           final item = items.removeAt(existingIdx);
           items.insert(0, item);
         } else if (existingIdx < 0) {
@@ -530,7 +561,11 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
       final finishedIsPodcast = _lastFinishedId!.length > 36;
       if (_mergeLibraries || finishedIsPodcast == isPod) {
         final finishedIdx = items.indexWhere((b) => _absorbingKey(b) == _lastFinishedId);
-        if (finishedIdx > 0) {
+        // Don't pull the last-finished item over a brand-new "beginning"
+        // episode that's deliberately sitting at the top.
+        final freshOnTop = items.isNotEmpty &&
+            _absorbingKey(items[0]) == lib.freshQueuedFrontKey;
+        if (finishedIdx > 0 && !freshOnTop) {
           final item = items.removeAt(finishedIdx);
           items.insert(0, item);
         }
@@ -614,13 +649,13 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
     return Scaffold(
       backgroundColor: scaffoldBg,
       body: Container(
-        decoration: oledNotifier.value ? null : BoxDecoration(
+        decoration: flatNotifier.value ? null : BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             stops: const [0.0, 0.22, 0.72, 1.0],
             colors: [
-              cs.primary.withValues(alpha: 0.06),
+              cs.primary.withValues(alpha: gradientIntensityNotifier.value),
               cs.surface,
               lowerFade,
               scaffoldBg,
@@ -710,9 +745,11 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                         Text(
                           _queueMode == 'playlist'
                               ? _activePlaylistChipLabel(lib, l)
-                              : _queueMode == 'auto_next'
-                                  ? (_mergeLibraries ? l.queueModeAuto : lib.isPodcastLibrary ? l.queueModeShowLabel : l.queueModeSeriesLabel)
-                                  : l.queueModeManual,
+                              : _queueMode == 'collection'
+                                  ? _activeCollectionChipLabel(l)
+                                  : _queueMode == 'auto_next'
+                                      ? (_mergeLibraries ? l.queueModeAuto : lib.isPodcastLibrary ? l.queueModeShowLabel : l.queueModeSeriesLabel)
+                                      : l.queueModeManual,
                           style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: cs.primary),
                         ),
                       ],
@@ -727,10 +764,10 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
               ? _PageDots(count: books.length, controller: _pageController)
               : null;
 
-          // Compact landscape header: one row containing the ABSORB branding,
+          // Compact phone header: one row containing the ABSORB branding,
           // offline icon, page dots, and actions. Skips the large "Absorbing"
           // title row to give the card more vertical breathing room.
-          final landscapeHeader = Padding(
+          final compactHeader = Padding(
             padding: const EdgeInsets.fromLTRB(20, 6, 20, 2),
             child: Row(
               children: [
@@ -755,7 +792,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
             ),
           );
 
-          final portraitHeader = AbsorbPageHeader(
+          final fullHeader = AbsorbPageHeader(
             title: Wording.of(context).absorbingTitle,
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
             trailing: offlineIcon,
@@ -767,7 +804,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
             // ── Header ──
             // Phone landscape uses the compact single-row header; everything
             // else (portrait, tablets in any orientation) keeps the full header.
-            if (isPhoneLandscape) landscapeHeader else portraitHeader,
+            if (isPhoneLandscape) compactHeader else fullHeader,
             // Hide Up Next when the session is stopped (not merely paused) -
             // hasActiveSession stays true while paused but goes false once the
             // engine is stopped, so a stopped session with items still in the
@@ -795,7 +832,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                   }),
                 ),
               ),
-            // ── Page Dots (compact header inlines them in phone landscape) ──
+            // ── Page Dots (the compact landscape header inlines them) ──
             if (!isPhoneLandscape && pageDots != null)
               Padding(
                 padding: const EdgeInsets.only(top: 4, bottom: 2),
@@ -910,6 +947,9 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
 
   void _showReorderSheet(BuildContext context, LibraryProvider lib, List<Map<String, dynamic>> books) {
     final keys = books.map((b) => _absorbingKey(b)).toList();
+    final media = MediaQuery.of(context);
+    final needsMoreRoom = media.size.height < 600 ||
+        media.textScaler.scale(1) > 1.2;
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -917,13 +957,14 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
       backgroundColor: Colors.transparent,
       builder: (_) => DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.6,
-        minChildSize: 0.3,
-        maxChildSize: 0.9,
-        builder: (_, __) => _ReorderAbsorbingSheet(
+        initialChildSize: needsMoreRoom ? 0.9 : 0.7,
+        minChildSize: needsMoreRoom ? 0.85 : 0.5,
+        maxChildSize: 1.0,
+        builder: (_, scrollController) => _ReorderAbsorbingSheet(
           keys: keys,
           books: books,
           lib: lib,
+          scrollController: scrollController,
           absorbingKeyFn: _absorbingKey,
           queueMode: _queueMode,
           isMerged: _mergeLibraries,
@@ -943,13 +984,16 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
                 return;
               }
               await PlayerSettings.setQueueModePlaylist(pid);
+              unawaited(lib.syncQueueAutoDownloads());
               return;
             }
             if (_mergeLibraries || _queueMode == 'playlist') {
               await PlayerSettings.setBookQueueMode(mode);
               await PlayerSettings.setPodcastQueueMode(mode);
             } else {
-              final isPod = lib.isPodcastLibrary;
+              final isPod = _player.currentItemId == null
+                  ? lib.isPodcastLibrary
+                  : _player.currentEpisodeId != null;
               if (isPod) {
                 await PlayerSettings.setPodcastQueueMode(mode);
               } else {
@@ -957,6 +1001,7 @@ class _AbsorbingScreenState extends State<AbsorbingScreen> {
               }
             }
             PlayerSettings.notifySettingsChanged();
+            unawaited(lib.syncQueueAutoDownloads());
           },
         ),
       ),
@@ -989,8 +1034,14 @@ class _PageDots extends StatelessWidget {
         listenable: controller,
         builder: (_, __) {
           final page = controller.hasClients && controller.positions.length == 1 ? (controller.page ?? 0).round() : 0;
-          return Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          // The compact phone header can leave less width than the dots'
+          // minimum footprint (padding bottoms out at 1.5); an unclipped Row
+          // then paints under the Stop button. Scale the whole strip down
+          // instead when it genuinely doesn't fit.
+          return FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: List.generate(count, (i) {
               final active = i == page;
               return GestureDetector(
@@ -1013,6 +1064,7 @@ class _PageDots extends StatelessWidget {
                 ),
               );
             }),
+            ),
           );
         },
       );
@@ -1026,6 +1078,7 @@ class _ReorderAbsorbingSheet extends StatefulWidget {
   final List<String> keys;
   final List<Map<String, dynamic>> books;
   final LibraryProvider lib;
+  final ScrollController scrollController;
   final String Function(Map<String, dynamic>) absorbingKeyFn;
   final String queueMode;
   final bool isMerged;
@@ -1037,6 +1090,7 @@ class _ReorderAbsorbingSheet extends StatefulWidget {
     required this.keys,
     required this.books,
     required this.lib,
+    required this.scrollController,
     required this.absorbingKeyFn,
     required this.queueMode,
     required this.isMerged,
@@ -1053,6 +1107,36 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
   late List<String> _order;
   late Map<String, Map<String, dynamic>> _booksByKey;
   late String _queueMode;
+  late final DownloadService _downloads;
+  late final AudioPlayerService _player;
+  String? _currentItemId;
+  final GlobalKey _currentRowKey = GlobalKey();
+
+  /// Bring the playing item into view once a long series or playlist list
+  /// lands, so a 170-book series doesn't open at book 1. Rows are one title
+  /// and one subtitle line, so a rough jump gets close and ensureVisible on
+  /// the now-built row finishes the job.
+  void _scrollToCurrent(List<String> orderedKeys) {
+    final current = _currentItemId;
+    if (current == null) return;
+    final index = orderedKeys.indexOf(current);
+    if (index < 3) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = widget.scrollController;
+      if (!controller.hasClients) return;
+      final rowExtent = 60.0 * MediaQuery.textScalerOf(context).scale(1);
+      final target = ((index - 2) * rowExtent)
+          .clamp(0.0, controller.position.maxScrollExtent);
+      controller.jumpTo(target);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final ctx = _currentRowKey.currentContext;
+        if (ctx != null && mounted) {
+          Scrollable.ensureVisible(ctx, alignment: 0.15);
+        }
+      });
+    });
+  }
 
   @override
   void initState() {
@@ -1062,6 +1146,9 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
       for (final b in widget.books) widget.absorbingKeyFn(b): b,
     };
     _queueMode = widget.queueMode;
+    _currentItemId = widget.currentItemId;
+    _downloads = DownloadService()..addListener(_onDownloadsChanged);
+    _player = AudioPlayerService()..addListener(_onPlayerChanged);
     PlayerSettings.settingsChanged.addListener(_refreshMode);
     PlayerSettings.getShowUpNextLabel().then((v) {
       if (mounted) setState(() => _showUpNext = v);
@@ -1069,22 +1156,138 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     final showId = _currentPodcastShowId;
     if (showId != null) {
       PlayerSettings.getPodcastAdvanceDir(showId).then((v) {
-        if (mounted) setState(() => _podcastAdvanceDir = v);
+        if (mounted && _currentPodcastShowId == showId) {
+          setState(() => _podcastAdvanceDir = v);
+        }
       });
     }
-    _loadModeContent();
+    unawaited(_refreshMode());
+    unawaited(_loadModeContent());
   }
 
   bool _showUpNext = true;
+  bool _queueAutoDownload = false;
+  bool _queueDownloadSettingsLoaded = false;
+  int _rollingDownloadCount = 3;
   String _podcastAdvanceDir = 'oldest_first';
 
+  void _onDownloadsChanged() {
+    if (mounted) setState(() {});
+  }
+
+  void _onPlayerChanged() {
+    final itemId = _player.currentItemId;
+    final episodeId = _player.currentEpisodeId;
+    final nextKey = itemId == null
+        ? null
+        : episodeId == null
+            ? itemId
+            : '$itemId-$episodeId';
+    if (!mounted || nextKey == _currentItemId) return;
+    setState(() {
+      _currentItemId = nextKey;
+      _queueDownloadSettingsLoaded = false;
+      _seriesBooks = null;
+      _seriesId = null;
+      _seriesName = null;
+      _showEpisodes = null;
+      _showItem = null;
+      _showName = null;
+    });
+    final showId = _currentPodcastShowId;
+    if (showId != null) {
+      PlayerSettings.getPodcastAdvanceDir(showId).then((value) {
+        if (mounted && _currentPodcastShowId == showId) {
+          setState(() => _podcastAdvanceDir = value);
+        }
+      });
+    }
+    unawaited(_refreshMode());
+    unawaited(_loadModeContent());
+  }
+
   // Show id of the currently playing podcast, or null if a book (or nothing)
-  // is playing. currentItemId is the compound "<itemId>-<episodeId>" key for
+  // is playing. _currentItemId is the compound "<itemId>-<episodeId>" key for
   // podcasts, so a length past 36 means an episode is playing.
   String? get _currentPodcastShowId {
-    final id = widget.currentItemId;
+    final id = _currentItemId;
     if (id == null || id.length <= 36) return null;
     return id.substring(0, 36);
+  }
+
+  bool get _currentIsPodcast =>
+      _currentPodcastShowId != null ||
+      (_currentItemId == null && widget.isPodcast);
+
+  /// The source whose own auto-download toggle governs this queue. Playlists
+  /// and collections own theirs the same way a series does; the manual queue
+  /// has no source, so it falls back to the global setting.
+  String? get _activeAutoDownloadSourceId {
+    if (_queueMode == 'auto_next') return _currentPodcastShowId ?? _seriesId;
+    if (_queueMode == 'playlist' || _queueMode == 'collection') {
+      return _activeQueueSourceId;
+    }
+    return null;
+  }
+
+  Future<void> _refreshQueueDownloadSettings() async {
+    final queueMode = _queueMode;
+    final sourceId = _activeAutoDownloadSourceId;
+    final globalEnabled = await PlayerSettings.getQueueAutoDownload();
+    final count = await PlayerSettings.getRollingDownloadCount();
+    if (!mounted ||
+        queueMode != _queueMode ||
+        sourceId != _activeAutoDownloadSourceId) return;
+    setState(() {
+      _queueAutoDownload = resolveQueueAutoDownloadEnabled(
+        queueMode: queueMode,
+        globalEnabled: globalEnabled,
+        activeSourceId: sourceId,
+        activeSourceEnabled:
+            sourceId != null && widget.lib.isRollingDownloadEnabled(sourceId),
+      );
+      _rollingDownloadCount = count;
+      _queueDownloadSettingsLoaded = true;
+    });
+  }
+
+  /// Name the thing the switch actually acts on, so it's clear the toggle is
+  /// scoped to this series/playlist/collection and not to every queue.
+  String _autoDownloadLabel(AppLocalizations l) {
+    switch (_queueMode) {
+      case 'auto_next':
+        return _currentPodcastShowId != null
+            ? l.autoDownloadThisShowLabel
+            : l.autoDownloadThisSeriesLabel;
+      case 'playlist':
+        return l.autoDownloadThisPlaylistLabel;
+      case 'collection':
+        return l.autoDownloadThisCollectionLabel;
+      default:
+        return l.autoDownloadQueue;
+    }
+  }
+
+  Future<void> _setQueueAutoDownload(bool value) async {
+    final sourceId = _activeAutoDownloadSourceId;
+    setState(() => _queueAutoDownload = value);
+    if (sourceId != null) {
+      if (value) {
+        final kind = _queueMode == 'playlist'
+            ? 'playlist'
+            : _queueMode == 'collection'
+                ? 'collection'
+                : _currentPodcastShowId != null
+                    ? 'podcast'
+                    : 'series';
+        await widget.lib.enableRollingDownload(sourceId, kind: kind);
+      } else {
+        await widget.lib.disableRollingDownload(sourceId);
+      }
+    } else {
+      await PlayerSettings.setQueueAutoDownload(value);
+    }
+    unawaited(widget.lib.syncQueueAutoDownloads());
   }
 
   // Stage 3: mode-aware rendering. For auto_next we show the active series'
@@ -1096,6 +1299,11 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
   List<Map<String, dynamic>>? _playlistItems;
   String? _playlistId;
   String? _playlistName;
+  List<Map<String, dynamic>>? _collectionBooks;
+  String? _collectionId;
+  String? _collectionName;
+  String? _activeQueueSourceId;
+  int _modeContentGeneration = 0;
   // Podcast auto_next: the current show's episodes (unsorted - the list sorts
   // by _podcastAdvanceDir at build so flipping the toggle reorders live).
   List<Map<String, dynamic>>? _showEpisodes;
@@ -1103,27 +1311,38 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
   String? _showName;
 
   Future<void> _loadModeContent() async {
+    final generation = ++_modeContentGeneration;
     if (_queueMode == 'auto_next') {
       // Discriminate on the playing item, not the library: a podcast can be
       // playing inside a book library (and vice versa). Podcast auto advances
       // within the current show; books advance through the series.
       if (_currentPodcastShowId != null) {
-        await _loadShowEpisodes();
-      } else if (!widget.isPodcast) {
-        await _loadSeriesBooks();
+        await _loadShowEpisodes(generation);
+      } else if (_currentItemId != null) {
+        await _loadSeriesBooks(generation);
       }
     } else if (_queueMode == 'playlist') {
-      await _loadPlaylistContent();
+      await _loadPlaylistContent(generation);
+    } else if (_queueMode == 'collection') {
+      await _loadCollectionContent(generation);
     }
+    if (!mounted || generation != _modeContentGeneration) return;
+    await _refreshQueueDownloadSettings();
   }
 
-  Future<void> _loadShowEpisodes() async {
+  Future<void> _loadShowEpisodes(int generation) async {
     final showId = _currentPodcastShowId;
     if (showId == null) return;
     // The absorbing cache only holds per-episode synthetic entries, so fetch
     // the show fresh to get the full episode list.
     final item = await widget.lib.fetchLibraryItem(showId);
-    if (!mounted || item == null) return;
+    if (!mounted ||
+        generation != _modeContentGeneration ||
+        _queueMode != 'auto_next' ||
+        item == null ||
+        _currentPodcastShowId != showId) {
+      return;
+    }
     final media = item['media'] as Map<String, dynamic>? ?? const {};
     final eps = (media['episodes'] as List<dynamic>? ?? const [])
         .whereType<Map<String, dynamic>>()
@@ -1136,8 +1355,8 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     });
   }
 
-  Future<void> _loadSeriesBooks() async {
-    final currentId = widget.currentItemId;
+  Future<void> _loadSeriesBooks(int generation) async {
+    final currentId = _currentItemId;
     if (currentId == null) return;
     final cache = widget.lib.absorbingItemCache;
     Map<String, dynamic>? data = cache[currentId];
@@ -1153,7 +1372,12 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     final libraryId = data['libraryId'] as String? ?? widget.lib.selectedLibraryId;
     if (libraryId == null) return;
     final books = await auth.fetchBooksBySeries(libraryId, sid);
-    if (!mounted) return;
+    if (!mounted ||
+        generation != _modeContentGeneration ||
+        _queueMode != 'auto_next' ||
+        _currentItemId != currentId) {
+      return;
+    }
     // Pull the series name from the current book's metadata.
     final media = data['media'] as Map<String, dynamic>? ?? const {};
     final metadata = media['metadata'] as Map<String, dynamic>? ?? const {};
@@ -1169,19 +1393,34 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     } else if (seriesRaw is Map) {
       seriesName = seriesRaw['name'] as String?;
     }
+    books.sort((a, b) {
+      final seqA = widget.lib.extractSeries(a).$2 ?? double.maxFinite;
+      final seqB = widget.lib.extractSeries(b).$2 ?? double.maxFinite;
+      return seqA.compareTo(seqB);
+    });
     setState(() {
       _seriesBooks = books;
       _seriesId = sid;
       _seriesName = seriesName;
     });
+    _scrollToCurrent(
+      [for (final b in books) b['id'] as String? ?? ''],
+    );
   }
 
-  Future<void> _loadPlaylistContent() async {
-    final pid = await PlayerSettings.getQueuePlaylistId();
+  Future<void> _loadPlaylistContent(int generation) async {
+    final pid =
+        _activeQueueSourceId ?? await PlayerSettings.getQueuePlaylistId();
     if (pid == null) return;
     final pl = await widget.lib.fetchPlaylistById(pid);
-    if (!mounted) return;
-    if (pl == null) return;
+    final currentPid = await PlayerSettings.getQueuePlaylistId();
+    if (!mounted ||
+        generation != _modeContentGeneration ||
+        _queueMode != 'playlist' ||
+        currentPid != pid ||
+        pl == null) {
+      return;
+    }
     final items = ((pl['items'] as List<dynamic>?) ?? const [])
         .whereType<Map<String, dynamic>>()
         .toList();
@@ -1189,11 +1428,44 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
       _playlistItems = items;
       _playlistId = pid;
       _playlistName = pl['name'] as String?;
+      _activeQueueSourceId = pid;
+    });
+    _scrollToCurrent([
+      for (final item in items)
+        item['episodeId'] != null
+            ? '${item['libraryItemId']}-${item['episodeId']}'
+            : item['libraryItemId'] as String? ?? '',
+    ]);
+  }
+
+  Future<void> _loadCollectionContent(int generation) async {
+    final cid =
+        _activeQueueSourceId ?? await PlayerSettings.getQueueCollectionId();
+    if (cid == null) return;
+    final c = await widget.lib.fetchCollectionById(cid);
+    final currentCid = await PlayerSettings.getQueueCollectionId();
+    if (!mounted ||
+        generation != _modeContentGeneration ||
+        _queueMode != 'collection' ||
+        currentCid != cid ||
+        c == null) {
+      return;
+    }
+    final books = ((c['books'] as List<dynamic>?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    setState(() {
+      _collectionBooks = books;
+      _collectionId = cid;
+      _collectionName = c['name'] as String?;
+      _activeQueueSourceId = cid;
     });
   }
 
   @override
   void dispose() {
+    _downloads.removeListener(_onDownloadsChanged);
+    _player.removeListener(_onPlayerChanged);
     PlayerSettings.settingsChanged.removeListener(_refreshMode);
     super.dispose();
   }
@@ -1204,17 +1476,41 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     String mode;
     if (bm == 'playlist' || pm == 'playlist') {
       mode = 'playlist';
+    } else if (bm == 'collection') {
+      mode = _currentIsPodcast ? pm : 'collection';
     } else if (widget.isMerged) {
       const order = ['off', 'manual', 'auto_next'];
       final bi = order.indexOf(bm);
       final pi = order.indexOf(pm);
       mode = order[(bi < pi ? bi : pi).clamp(0, 2)];
     } else {
-      mode = widget.isPodcast ? pm : bm;
+      mode = _currentIsPodcast ? pm : bm;
     }
-    if (mounted && mode != _queueMode) {
-      setState(() => _queueMode = mode);
-      _loadModeContent();
+    final sourceId = mode == 'playlist'
+        ? await PlayerSettings.getQueuePlaylistId()
+        : mode == 'collection'
+            ? await PlayerSettings.getQueueCollectionId()
+            : null;
+    if (!mounted) return;
+    final modeChanged = mode != _queueMode;
+    final sourceChanged = sourceId != _activeQueueSourceId;
+    if (modeChanged || sourceChanged) {
+      setState(() {
+        _queueMode = mode;
+        _activeQueueSourceId = sourceId;
+        _queueDownloadSettingsLoaded = false;
+        if (modeChanged || mode == 'playlist') {
+          _playlistItems = null;
+          _playlistId = null;
+          _playlistName = null;
+        }
+        if (modeChanged || mode == 'collection') {
+          _collectionBooks = null;
+          _collectionId = null;
+          _collectionName = null;
+        }
+      });
+      await _loadModeContent();
     }
   }
 
@@ -1233,7 +1529,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
       child: Column(children: [
         // Handle
         Center(child: Container(
-          margin: const EdgeInsets.only(top: 10),
+          margin: const EdgeInsets.only(top: 8),
           width: 32, height: 4,
           decoration: BoxDecoration(
             color: cs.onSurface.withValues(alpha: 0.2),
@@ -1242,7 +1538,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
         )),
         // Header
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+          padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
           child: Row(children: [
             Expanded(child: Text(l.absorbingManageQueue,
               style: tt.titleMedium?.copyWith(fontWeight: FontWeight.w600))),
@@ -1257,14 +1553,20 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
         ),
         // Queue mode toggle
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
           child: SegmentedButton<String>(
             segments: [
               ButtonSegment(value: 'off', icon: const Icon(Icons.stop_rounded, size: 16), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.queueModeOff, maxLines: 1))),
               ButtonSegment(value: 'manual', icon: const Icon(Icons.queue_music_rounded, size: 16), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.queueModeManual, maxLines: 1))),
               ButtonSegment(value: 'auto_next', icon: const Icon(Icons.skip_next_rounded, size: 16),
-                label: FittedBox(fit: BoxFit.scaleDown, child: Text(widget.isMerged ? l.queueModeAuto : widget.isPodcast ? l.queueModeShowLabel : l.queueModeSeriesLabel, maxLines: 1))),
-              ButtonSegment(value: 'playlist', icon: const Icon(Icons.playlist_play_rounded, size: 16), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.queueModePlaylist, maxLines: 1))),
+                label: FittedBox(fit: BoxFit.scaleDown, child: Text(widget.isMerged ? l.queueModeAuto : _currentIsPodcast ? l.queueModeShowLabel : l.queueModeSeriesLabel, maxLines: 1))),
+              // BookOrbit has no playlists.
+              if (!context.read<AuthProvider>().isBookOrbit || _queueMode == 'playlist')
+                ButtonSegment(value: 'playlist', icon: const Icon(Icons.playlist_play_rounded, size: 16), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.queueModePlaylist, maxLines: 1))),
+              // Collection mode is entered via a collection's Play button, not
+              // picked here - shown only while active so the selection is valid.
+              if (_queueMode == 'collection')
+                ButtonSegment(value: 'collection', icon: const Icon(Icons.collections_bookmark_rounded, size: 16), label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.queueModeCollection, maxLines: 1))),
             ],
             selected: {_queueMode},
             onSelectionChanged: (v) {
@@ -1276,6 +1578,60 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
             ),
           ),
         ),
+        if (_queueMode != 'off')
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+            child: Column(children: [
+              Row(children: [
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_autoDownloadLabel(l),
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                    Text(
+                      _queueAutoDownload
+                          ? l.autoDownloadQueueOnSubtitle(_rollingDownloadCount)
+                          : l.autoDownloadQueueOffSubtitle,
+                      style: tt.bodySmall?.copyWith(
+                          color: cs.onSurfaceVariant, fontSize: 11.5),
+                    ),
+                  ],
+                )),
+                if (_queueAutoDownload)
+                  Tooltip(
+                    message: l.keepNext,
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        value: _rollingDownloadCount,
+                        isDense: true,
+                        items: const [2, 3, 4, 5]
+                            .map((count) => DropdownMenuItem(
+                                  value: count,
+                                  child: Text('$count'),
+                                ))
+                            .toList(),
+                        onChanged: _queueDownloadSettingsLoaded
+                            ? (value) async {
+                                if (value == null) return;
+                                setState(() => _rollingDownloadCount = value);
+                                await PlayerSettings.setRollingDownloadCount(value);
+                                unawaited(widget.lib.syncQueueAutoDownloads());
+                              }
+                            : null,
+                      ),
+                    ),
+                  ),
+                const SizedBox(width: 4),
+                Switch(
+                  value: _queueAutoDownload,
+                  onChanged: _queueDownloadSettingsLoaded
+                      ? _setQueueAutoDownload
+                      : null,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ]),
+            ]),
+          ),
         if (_queueMode != 'off')
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
@@ -1309,17 +1665,18 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
               ])),
               Switch(
                 value: _podcastAdvanceDir == 'newest_first',
-                onChanged: (v) {
+                onChanged: (v) async {
                   final dir = v ? 'newest_first' : 'oldest_first';
                   setState(() => _podcastAdvanceDir = dir);
-                  PlayerSettings.setPodcastAdvanceDir(
+                  await PlayerSettings.setPodcastAdvanceDir(
                       _currentPodcastShowId!, dir);
+                  unawaited(widget.lib.syncQueueAutoDownloads());
                 },
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
             ]),
           ),
-        if (_queueMode == 'auto_next' && !widget.isPodcast && _seriesId != null)
+        if (_queueMode == 'auto_next' && !_currentIsPodcast && _seriesId != null)
           _modeHeaderButton(
             cs, tt,
             label: l.openSeries,
@@ -1362,6 +1719,18 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
               final outer = rootNavigatorKey.currentContext ?? context;
               Navigator.pop(context);
               PlaylistDetailSheet.show(outer, _playlistId!);
+            },
+          ),
+        if (_queueMode == 'collection' && _collectionId != null)
+          _modeHeaderButton(
+            cs, tt,
+            label: l.openCollection,
+            subtitle: _collectionName,
+            icon: Icons.collections_bookmark_rounded,
+            onTap: () {
+              final outer = rootNavigatorKey.currentContext ?? context;
+              Navigator.pop(context);
+              CollectionDetailSheet.show(outer, _collectionId!);
             },
           ),
         Expanded(
@@ -1422,7 +1791,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
       }
       // A book library with nothing playing has no series context to load, so
       // fall through to the manual queue rather than spinning forever.
-      if (!widget.isPodcast && widget.currentItemId != null) {
+      if (!_currentIsPodcast && _currentItemId != null) {
         return _buildSeriesList(cs, tt, l, bottomInset);
       }
       return _buildManualList(cs, tt, l, bottomInset);
@@ -1430,7 +1799,36 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     if (_queueMode == 'playlist') {
       return _buildPlaylistList(cs, tt, l, bottomInset);
     }
+    if (_queueMode == 'collection') {
+      return _buildCollectionList(cs, tt, l, bottomInset);
+    }
     return _buildManualList(cs, tt, l, bottomInset);
+  }
+
+  Widget _buildCollectionList(ColorScheme cs, TextTheme tt, AppLocalizations l, double bottomInset) {
+    final books = _collectionBooks;
+    if (books == null) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    if (books.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(l.absorbingNothingAbsorbingYet,
+              style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant)),
+        ),
+      );
+    }
+    return ListView.builder(
+      controller: widget.scrollController,
+      padding: EdgeInsets.only(bottom: bottomInset + 16),
+      itemCount: books.length,
+      itemBuilder: (context, i) {
+        final book = books[i];
+        final id = book['id'] as String? ?? '';
+        return _readOnlyQueueItem(cs, tt, l, key: id, book: book, index: i);
+      },
+    );
   }
 
   Widget _buildShowEpisodesList(ColorScheme cs, TextTheme tt, AppLocalizations l, double bottomInset) {
@@ -1455,6 +1853,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
         return newestFirst ? bt.compareTo(at) : at.compareTo(bt);
       });
     return ListView.builder(
+      controller: widget.scrollController,
       padding: EdgeInsets.only(bottom: bottomInset + 16),
       itemCount: sorted.length,
       itemBuilder: (context, i) {
@@ -1494,6 +1893,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
       return seqOf(a).compareTo(seqOf(b));
     });
     return ListView.builder(
+      controller: widget.scrollController,
       padding: EdgeInsets.only(bottom: bottomInset + 16),
       itemCount: books.length,
       itemBuilder: (context, i) {
@@ -1519,6 +1919,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
       );
     }
     return ListView.builder(
+      controller: widget.scrollController,
       padding: EdgeInsets.only(bottom: bottomInset + 16),
       itemCount: items.length,
       itemBuilder: (context, i) {
@@ -1538,6 +1939,31 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     );
   }
 
+  Widget _downloadStatus(String key, ColorScheme cs) {
+    if (_downloads.isDownloaded(key)) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: Icon(Icons.download_done_rounded, size: 18, color: cs.primary),
+      );
+    }
+    if (_downloads.isDownloading(key)) {
+      final progress = _downloads.downloadProgress(key);
+      return Padding(
+        padding: const EdgeInsets.only(left: 8),
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(
+            value: progress > 0 ? progress : null,
+            strokeWidth: 2,
+            color: cs.primary,
+          ),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
   Widget _readOnlyQueueItem(
     ColorScheme cs,
     TextTheme tt,
@@ -1553,8 +1979,9 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
     final author = metadata['authorName'] as String? ?? '';
     final epTitle = episodeOverride?['title'] as String?;
     final isFinished = widget.lib.isItemFinishedByKey(key);
-    final isPlaying = widget.currentItemId == key;
+    final isPlaying = _currentItemId == key;
     return Padding(
+      key: isPlaying ? _currentRowKey : null,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -1565,11 +1992,12 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
           Navigator.pop(context);
           final api = context.read<AuthProvider>().apiService;
           if (api == null) return;
+          late Future<String?> playback;
           if (key.length > 36) {
             // podcast compound key
             final showId = key.substring(0, 36);
             final epId = key.substring(37);
-            AudioPlayerService().playItem(
+            playback = AudioPlayerService().playItem(
               api: api,
               itemId: showId,
               title: epTitle ?? title,
@@ -1579,9 +2007,11 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
               chapters: const [],
               episodeId: epId,
               episodeTitle: epTitle,
+              libraryId: book['libraryId'] as String? ?? widget.lib.selectedLibraryId,
+              fromUi: true,
             );
           } else {
-            AudioPlayerService().playItem(
+            playback = AudioPlayerService().playItem(
               api: api,
               itemId: key,
               title: title,
@@ -1589,8 +2019,15 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
               coverUrl: widget.lib.getCoverUrl(key),
               totalDuration: (media['duration'] as num?)?.toDouble() ?? 0,
               chapters: media['chapters'] as List<dynamic>? ?? const [],
+              libraryId: book['libraryId'] as String? ?? widget.lib.selectedLibraryId,
+              fromUi: true,
             );
           }
+          unawaited(playback.then((error) async {
+            if (error == null) {
+              await widget.lib.syncQueueAutoDownloads();
+            }
+          }));
         },
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
@@ -1602,12 +2039,18 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
           ),
           child: Row(children: [
             SizedBox(
-              width: 24,
-              child: Text('${index + 1}',
-                  style: tt.labelMedium?.copyWith(
-                    color: isFinished ? cs.onSurface.withValues(alpha: 0.3) : cs.primary,
-                    fontWeight: FontWeight.w700,
-                  )),
+              width: 30,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text('${index + 1}',
+                    maxLines: 1,
+                    softWrap: false,
+                    style: tt.labelMedium?.copyWith(
+                      color: isFinished ? cs.onSurface.withValues(alpha: 0.3) : cs.primary,
+                      fontWeight: FontWeight.w700,
+                    )),
+              ),
             ),
             if (isFinished)
               Icon(Icons.check_circle_rounded,
@@ -1656,6 +2099,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
                 ],
               ),
             ),
+            _downloadStatus(key, cs),
           ]),
         ),
       ),
@@ -1664,6 +2108,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
 
   Widget _buildManualList(ColorScheme cs, TextTheme tt, AppLocalizations l, double bottomInset) {
     return ReorderableListView.builder(
+            scrollController: widget.scrollController,
             buildDefaultDragHandles: false,
             onReorderStart: (_) => HapticFeedback.mediumImpact(),
             padding: EdgeInsets.only(bottom: bottomInset + 16),
@@ -1770,6 +2215,7 @@ class _ReorderAbsorbingSheetState extends State<_ReorderAbsorbingSheet> {
                               style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                         ],
                       )),
+                      _downloadStatus(key, cs),
                       // Drag handle (long-press to avoid conflict with system home gesture)
                       _DragHandle(index: i, color: cs.onSurface),
                     ]),

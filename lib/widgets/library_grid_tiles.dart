@@ -3,13 +3,17 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
+import 'cover_badges.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import '../services/ebook_cache.dart';
 import 'absorbing_shared.dart';
 import 'book_detail_sheet.dart';
+import 'books_sheet_shared.dart' show coverGridTextScale, coverGridDecodeWidth;
 import 'episode_list_sheet.dart';
+import '../services/upcoming_releases_service.dart';
 import 'series_books_sheet.dart';
 import 'author_books_sheet.dart';
 
@@ -20,8 +24,21 @@ class GridBookTile extends StatefulWidget {
   final Map<String, dynamic> item;
   final double coverAspectRatio;
   final String? sequenceBadge;
+  final bool showSubtitle;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback? onSelectionToggle;
 
-  const GridBookTile({super.key, required this.item, this.coverAspectRatio = 1.0, this.sequenceBadge});
+  const GridBookTile({
+    super.key,
+    required this.item,
+    this.coverAspectRatio = 1.0,
+    this.sequenceBadge,
+    this.showSubtitle = false,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectionToggle,
+  });
 
   @override
   State<GridBookTile> createState() => _GridBookTileState();
@@ -57,11 +74,13 @@ class _GridBookTileState extends State<GridBookTile> {
     final media = widget.item['media'] as Map<String, dynamic>? ?? {};
     final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
     final title = metadata['title'] as String? ?? l.unknown;
+    final subtitle = metadata['subtitle'] as String? ?? '';
     final author = metadata['authorName'] as String? ?? '';
     final coverUrl = lib.getCoverUrl(itemId);
     final progress = lib.getProgress(itemId);
     final isExplicit = PlayerSettings.showExplicitBadge && metadata['explicit'] == true;
     final isDownloaded = _dl.isDownloaded(itemId);
+    final hasEbook = PlayerSettings.showEbookBadge && hasEbookFile(widget.item);
     final isFinished = lib.getProgressData(itemId)?['isFinished'] == true;
     final isSubscribed = lib.isPodcastLibrary && lib.isPodcastSubscribed(itemId);
     final unfinishedCount =
@@ -74,8 +93,12 @@ class _GridBookTileState extends State<GridBookTile> {
       // miss the Column's hit test and nothing happens.
       behavior: HitTestBehavior.opaque,
       onTap: () {
+        if (widget.selectionMode && widget.onSelectionToggle != null) {
+          widget.onSelectionToggle!();
+          return;
+        }
         if (itemId.isNotEmpty) {
-          if (lib.isPodcastLibrary) {
+          if (lib.isPodcastItem(widget.item)) {
             EpisodeListSheet.show(context, widget.item);
           } else {
             showBookDetailSheet(context, itemId);
@@ -83,7 +106,10 @@ class _GridBookTileState extends State<GridBookTile> {
         }
       },
       // Long-press a book cover for the quick-actions sheet (podcasts skipped).
-      onLongPress: (itemId.isNotEmpty && !lib.isPodcastLibrary)
+      // Selection mode owns the gesture instead, so a long-press can't fire a
+      // sheet over a grid the user is ticking through.
+      onLongPress:
+          (!widget.selectionMode && itemId.isNotEmpty && !lib.isPodcastLibrary)
           ? () => showQuickActionsSheet(context, itemId, initialItem: widget.item)
           : null,
       child: Column(
@@ -170,6 +196,12 @@ class _GridBookTileState extends State<GridBookTile> {
                       ),
                     ),
 
+                  if (hasEbook && !widget.selectionMode)
+                    Positioned(
+                      top: widget.sequenceBadge != null ? 24 : 4, left: 4,
+                      child: const EbookCoverBadge(),
+                    ),
+
                   // Sequence badge
                   if (widget.sequenceBadge != null)
                     Positioned(
@@ -185,55 +217,53 @@ class _GridBookTileState extends State<GridBookTile> {
                       ),
                     ),
 
-                  // ── Banners ──
+                  // ── State badges (downloaded / finished) ──
                   if (isFinished || isDownloaded)
                     Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 3),
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.85),
-                              Colors.black.withValues(alpha: 0.0),
-                            ],
+                      left: 0, right: 0, bottom: 0,
+                      child: CoverStateBadges(
+                        isDownloaded: isDownloaded,
+                        isFinished: isFinished,
+                      ),
+                    ),
+
+                  // ── Batch selection ──
+                  if (widget.selectionMode) ...[
+                    if (widget.selected)
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: cs.primary, width: 3),
+                            borderRadius: BorderRadius.circular(10),
+                            color: cs.primary.withValues(alpha: 0.18),
                           ),
                         ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (isFinished) ...[
-                              Icon(Icons.check_circle_rounded,
-                                  size: 10, color: Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent[400] : Colors.green.shade700),
-                              const SizedBox(width: 3),
-                              Text(l.libraryGridTilesDone,
-                                  style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent[400] : Colors.green.shade700)),
-                            ],
-                            if (isFinished && isDownloaded)
-                              const SizedBox(width: 6),
-                            if (isDownloaded) ...[
-                              Icon(Icons.download_done_rounded,
-                                  size: 10, color: cs.primary),
-                              const SizedBox(width: 3),
-                              Text(l.libraryGridTilesSaved,
-                                  style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w600,
-                                      color: cs.primary)),
-                            ],
-                          ],
+                      ),
+                    Positioned(
+                      top: 4,
+                      left: 4,
+                      child: Container(
+                        width: 26,
+                        height: 26,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: widget.selected
+                              ? cs.primary
+                              : Colors.black.withValues(alpha: 0.55),
+                          border: Border.all(
+                            color: widget.selected ? cs.primary : Colors.white70,
+                          ),
+                        ),
+                        child: Icon(
+                          widget.selected
+                              ? Icons.check_rounded
+                              : Icons.circle_outlined,
+                          size: 17,
+                          color: widget.selected ? cs.onPrimary : Colors.white70,
                         ),
                       ),
                     ),
+                  ],
                 ],
               ),
             ),
@@ -247,9 +277,21 @@ class _GridBookTileState extends State<GridBookTile> {
             style: tt.labelSmall?.copyWith(
               fontWeight: FontWeight.w600,
               color: cs.onSurface,
-              fontSize: 11,
+              fontSize: 11 * coverGridTextScale(context),
             ),
           ),
+          // Subtitle. A book without one hands the line to the author instead
+          // of leaving a gap under the title.
+          if (widget.showSubtitle && subtitle.isNotEmpty)
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant.withValues(alpha: 0.75),
+                fontSize: 10 * coverGridTextScale(context),
+              ),
+            ),
           // Author
           if (author.isNotEmpty)
             Text(
@@ -258,7 +300,7 @@ class _GridBookTileState extends State<GridBookTile> {
               overflow: TextOverflow.ellipsis,
               style: tt.labelSmall?.copyWith(
                 color: cs.onSurfaceVariant,
-                fontSize: 10,
+                fontSize: 10 * coverGridTextScale(context),
               ),
             ),
         ],
@@ -269,30 +311,42 @@ class _GridBookTileState extends State<GridBookTile> {
   Widget _blurCover(String coverUrl, Map<String, String> headers, ColorScheme cs, double aspectRatio, String title, String author) {
     final placeholder = CoverPlaceholder(title: title, author: author);
     final isSquare = (aspectRatio - 1.0).abs() < 0.01;
+    final decodeWidth = coverGridDecodeWidth(context);
     if (!isSquare) {
       if (coverUrl.startsWith('/')) {
         return Image.file(File(coverUrl), fit: BoxFit.cover,
+            cacheWidth: decodeWidth,
             errorBuilder: (_, __, ___) => placeholder);
       }
       return CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
-          httpHeaders: headers, placeholder: (_, __) => placeholder,
+          httpHeaders: headers, memCacheWidth: decodeWidth,
+          placeholder: (_, __) => placeholder,
           errorWidget: (_, __, ___) => placeholder);
     }
+    // The letterbox fill behind non-square art. A real gaussian here means one
+    // offscreen blur layer per tile, which piles up GPU memory on dense grids
+    // and gets the app OOM-killed mid-scroll - a tiny decode stretched to size
+    // looks the same under the scrim at tile sizes and costs nothing.
     if (coverUrl.startsWith('/')) {
-      return BlurPaddedCover(
-        blurChild: Image.file(File(coverUrl), fit: BoxFit.cover,
-            errorBuilder: (_, __ ,___) => const SizedBox.shrink()),
-        child: Image.file(File(coverUrl), fit: BoxFit.contain,
+      return Stack(fit: StackFit.expand, children: [
+        Image.file(File(coverUrl), fit: BoxFit.cover, cacheWidth: 32,
+            errorBuilder: (_, __, ___) => const SizedBox.shrink()),
+        Container(color: Colors.black.withValues(alpha: 0.15)),
+        Image.file(File(coverUrl), fit: BoxFit.contain,
+            cacheWidth: decodeWidth,
             errorBuilder: (_, __, ___) => placeholder),
-      );
+      ]);
     }
-    return BlurPaddedCover(
-      blurChild: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
-          httpHeaders: headers, errorWidget: (_, __, ___) => const SizedBox.shrink()),
-      child: CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.contain,
-          httpHeaders: headers, placeholder: (_, __) => placeholder,
+    return Stack(fit: StackFit.expand, children: [
+      CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.cover,
+          httpHeaders: headers, memCacheWidth: 32,
+          errorWidget: (_, __, ___) => const SizedBox.shrink()),
+      Container(color: Colors.black.withValues(alpha: 0.15)),
+      CachedNetworkImage(imageUrl: coverUrl, fit: BoxFit.contain,
+          httpHeaders: headers, memCacheWidth: decodeWidth,
+          placeholder: (_, __) => placeholder,
           errorWidget: (_, __, ___) => placeholder),
-    );
+    ]);
   }
 }
 
@@ -321,7 +375,6 @@ class _StackedCovers extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l = AppLocalizations.of(context)!;
     // Cap at 3 stacked covers (front + two back). 4 was visually busy and the
     // extra image decodes + per-shadow blur repaints made the Series grid
     // visibly janky during scroll.
@@ -346,7 +399,7 @@ class _StackedCovers extends StatelessWidget {
               bottom: i * inset,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(10),
-                child: _coverImage(coverUrls[i]),
+                child: _coverImage(context, coverUrls[i]),
               ),
             ),
           // Front cover (bottom-left)
@@ -373,7 +426,7 @@ class _StackedCovers extends StatelessWidget {
                 child: Stack(
                   fit: StackFit.expand,
                   children: [
-                    _coverImage(coverUrls.isNotEmpty ? coverUrls[0] : null),
+                    _coverImage(context, coverUrls.isNotEmpty ? coverUrls[0] : null),
                     // Series progress bar
                     if (seriesProgress > 0 && booksFinished < numBooks)
                       Positioned(
@@ -389,34 +442,9 @@ class _StackedCovers extends StatelessWidget {
                       ),
                     // Finished banner
                     if (booksFinished > 0 && booksFinished >= numBooks)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                Colors.black.withValues(alpha: 0.7),
-                                Colors.black.withValues(alpha: 0.0),
-                              ],
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.check_circle_rounded, size: 10,
-                                  color: Colors.greenAccent),
-                              const SizedBox(width: 3),
-                              Text(l.finished,
-                                style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600,
-                                  color: Colors.white.withValues(alpha: 0.9))),
-                            ],
-                          ),
-                        ),
+                      const Positioned(
+                        left: 0, right: 0, bottom: 0,
+                        child: CoverStateBadges(isDownloaded: false, isFinished: true),
                       ),
                     // Book count badge
                     Positioned(
@@ -453,15 +481,18 @@ class _StackedCovers extends StatelessWidget {
     );
   }
 
-  Widget _coverImage(String? url) {
+  Widget _coverImage(BuildContext context, String? url) {
     if (url == null) return _placeholder();
+    final decodeWidth = coverGridDecodeWidth(context);
     // Series stacked covers are always cropped to fit - no blur padding needed
     if (url.startsWith('/')) {
       return Image.file(File(url), fit: BoxFit.cover,
+          cacheWidth: decodeWidth,
           errorBuilder: (_, __, ___) => _placeholder());
     }
     return CachedNetworkImage(imageUrl: url, fit: BoxFit.cover,
-        httpHeaders: mediaHeaders, placeholder: (_, __) => _placeholder(),
+        httpHeaders: mediaHeaders, memCacheWidth: decodeWidth,
+        placeholder: (_, __) => _placeholder(),
         errorWidget: (_, __, ___) => _placeholder());
   }
 
@@ -533,11 +564,15 @@ class GridSeriesTile extends StatelessWidget {
             seriesName: seriesName,
             seriesId: seriesId,
             books: const [],
+            itemIds: itemIds,
             serverUrl: auth.serverUrl,
             token: auth.token,
           );
         }
       },
+      onLongPress: seriesId.isNotEmpty
+          ? () => showSeriesScanMenu(context, seriesId, seriesName)
+          : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -558,7 +593,7 @@ class GridSeriesTile extends StatelessWidget {
             style: tt.labelSmall?.copyWith(
               fontWeight: FontWeight.w600,
               color: cs.onSurface,
-              fontSize: 11,
+              fontSize: 11 * coverGridTextScale(context),
             ),
           ),
           if (author.isNotEmpty)
@@ -568,7 +603,7 @@ class GridSeriesTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: tt.labelSmall?.copyWith(
                 color: cs.onSurfaceVariant,
-                fontSize: 10,
+                fontSize: 10 * coverGridTextScale(context),
               ),
             ),
         ],
@@ -599,7 +634,22 @@ class GridSeriesTileDirect extends StatelessWidget {
     final seriesName = series['name'] as String? ?? l.libraryGridTilesUnknownSeries;
     final seriesId = series['id'] as String? ?? '';
     final books = series['books'] as List<dynamic>? ?? [];
-    final numBooks = books.length;
+    // Some servers send the series list without the books, carrying only
+    // libraryItemIds + numBooks (the collapsed-series shape). Covers, count and
+    // progress only need the ids, so fall back to those.
+    final itemIds = books.isNotEmpty
+        ? books
+            .map((b) => (b as Map<String, dynamic>)['id'] as String? ?? '')
+            .where((id) => id.isNotEmpty)
+            .toList()
+        : ((series['libraryItemIds'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            const <String>[]);
+    final rawNumBooks = series['numBooks'] as int? ?? 0;
+    final numBooks = books.isNotEmpty
+        ? books.length
+        : (rawNumBooks > 0 ? rawNumBooks : itemIds.length);
 
     // Get author from first book
     String author = '';
@@ -610,21 +660,13 @@ class GridSeriesTileDirect extends StatelessWidget {
       author = metadata['authorName'] as String? ?? '';
     }
 
-    // Gather up to 4 cover URLs from books
-    final coverUrls = books
-        .take(4)
-        .map((b) {
-          final bookId = (b as Map<String, dynamic>)['id'] as String? ?? '';
-          return bookId.isNotEmpty ? lib.getCoverUrl(bookId) : null;
-        })
-        .toList();
+    // Gather up to 4 cover URLs
+    final coverUrls = itemIds.take(4).map((id) => lib.getCoverUrl(id)).toList();
 
     // Calculate series progress
     double totalProgress = 0;
     int finished = 0;
-    for (final b in books) {
-      final bookId = (b as Map<String, dynamic>)['id'] as String? ?? '';
-      if (bookId.isEmpty) continue;
+    for (final bookId in itemIds) {
       final pd = lib.getProgressData(bookId);
       if (pd?['isFinished'] == true) {
         finished++;
@@ -633,7 +675,8 @@ class GridSeriesTileDirect extends StatelessWidget {
         totalProgress += lib.getProgress(bookId);
       }
     }
-    final seriesProgress = books.isNotEmpty ? totalProgress / books.length : 0.0;
+    final seriesProgress =
+        itemIds.isNotEmpty ? totalProgress / itemIds.length : 0.0;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -646,6 +689,7 @@ class GridSeriesTileDirect extends StatelessWidget {
           seriesName: seriesName,
           seriesId: seriesId.isEmpty ? null : seriesId,
           books: seriesId.isEmpty ? books : const [],
+          itemIds: itemIds,
           serverUrl: auth.serverUrl,
           token: auth.token,
           parentSeriesId: parentSeriesId,
@@ -671,7 +715,7 @@ class GridSeriesTileDirect extends StatelessWidget {
             style: tt.labelSmall?.copyWith(
               fontWeight: FontWeight.w600,
               color: cs.onSurface,
-              fontSize: 11,
+              fontSize: 11 * coverGridTextScale(context),
             ),
           ),
           if (author.isNotEmpty)
@@ -681,9 +725,108 @@ class GridSeriesTileDirect extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: tt.labelSmall?.copyWith(
                 color: cs.onSurfaceVariant,
-                fontSize: 10,
+                fontSize: 10 * coverGridTextScale(context),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// Grid tile for a collection or playlist (stacked covers + name + count),
+// styled like a series tile. Used by the library Lists tab.
+// ═══════════════════════════════════════════════════════════════
+class GridListTile extends StatelessWidget {
+  final String name;
+  final List<String> bookIds;
+  final int count;
+  final bool isPlaylist;
+  final double coverAspectRatio;
+  final VoidCallback onTap;
+
+  const GridListTile({
+    super.key,
+    required this.name,
+    required this.bookIds,
+    required this.count,
+    required this.isPlaylist,
+    required this.onTap,
+    this.coverAspectRatio = 1.0,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final l = AppLocalizations.of(context)!;
+    final lib = context.watch<LibraryProvider>();
+
+    final coverUrls = bookIds.take(4).map((id) => lib.getCoverUrl(id)).toList();
+
+    double totalProgress = 0;
+    int finished = 0;
+    for (final id in bookIds) {
+      final pd = lib.getProgressData(id);
+      if (pd?['isFinished'] == true) {
+        finished++;
+        totalProgress += 1.0;
+      } else {
+        totalProgress += lib.getProgress(id);
+      }
+    }
+    final progress = bookIds.isNotEmpty ? totalProgress / bookIds.length : 0.0;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _StackedCovers(
+            coverUrls: coverUrls.isEmpty ? const [null] : coverUrls,
+            numBooks: count,
+            mediaHeaders: lib.mediaHeaders,
+            cs: cs,
+            seriesProgress: progress,
+            booksFinished: finished,
+            coverAspectRatio: coverAspectRatio,
+          ),
+          const SizedBox(height: 5),
+          Row(
+            children: [
+              Icon(
+                  isPlaylist
+                      ? Icons.playlist_play_rounded
+                      : Icons.collections_bookmark_rounded,
+                  size: 12 * coverGridTextScale(context),
+                  color: cs.onSurfaceVariant),
+              const SizedBox(width: 3),
+              Expanded(
+                child: Text(
+                  name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: tt.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: cs.onSurface,
+                    fontSize: 11 * coverGridTextScale(context),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          Text(
+            isPlaylist
+                ? l.playlistDetailItemCount(count)
+                : l.collectionDetailBookCount(count),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+                fontSize: 10 * coverGridTextScale(context)),
+          ),
         ],
       ),
     );
@@ -695,7 +838,18 @@ class GridSeriesTileDirect extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════
 class GridAuthorTile extends StatelessWidget {
   final Map<String, dynamic> author;
-  const GridAuthorTile({super.key, required this.author});
+  final bool selectionMode;
+  final bool isSelected;
+  final bool isMatching;
+  final VoidCallback? onSelectionToggle;
+  const GridAuthorTile({
+    super.key,
+    required this.author,
+    this.selectionMode = false,
+    this.isSelected = false,
+    this.isMatching = false,
+    this.onSelectionToggle,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -710,20 +864,31 @@ class GridAuthorTile extends StatelessWidget {
     final numBooks = author['numBooks'] as int? ?? 0;
 
     String? imageUrl;
-    if (authorId.isNotEmpty && auth.apiService != null) {
+    // Only authors with a photo get a request: the server answers 404 for
+    // the rest, and a burst of those reads as probing to fail2ban and
+    // CrowdSec in front of it (GH #418).
+    final hasPhoto = (author['imagePath'] as String?)?.isNotEmpty == true;
+    if (authorId.isNotEmpty && hasPhoto && auth.apiService != null) {
       final ts = (author['updatedAt'] as num?)?.toInt();
       imageUrl = auth.apiService!.getAuthorImageUrl(authorId, updatedAt: ts);
     }
 
     final headers = lib.mediaHeaders;
 
-    return GestureDetector(
+    return Semantics(
+      selected: selectionMode ? isSelected : null,
+      child: GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: () {
+        if (selectionMode) {
+          onSelectionToggle?.call();
+          return;
+        }
         if (authorId.isNotEmpty) {
           showAuthorDetailSheet(context, authorId: authorId, authorName: name);
         }
       },
+      onLongPress: onSelectionToggle,
       child: Column(
         children: [
           // Circular avatar
@@ -737,18 +902,48 @@ class GridAuthorTile extends StatelessWidget {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: cs.secondaryContainer,
+                    border: selectionMode && isSelected
+                        ? Border.all(color: cs.primary, width: 3)
+                        : null,
                   ),
+                  padding: selectionMode && isSelected
+                      ? const EdgeInsets.all(3)
+                      : EdgeInsets.zero,
                   clipBehavior: Clip.antiAlias,
                   child: imageUrl != null
-                      ? CachedNetworkImage(
-                          imageUrl: imageUrl,
-                          fit: BoxFit.cover,
-                          httpHeaders: headers,
-                          placeholder: (_, __) => _placeholder(cs),
-                          errorWidget: (_, __, ___) => _placeholder(cs),
+                      ? ClipOval(
+                          child: CachedNetworkImage(
+                            imageUrl: imageUrl,
+                            fit: BoxFit.cover,
+                            httpHeaders: headers,
+                            memCacheWidth: coverGridDecodeWidth(context),
+                            placeholder: (_, __) => _placeholder(cs),
+                            errorWidget: (_, __, ___) => _placeholder(cs),
+                          ),
                         )
-                      : _placeholder(cs),
+                      : ClipOval(child: _placeholder(cs)),
                 ),
+                if (selectionMode)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: Container(
+                      width: 28,
+                      height: 28,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isSelected ? cs.primary : cs.surfaceContainerHighest,
+                        border: Border.all(
+                          color: isSelected ? cs.primary : cs.outlineVariant,
+                        ),
+                      ),
+                      child: Icon(
+                        isSelected ? Icons.check_rounded : Icons.circle_outlined,
+                        size: 18,
+                        color: isSelected ? cs.onPrimary : cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
                 if (numBooks > 0)
                   Positioned(
                     top: 0,
@@ -771,6 +966,25 @@ class GridAuthorTile extends StatelessWidget {
                       ),
                     ),
                   ),
+                if (isMatching)
+                  Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.black.withValues(alpha: 0.55),
+                      ),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -783,10 +997,11 @@ class GridAuthorTile extends StatelessWidget {
             style: tt.labelSmall?.copyWith(
               fontWeight: FontWeight.w600,
               color: cs.onSurface,
-              fontSize: 11,
+              fontSize: 11 * coverGridTextScale(context),
             ),
           ),
         ],
+      ),
       ),
     );
   }
@@ -797,5 +1012,47 @@ class GridAuthorTile extends StatelessWidget {
           size: 32, color: cs.onSecondaryContainer.withValues(alpha: 0.4)),
     );
   }
+}
+
+/// Long-press menu for a library series: exclude it from (or re-include it
+/// in) the Scan Series feature.
+Future<void> showSeriesScanMenu(
+    BuildContext context, String seriesId, String seriesName) async {
+  final excluded = await UpcomingReleasesService.isNeverScan(seriesId);
+  if (!context.mounted) return;
+  final l = AppLocalizations.of(context)!;
+  final cs = Theme.of(context).colorScheme;
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    ),
+    builder: (ctx) => SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(top: 8, bottom: 12),
+          decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(seriesName,
+            style: Theme.of(ctx).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+            maxLines: 2, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+        ),
+        const SizedBox(height: 12),
+        ListTile(
+          leading: Icon(excluded ? Icons.visibility_rounded : Icons.visibility_off_rounded,
+            color: cs.primary, size: 22),
+          title: Text(excluded ? l.seriesIncludeInScan : l.seriesExcludeFromScan,
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500)),
+          dense: true, visualDensity: VisualDensity.compact,
+          onTap: () {
+            Navigator.pop(ctx);
+            UpcomingReleasesService.setNeverScan(seriesId, !excluded);
+          },
+        ),
+        const SizedBox(height: 8),
+      ]),
+    ),
+  );
 }
 

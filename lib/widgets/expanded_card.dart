@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import '../utils/cover_accent.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
@@ -14,6 +15,13 @@ import 'absorbing_shared.dart';
 import 'card_progress_bar.dart';
 import 'card_playback_controls.dart';
 import 'card_buttons.dart';
+import 'ebook_router.dart';
+import '../services/lyrics_service.dart';
+import 'lyrics_overlay.dart';
+import 'overlay_toast.dart';
+import '../services/ebook_cache.dart';
+import '../services/find_in_ebook.dart';
+import '../main.dart' show colorSourceNotifier, useColorEverywhereNotifier, manualSeedNotifier, manualColorScheme;
 
 // ─── Custom route: slide-up + fade ────────────────────────────
 
@@ -52,6 +60,7 @@ class ExpandedCard extends StatefulWidget {
   final ColorScheme? initialCoverScheme;
   final ui.Image? initialBlurredCover;
   final List<dynamic>? initialChapters;
+  final Map<String, dynamic>? initialEbookFile;
   final String initialCardBackground;
 
   const ExpandedCard({
@@ -61,6 +70,7 @@ class ExpandedCard extends StatefulWidget {
     this.initialCoverScheme,
     this.initialBlurredCover,
     this.initialChapters,
+    this.initialEbookFile,
     this.initialCardBackground = 'blurred',
   });
 
@@ -69,11 +79,25 @@ class ExpandedCard extends StatefulWidget {
 }
 
 class _ExpandedCardState extends State<ExpandedCard> {
-  ColorScheme? _coverScheme;
+  ColorScheme? _rawCoverScheme;
   Brightness? _coverBrightness;
+
+  /// Cover-derived scheme, unless a manual app color is set to apply everywhere.
+  ColorScheme? get _coverScheme {
+    if (colorSourceNotifier.value == 'manual' && useColorEverywhereNotifier.value) {
+      return manualColorScheme(manualSeedNotifier.value, Theme.of(context).brightness);
+    }
+    return _rawCoverScheme;
+  }
   ImageProvider? _coverProvider;
   ui.Image? _blurredCover;
+  // Brightness of the blurred cover's top strip, where the percentage sits.
+  double? _coverTopLuminance;
   List<dynamic>? _fetchedChapters;
+  // The item passed to the full-screen player is often a lean/synthetic map
+  // without media.ebookFile, so the "Read" action fell back to "no ebook".
+  // Filled by the full-item fetch below, same as the small card does.
+  Map<String, dynamic>? _fetchedEbookFile;
   bool _isStarting = false;
   StreamSubscription<Duration>? _chapterTrackSub;
   int _lastChapterIdx = -1;
@@ -100,6 +124,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
   late Map<String, dynamic> _item;
 
   String get _itemId => _item['id'] as String? ?? '';
+  /// The store key the live transcript runs under for this card.
+  String get _lyricsKey =>
+      _episodeId != null ? '$_itemId-$_episodeId' : _itemId;
+
   Map<String, dynamic> get _media => _item['media'] as Map<String, dynamic>? ?? {};
   Map<String, dynamic> get _metadata => _media['metadata'] as Map<String, dynamic>? ?? {};
   String get _title {
@@ -157,8 +185,18 @@ class _ExpandedCardState extends State<ExpandedCard> {
   }
 
   String? get _coverUrl {
+    final episodeId = _episodeId;
+    final downloadKey = episodeId == null ? _itemId : '$_itemId-$episodeId';
+    final localCover = DownloadService().getInfo(downloadKey).localCoverPath;
+    if (localCover != null && File(localCover).existsSync()) return localCover;
+
+    if (_isActive) {
+      final playingCover = widget.player.currentCoverUrl;
+      if (playingCover != null && playingCover.isNotEmpty) return playingCover;
+    }
+
     final lib = context.read<LibraryProvider>();
-    return lib.getCoverUrl(_itemId, width: 800);
+    return lib.getCoverUrl(_itemId, width: 1200);
   }
   bool get _isLocalCover => _coverUrl != null && _coverUrl!.startsWith('/');
 
@@ -166,9 +204,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
   void initState() {
     super.initState();
     _item = widget.item;
-    _coverScheme = widget.initialCoverScheme;
+    _rawCoverScheme = widget.initialCoverScheme;
     _cardBackground = widget.initialCardBackground;
     _fetchedChapters = widget.initialChapters;
+    _fetchedEbookFile = widget.initialEbookFile;
     _currentItemId = widget.player.currentItemId;
     _currentEpisodeId = widget.player.currentEpisodeId;
     _wasPlaying = widget.player.hasBook && _isActive;
@@ -188,6 +227,27 @@ class _ExpandedCardState extends State<ExpandedCard> {
     if (!mounted || _isPopping) return;
     _startChapterTracking();
     setState(() {});
+  }
+
+  /// Which library the live [_item] belongs to, for the per-library cover
+  /// shape. [_item] can be a synthetic fallback without a libraryId, so fall
+  /// back to the cached absorbing entry and then the player.
+  String? _resolveLibraryId() {
+    final direct = _item['libraryId'] as String?;
+    if (direct != null && direct.isNotEmpty) return direct;
+    final lib = context.read<LibraryProvider>();
+    final epId = _episodeId;
+    final key = epId != null ? '$_itemId-$epId' : _itemId;
+    final cached = lib.absorbingItemCache[key]?['libraryId'] as String?;
+    if (cached != null && cached.isNotEmpty) return cached;
+    if (_itemId == widget.player.currentItemId) return widget.player.currentLibraryId;
+    return null;
+  }
+
+  void _reloadCoverShape() {
+    PlayerSettings.getRectangleCoversFor(_resolveLibraryId()).then((v) {
+      if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
+    });
   }
 
   void _reloadButtonOrder() {
@@ -214,9 +274,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
         });
       }
     });
-    PlayerSettings.getRectangleCovers().then((v) {
-      if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
-    });
+    _reloadCoverShape();
     PlayerSettings.getCoverPlayButton().then((v) {
       if (mounted && v != _coverPlayButton) setState(() => _coverPlayButton = v);
     });
@@ -315,6 +373,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
     final fallbackTitle = mounted ? AppLocalizations.of(context)!.unknown : 'Unknown';
     newItem ??= {
       'id': newItemId,
+      'libraryId': widget.player.currentLibraryId,
       'media': {
         'metadata': {
           'title': widget.player.currentTitle ?? fallbackTitle,
@@ -334,19 +393,23 @@ class _ExpandedCardState extends State<ExpandedCard> {
 
     setState(() {
       _item = newItem!;
-      _coverScheme = null;
+      _rawCoverScheme = null;
       _coverBrightness = null;
       _coverProvider = null;
       _fetchedChapters = null;
+      _fetchedEbookFile = null;
       _lastChapterIdx = -1;
     });
 
     // Dispose old blur and regenerate
     _blurredCover?.dispose();
     _blurredCover = null;
+    _coverTopLuminance = null;
     _generateBlur();
     _fetchChaptersIfNeeded();
     _startChapterTracking();
+    // The new item may belong to a different library (per-library cover shape).
+    _reloadCoverShape();
   }
 
   void _startChapterTracking() {
@@ -406,7 +469,10 @@ class _ExpandedCardState extends State<ExpandedCard> {
   }
 
   Future<void> _fetchChaptersIfNeeded() async {
-    if (_chapters.isNotEmpty) return;
+    // Fetch the full item when either chapters OR the ebook file is missing
+    // from the (often minified) inline item, so the "Read" action works.
+    final inlineEbook = _media['ebookFile'] as Map<String, dynamic>?;
+    if (_chapters.isNotEmpty && inlineEbook != null) return;
     final auth = context.read<AuthProvider>();
     final api = auth.apiService;
     if (api == null) return;
@@ -414,6 +480,12 @@ class _ExpandedCardState extends State<ExpandedCard> {
       final fullItem = await api.getLibraryItem(_itemId);
       if (fullItem != null && mounted) {
         final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+        // resolveEbookFile also covers supplementary-only books
+        // (audiobooks-only libraries never set media.ebookFile).
+        if (inlineEbook == null) {
+          final ef = resolveEbookFile(fullItem);
+          if (ef != null) setState(() => _fetchedEbookFile = ef);
+        }
         // Books: chapters at media level
         var chapters = media['chapters'] as List<dynamic>? ?? [];
         // Podcasts: chapters on the specific episode
@@ -444,7 +516,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
   /// Resolve the cover image to derive [_coverScheme] without building the blur
   /// (used by the gradient / off backgrounds, which never paint the cover).
   void _deriveCoverScheme() {
-    if (_coverScheme != null || _coverProvider != null) return;
+    if (_rawCoverScheme != null || _coverProvider != null) return;
     final url = _coverUrl;
     if (url == null) return;
     final ImageProvider provider;
@@ -460,13 +532,13 @@ class _ExpandedCardState extends State<ExpandedCard> {
     final provider = _coverProvider;
     if (provider == null) return;
     final brightness = Theme.of(context).brightness;
-    if (_coverScheme != null && _coverBrightness == brightness) return;
+    if (_rawCoverScheme != null && _coverBrightness == brightness) return;
     _coverBrightness = brightness;
     ColorScheme.fromImageProvider(provider: provider, brightness: brightness)
         .then((s) {
           if (mounted) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) setState(() => _coverScheme = s);
+              if (mounted) setState(() => _rawCoverScheme = s);
             });
           }
         })
@@ -518,21 +590,29 @@ class _ExpandedCardState extends State<ExpandedCard> {
       final blurred = await picture.toImage(targetWidth, targetHeight);
       picture.dispose();
 
+      final topLuminance = await topStripLuminance(blurred);
+
       if (mounted) {
-        setState(() => _blurredCover = blurred);
+        setState(() {
+          _blurredCover = blurred;
+          _coverTopLuminance = topLuminance;
+        });
       } else {
         blurred.dispose();
       }
 
       // Also derive cover scheme if needed
-      if (_coverScheme == null) _onCoverLoaded(provider);
+      if (_rawCoverScheme == null) _onCoverLoaded(provider);
     } catch (_) {}
   }
 
   @override
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
-    final cs = _coverScheme ?? Theme.of(context).colorScheme;
+    // E-ink mode: the cover-derived palette renders as washed-out grey, so
+    // the card sticks to the monochrome app theme.
+    final cs = (PlayerSettings.einkMode ? null : _coverScheme) ??
+        Theme.of(context).colorScheme;
     final accent = cs.primary;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final l = AppLocalizations.of(context)!;
@@ -555,6 +635,9 @@ class _ExpandedCardState extends State<ExpandedCard> {
     final chapterIdx = _currentChapterIndex();
     final cast = ChromecastService();
     final totalChapters = _isCastingThis ? cast.castingChapters.length : (_isActive ? widget.player.chapters.length : _chapters.length);
+    // A chapterless book gets the same single-bar look as a chapterless
+    // podcast: no top book bar, just the scrubber carrying the title.
+    final showBookBar = _chapters.isNotEmpty;
     final double bookProgress;
     if (_isCastingThis && cast.castingDuration > 0) {
       final castPos = cast.castPosition.inMilliseconds / 1000.0;
@@ -629,22 +712,35 @@ class _ExpandedCardState extends State<ExpandedCard> {
                     // Landscape: split into left (cover) + right (controls/info).
                     final wide = outerConstraints.maxWidth > outerConstraints.maxHeight;
 
+                    // Same story as the small card: the scrim is thinnest at
+                    // the top, so on a blurred background take the ink from
+                    // the cover rather than from the theme.
+                    final coverLuminance =
+                        _cardBackground == 'blurred' ? _coverTopLuminance : null;
+                    final ink = coverLuminance == null
+                        ? null
+                        : inkForLuminance(scrimmedLuminance(
+                            coverLuminance,
+                            isDark ? Colors.black : Colors.white,
+                            isDark ? 0.3 : 0.4,
+                          ));
                     final statsRow = Padding(
-                        padding: EdgeInsets.fromLTRB(24, compact ? 4 : 12, 24, 0),
+                        padding: EdgeInsets.fromLTRB(24, compact ? 4 : 6, 24, 0),
                         child: Center(
                           child: Text('${(bookProgress * 100).clamp(0, 100).toStringAsFixed(1)}%',
                             style: tt.labelSmall?.copyWith(
-                              color: isDark ? Colors.white.withValues(alpha: 0.55) : Colors.black.withValues(alpha: 0.45),
+                              color: ink?.ink ??
+                                  (isDark ? Colors.white.withValues(alpha: 0.55) : Colors.black.withValues(alpha: 0.45)),
                               fontWeight: FontWeight.w500, fontSize: (compact ? 10 : 11) * _progressTextScale,
                               fontFeatures: const [ui.FontFeature.tabularFigures()],
-                              shadows: [Shadow(color: isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6), blurRadius: 4)],
+                              shadows: [Shadow(color: ink?.shadow ?? (isDark ? Colors.black.withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.6)), blurRadius: 4)],
                             )),
                         ),
                       );
 
                     final bookProgressBar = Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: (!_isPodcastEpisode || _chapters.isNotEmpty) && (!lib.isPodcastLibrary || _chapters.isNotEmpty), showChapterBar: false, itemId: _itemId),
+                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: progress, staticDuration: _effectiveDuration, chapters: _chapters, showBookBar: showBookBar, showChapterBar: false, itemId: _itemId, showCenterPercent: true),
                       );
 
                     final coverArea = Padding(
@@ -653,7 +749,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                             listenable: ChromecastService(),
                             builder: (context, _) => LayoutBuilder(
                               builder: (context, constraints) {
-                                final maxW = constraints.maxWidth * 0.90;
+                                final maxW = constraints.maxWidth * 0.95;
                                 final maxH = constraints.maxHeight - 24;
                                 double coverW, coverH;
                                 if (_rectangleCovers) {
@@ -702,7 +798,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                     if (isCastingThis) {
                                       castService.togglePlayPause();
                                     } else if (_isActive) {
-                                      widget.player.togglePlayPause();
+                                      widget.player.togglePlayPause(fromUi: true);
                                     } else {
                                       _startPlayback();
                                     }
@@ -723,8 +819,16 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                       child: Stack(
                                         fit: StackFit.expand,
                                         children: [
-                                          // Cover image
-                                          _coverUrl != null
+                                          // Cover image - hidden while the
+                                          // transcript has the cover.
+                                          AnimatedBuilder(
+                                            animation: LyricsService.instance,
+                                            builder: (context, child) =>
+                                                LyricsService.instance
+                                                        .coversArtFor(_lyricsKey)
+                                                    ? Offstage(child: child)
+                                                    : child!,
+                                            child: EinkCoverTone(child: _coverUrl != null
                                               ? _isLocalCover
                                                   ? BlurPaddedCover(blurChild: Image.file(File(_coverUrl!), fit: BoxFit.cover,
                                                       errorBuilder: (_, __, ___) => const SizedBox.shrink()),
@@ -737,11 +841,20 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                                         httpHeaders: mediaHeaders,
                                                         placeholder: (_, __) => CoverPlaceholder(title: _title, author: _author),
                                                         errorWidget: (_, __, ___) => CoverPlaceholder(title: _title, author: _author)))
-                                              : CoverPlaceholder(title: _title, author: _author),
-                                          // Play/pause overlay
+                                              : CoverPlaceholder(title: _title, author: _author))),
+                                          // Play/pause overlay - the tap still
+                                          // works with the transcript up, but
+                                          // the button would sit on the words.
                                           if (_coverPlayButton && !isCastingThis && !isFinished)
                                             Positioned.fill(
-                                              child: AnimatedContainer(
+                                              child: AnimatedBuilder(
+                                                animation: LyricsService.instance,
+                                                builder: (context, child) =>
+                                                    LyricsService.instance
+                                                            .coversArtFor(_lyricsKey)
+                                                        ? Offstage(child: child)
+                                                        : child!,
+                                                child: AnimatedContainer(
                                                 duration: const Duration(milliseconds: 200),
                                                 decoration: BoxDecoration(
                                                   color: coverPlaying ? Colors.transparent : Colors.black.withValues(alpha: 0.25),
@@ -776,7 +889,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                                         ),
                                                 ),
                                               ),
-                                            ),
+                                            )),
                                           // Casting overlay
                                           if (isCastingThis) ...[
                                             Positioned.fill(
@@ -809,6 +922,11 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                               ),
                                             ),
                                           ],
+                                          // Live transcript (lyrics mode)
+                                          LyricsOverlay(
+                                              forKey: _lyricsKey,
+                                              surface: cs.surface,
+                                              onSurface: cs.onSurface),
                                         ],
                                       ),
                                     ),
@@ -823,7 +941,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
 
                     final chapterScrubber = Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : _chapterName(chapterIdx)), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
+                        child: CardDualProgressBar(player: widget.player, accent: accent, isActive: _isActive, staticProgress: (_isPodcastEpisode && _chapters.isEmpty) ? 0.0 : progress, staticDuration: (_isPodcastEpisode && _chapters.isEmpty) ? widget.player.totalDuration : _effectiveDuration, chapters: _chapters, showBookBar: false, showChapterBar: true, chapterName: (_isPodcastEpisode && _chapters.isEmpty) ? (widget.player.currentEpisodeTitle ?? widget.player.currentTitle ?? _title) : (_episodeId != null && !_isActive ? (_recentEpisode?['title'] as String? ?? _title) : (_chapters.isEmpty ? _title : _chapterName(chapterIdx))), chapterIndex: chapterIdx, totalChapters: totalChapters, itemId: _itemId),
                       );
 
                     final controlsAndButtons = MediaQuery(
@@ -845,6 +963,7 @@ class _ExpandedCardState extends State<ExpandedCard> {
                                       itemId: _itemId,
                                       showPlayButton: !_coverPlayButton,
                                       playButtonSize: 70,
+                                      libraryId: _resolveLibraryId(),
                                     ),
                                     SizedBox(height: compact ? 8 : 24),
                                     ..._buildButtonGrid(accent, tt),
@@ -898,9 +1017,12 @@ class _ExpandedCardState extends State<ExpandedCard> {
                           Expanded(child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
-                              statsRow,
-                              bookProgressBar,
-                              SizedBox(height: compact ? 4 : 16),
+                              // The book bar carries the percent centered in
+                              // its time row; the standalone line is only for
+                              // layouts with no book bar at all.
+                              if (!showBookBar) statsRow,
+                              if (showBookBar) bookProgressBar,
+                              if (showBookBar) SizedBox(height: compact ? 4 : 16),
                               chapterScrubber,
                               controlsAndButtons,
                             ],
@@ -911,11 +1033,14 @@ class _ExpandedCardState extends State<ExpandedCard> {
 
                     return Column(
                       children: [
-                        statsRow,
-                        bookProgressBar,
-                        SizedBox(height: compact ? 4 : 16),
+                        // The book bar carries the percent centered in its
+                        // time row; the standalone line is only for layouts
+                        // with no book bar at all.
+                        if (!showBookBar) statsRow,
+                        if (showBookBar) bookProgressBar,
+                        if (showBookBar) SizedBox(height: compact ? 4 : 8),
                         Expanded(child: coverArea),
-                        SizedBox(height: compact ? 6 : 24),
+                        SizedBox(height: compact ? 6 : 12),
                         chapterScrubber,
                         controlsAndButtons,
                       ],
@@ -1054,9 +1179,11 @@ class _ExpandedCardState extends State<ExpandedCard> {
       coverUrl: _coverUrl, totalDuration: _effectiveDuration, chapters: _chapters,
       episodeId: _episodeId,
       episodeTitle: _recentEpisode?['title'] as String?,
+      libraryId: _resolveLibraryId(),
+      fromUi: true,
     );
     if (mounted) {
-      if (error != null) showErrorSnackBar(context, error);
+      if (error != null) showErrorToast(context, error);
       setState(() => _isStarting = false);
     }
   }
@@ -1105,7 +1232,69 @@ class _ExpandedCardState extends State<ExpandedCard> {
       PlayerSettings.setCardButtonOrder(newOrder);
       PlayerSettings.setCardButtonVisibleCount(newCount);
     },
+    isEbookPdf: _ebookExt == 'pdf',
+    isEbookEpub: _ebookExt == 'epub',
+    onEbookTap: _openReader,
+    onFindInEbookTap: _findInEbook,
+    onReadAlongTap: _openReadAlong,
   );
+
+  Map<String, dynamic>? get _ebookFile =>
+      (_media['ebookFile'] as Map<String, dynamic>?) ?? _fetchedEbookFile;
+  String? get _ebookExt {
+    final ext = ebookExt(_ebookFile);
+    return ext.isEmpty ? null : ext;
+  }
+
+  void _openReader() async {
+    var ef = _ebookFile;
+    // A downloaded book's ebook may already sit in the reader cache - check
+    // that before any network retry, so offline Read opens instantly instead
+    // of waiting out a timeout. The reader opens from this same cached file
+    // either way.
+    ef ??= await cachedEbookFileFor(_itemId);
+    if (ef == null) {
+      // The initState fetch is one-shot and can fail silently (network blip),
+      // so give it another chance before declaring there's no ebook.
+      await _fetchChaptersIfNeeded();
+      ef = _ebookFile;
+    }
+    if (!mounted) return;
+    if (ef == null) {
+      showOverlayToast(context, AppLocalizations.of(context)!.noEbookFileFound, icon: Icons.menu_book_outlined);
+      return;
+    }
+    openEbookReader(context, itemId: _itemId, title: _title, ebookFile: ef);
+  }
+
+  void _openReadAlong() async {
+    var ef = _ebookFile;
+    ef ??= await cachedEbookFileFor(_itemId);
+    if (ef == null) {
+      await _fetchChaptersIfNeeded();
+      ef = _ebookFile;
+    }
+    if (!mounted) return;
+    if (ef == null) {
+      showOverlayToast(context, AppLocalizations.of(context)!.noEbookFileFound, icon: Icons.menu_book_outlined);
+      return;
+    }
+    // The reader checks the rest: loads this book if something else is
+    // playing, the transcription setting, the download prompt.
+    openEbookReader(context, itemId: _itemId, title: _title, ebookFile: ef,
+        startReadAlong: true);
+  }
+
+  void _findInEbook() async {
+    var ef = _ebookFile;
+    ef ??= await cachedEbookFileFor(_itemId);
+    if (ef == null) {
+      await _fetchChaptersIfNeeded();
+      ef = _ebookFile;
+    }
+    if (!mounted) return;
+    launchFindInEbook(context, itemId: _itemId, title: _title, ebookFile: ef);
+  }
 
   int get _visibleButtonCount => _buttonVisibleCount;
 

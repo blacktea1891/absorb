@@ -1,19 +1,27 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../services/player_settings.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'overlay_toast.dart';
+import 'absorb_placement.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../l10n/app_localizations.dart';
+import 'cover_badges.dart';
 import '../services/wording.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../screens/app_shell.dart';
+import 'add_books_search_sheet.dart';
 import 'book_detail_sheet.dart';
+import 'books_sheet_shared.dart' show coverGridCount;
+import 'editable_sheet_item.dart';
 import 'episode_list_sheet.dart';
 import 'stackable_sheet.dart';
+import 'swipe_action.dart';
 
 class PlaylistDetailSheet extends StatefulWidget {
   final String playlistId;
@@ -43,12 +51,26 @@ class PlaylistDetailSheet extends StatefulWidget {
 }
 
 class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
-  bool _reordering = false;
+  bool _editing = false;
   bool _gridView = false;
-  List<Map<String, dynamic>>? _reorderItems;
-  bool _selectMode = false;
+  List<Map<String, dynamic>>? _editItems;
   final Set<String> _selectedKeys = {}; // "libraryItemId" or "libraryItemId-episodeId"
   bool _isBatchUpdating = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Same list or grid choice as the Home section sheets, so the view you
+    // picked last time comes back instead of the list every time.
+    PlayerSettings.getSectionGridView().then((v) {
+      if (mounted && v != _gridView) setState(() => _gridView = v);
+    });
+  }
+
+  void _toggleGridView() {
+    setState(() => _gridView = !_gridView);
+    PlayerSettings.setSectionGridView(_gridView);
+  }
 
   /// Find episode data from the playlist item's top-level 'episode' field,
   /// or from the library item's media.episodes array as fallback.
@@ -74,12 +96,26 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
     if (episodeId != null) {
       final ep = _findEpisode(playlistItem, libraryItem, episodeId);
       if (ep != null) {
-        EpisodeDetailSheet.show(context, libraryItem, ep);
+        EpisodeDetailSheet.show(
+          context,
+          libraryItem,
+          ep,
+          sourcePlaylistId: widget.playlistId,
+        );
       } else {
-        EpisodeListSheet.show(context, libraryItem);
+        EpisodeListSheet.show(
+          context,
+          libraryItem,
+          sourcePlaylistId: widget.playlistId,
+          sourcePlaylistEpisodeId: episodeId,
+        );
       }
     } else {
-      showBookDetailSheet(context, libraryItemId);
+      showBookDetailSheet(
+        context,
+        libraryItemId,
+        sourcePlaylistId: widget.playlistId,
+      );
     }
   }
 
@@ -123,6 +159,7 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
           final ct = (pd?['currentTime'] as num?)?.toDouble() ?? 0;
           await api.updateEpisodeProgress(libraryItemId, episodeId,
             currentTime: ct, duration: duration, isFinished: false);
+          await lib.markNotFinishedLocally('$libraryItemId-$episodeId');
         }
       } else {
         if (finished) {
@@ -132,6 +169,7 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
           final pd = lib.getProgressData(libraryItemId);
           final ct = (pd?['currentTime'] as num?)?.toDouble() ?? 0;
           await api.markNotFinished(libraryItemId, currentTime: ct, duration: duration);
+          await lib.markNotFinishedLocally(libraryItemId);
         }
       }
     }
@@ -142,7 +180,6 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
       final l = AppLocalizations.of(context)!;
       setState(() {
         _isBatchUpdating = false;
-        _selectMode = false;
         _selectedKeys.clear();
       });
       showOverlayToast(
@@ -159,44 +196,90 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
     if (_selectedKeys.isEmpty) return;
     setState(() => _isBatchUpdating = true);
 
-    final playlist = lib.playlists.cast<Map<String, dynamic>>().where(
-      (p) => p['id'] == widget.playlistId,
-    ).firstOrNull;
-    final items = (playlist?['items'] as List<dynamic>?) ?? [];
+    final items = _editItems ?? [];
+    final removedKeys = <String>{};
 
     for (final key in List<String>.from(_selectedKeys)) {
-      final item = items.cast<Map<String, dynamic>>().where(
+      final item = items.where(
         (i) => _itemKey(i) == key,
       ).firstOrNull;
       if (item == null) continue;
       final libraryItemId = item['libraryItemId'] as String? ?? '';
       final episodeId = item['episodeId'] as String?;
-      await lib.removeFromPlaylist(widget.playlistId, libraryItemId, episodeId: episodeId);
+      if (await lib.removeFromPlaylist(
+        widget.playlistId, libraryItemId, episodeId: episodeId,
+      )) {
+        removedKeys.add(key);
+      }
     }
 
     if (mounted) {
-      final count = _selectedKeys.length;
+      final count = removedKeys.length;
       final l = AppLocalizations.of(context)!;
       setState(() {
         _isBatchUpdating = false;
-        _selectMode = false;
-        _selectedKeys.clear();
+        _editItems?.removeWhere((item) => removedKeys.contains(_itemKey(item)));
+        _selectedKeys.removeAll(removedKeys);
       });
-      showOverlayToast(
-        context,
-        l.playlistDetailItemsRemoved(count),
-        icon: Icons.playlist_remove_rounded,
-      );
+      if (count > 0) {
+        showOverlayToast(
+          context,
+          l.playlistDetailItemsRemoved(count),
+          icon: Icons.playlist_remove_rounded,
+        );
+      }
     }
   }
 
-  Future<void> _removeItem(
-    LibraryProvider lib,
-    String libraryItemId, {
-    String? episodeId,
-  }) async {
-    await lib.removeFromPlaylist(
-      widget.playlistId, libraryItemId, episodeId: episodeId,
+  void _openAddBooks(LibraryProvider lib, Map<String, dynamic> playlist,
+      String name, List<dynamic> items) {
+    final libraryId = playlist['libraryId'] as String? ?? lib.selectedLibraryId;
+    if (libraryId == null) return;
+    // Only plain books count as members here (episodes use a different add flow).
+    final memberIds = items
+        .whereType<Map<String, dynamic>>()
+        .where((i) => i['episodeId'] == null)
+        .map((i) => i['libraryItemId'] as String? ?? '')
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    AddBooksSearchSheet.show(
+      context,
+      title: name,
+      libraryId: libraryId,
+      initialMemberIds: memberIds,
+      onAdd: (id) => lib.addToPlaylist(widget.playlistId, id),
+      onRemove: (id) => lib.removeFromPlaylist(widget.playlistId, id),
+    );
+  }
+
+  /// Header icon with a comfortable (>=44px tall) tap target and ripple, so
+  /// the small top-row controls aren't fiddly to press.
+  Widget _headerIconButton(ColorScheme cs, IconData icon, VoidCallback onTap,
+      {String? tooltip, Color? color}) {
+    return IconButton(
+      icon: Icon(icon, size: 20, color: color ?? cs.onSurfaceVariant),
+      onPressed: onTap,
+      tooltip: tooltip,
+      constraints: const BoxConstraints(minWidth: 32, minHeight: 44),
+      style: IconButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+      ),
+    );
+  }
+
+  Widget _headerTextButton(ColorScheme cs, String label, VoidCallback? onTap,
+      {required Color color}) {
+    return TextButton(
+      onPressed: onTap,
+      style: TextButton.styleFrom(
+        foregroundColor: color,
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
     );
   }
 
@@ -225,26 +308,31 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
     }
   }
 
-  void _startReorder(List<dynamic> items) {
+  void _startEdit(List<dynamic> items) {
     setState(() {
-      _reordering = true;
-      _reorderItems = items
+      _editing = true;
+      _editItems = items
           .map((i) => Map<String, dynamic>.from(i as Map))
           .toList();
+      _selectedKeys.clear();
     });
   }
 
-  Future<void> _saveReorder(LibraryProvider lib) async {
-    if (_reorderItems != null) {
-      await lib.reorderPlaylistItems(widget.playlistId, _reorderItems!);
+  void _saveEdit(LibraryProvider lib) {
+    final items = _editItems;
+    if (items != null) {
+      // Persist in the background so "Done" closes instantly instead of
+      // hanging on the PATCH + playlists reload.
+      unawaited(lib.reorderPlaylistItems(widget.playlistId, items));
     }
-    if (mounted) Navigator.pop(context);
+    Navigator.pop(context);
   }
 
-  void _cancelReorder() {
+  void _cancelEdit() {
     setState(() {
-      _reordering = false;
-      _reorderItems = null;
+      _editing = false;
+      _editItems = null;
+      _selectedKeys.clear();
     });
   }
 
@@ -268,66 +356,39 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
 
     final name = playlist['name'] as String? ?? l.playlistDetailDefaultName;
     final items = (playlist['items'] as List<dynamic>?) ?? [];
+    // The add-books search only finds books, so hide it for podcast playlists.
+    final isPodcastPlaylist = lib.libraries
+            .cast<Map<String, dynamic>>()
+            .where((lb) => lb['id'] == playlist['libraryId'])
+            .map((lb) => (lb['mediaType'] as String? ?? 'book') == 'podcast')
+            .firstOrNull ??
+        lib.isPodcastLibrary;
 
     return Column(children: [
       const SizedBox(height: 4),
       Padding(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Row(children: [
-          if (_reordering) ...[
-            GestureDetector(
-              onTap: _cancelReorder,
-              child: Text(l.cancel, style: tt.labelMedium?.copyWith(
-                color: cs.onSurfaceVariant, fontWeight: FontWeight.w500,
-              )),
+          if (_editing) ...[
+            _headerTextButton(cs, l.cancel, _cancelEdit, color: cs.onSurfaceVariant),
+            const Spacer(),
+            Flexible(
+              child: Text(
+                _selectedKeys.isEmpty
+                    ? name
+                    : l.selectedCount(_selectedKeys.length),
+                maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: tt.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600, color: cs.onSurface)),
             ),
             const Spacer(),
-            Text(name, style: tt.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600, color: cs.onSurface,
-            )),
-            const Spacer(),
-            GestureDetector(
-              onTap: () => _saveReorder(lib),
-              child: Text(l.done, style: tt.labelMedium?.copyWith(
-                color: cs.primary, fontWeight: FontWeight.w600,
-              )),
+            _headerTextButton(
+              cs,
+              l.done,
+              _isBatchUpdating ? null : () => _saveEdit(lib),
+              color: cs.primary,
             ),
-          ] else if (_selectMode) ...[
-            GestureDetector(
-              onTap: () => setState(() {
-                _selectMode = false;
-                _selectedKeys.clear();
-              }),
-              child: Icon(Icons.close_rounded, size: 20, color: cs.onSurfaceVariant),
-            ),
-            const SizedBox(width: 8),
-            Text(l.selectedCount(_selectedKeys.length),
-              style: tt.titleSmall?.copyWith(color: cs.onSurfaceVariant, fontWeight: FontWeight.w600)),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () {
-                setState(() {
-                  if (_selectedKeys.length == items.length) {
-                    _selectedKeys.clear();
-                  } else {
-                    _selectedKeys.clear();
-                    for (final i in items) {
-                      _selectedKeys.add(_itemKey(i as Map<String, dynamic>));
-                    }
-                  }
-                });
-              },
-              child: Text(l.selectAll,
-                style: TextStyle(fontSize: 12, color: cs.primary, fontWeight: FontWeight.w500)),
-            ),
-            const Spacer(),
           ] else ...[
-            GestureDetector(
-              onTap: () => _deletePlaylist(context, lib),
-              child: Icon(Icons.delete_outline_rounded, size: 20,
-                color: cs.onSurfaceVariant),
-            ),
-            const SizedBox(width: 12),
             Icon(Icons.playlist_play_rounded, size: 20, color: cs.primary),
             const SizedBox(width: 8),
             Expanded(
@@ -338,48 +399,42 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
             Text(l.playlistDetailItemCount(items.length),
               style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
             ),
-            const SizedBox(width: 8),
-            GestureDetector(
-              onTap: () => setState(() => _gridView = !_gridView),
-              child: Icon(
-                _gridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
-                size: 20, color: cs.onSurfaceVariant),
-            ),
-            if (items.length > 1) ...[
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => setState(() => _selectMode = true),
-                child: Icon(Icons.checklist_rounded, size: 20,
-                  color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
-              ),
-              const SizedBox(width: 8),
-              GestureDetector(
-                onTap: () => _startReorder(items),
-                child: Icon(Icons.tune_rounded, size: 20,
-                  color: cs.onSurfaceVariant),
-              ),
-            ],
+            if (!isPodcastPlaylist)
+              _headerIconButton(cs, Icons.library_add_rounded,
+                () => _openAddBooks(lib, playlist, name, items)),
+            _headerIconButton(cs,
+              lib.isRollingDownloadEnabled(widget.playlistId)
+                  ? Icons.downloading_rounded
+                  : Icons.download_outlined,
+              () => lib.toggleRollingDownload(widget.playlistId,
+                  name: name, kind: 'playlist'),
+              tooltip: lib.isRollingDownloadEnabled(widget.playlistId)
+                  ? l.turnAutoDownloadOff
+                  : l.turnAutoDownloadOn),
+            _headerIconButton(cs,
+              _gridView ? Icons.view_list_rounded : Icons.grid_view_rounded,
+              _toggleGridView),
+            _headerIconButton(cs, Icons.edit_rounded, () => _startEdit(items),
+              tooltip: l.edit),
           ],
         ]),
       ),
       const SizedBox(height: 12),
       Divider(height: 1, color: cs.outlineVariant.withValues(alpha: 0.3),
         indent: 20, endIndent: 20),
-      if (!_reordering && !_selectMode)
+      if (!_editing)
         _buildPlayButton(cs, lib, items, l),
       // Content
       Expanded(
-        child: _reordering
-            ? _buildReorderList(cs, tt, lib, l)
-            : _selectMode
-                ? _buildSelectList(cs, tt, lib, items, l)
-                : _gridView
-                    ? _buildGrid(cs, tt, lib, items, l)
-                    : _buildItemList(cs, tt, lib, items, l),
+        child: _editing
+            ? _buildEditList(cs, tt, lib, l)
+            : _gridView
+                ? _buildGrid(cs, tt, lib, items, l)
+                : _buildItemList(cs, tt, lib, items, l),
       ),
-      // Batch action bar
-      if (_selectMode && _selectedKeys.isNotEmpty)
+      if (_editing)
         Container(
+          width: double.infinity,
           padding: EdgeInsets.fromLTRB(16, 8, 16, 8 + MediaQuery.of(context).viewPadding.bottom),
           decoration: BoxDecoration(
             color: cs.surfaceContainer,
@@ -388,7 +443,8 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
           child: _isBatchUpdating
               ? Center(child: SizedBox(width: 20, height: 20,
                   child: CircularProgressIndicator(strokeWidth: 2, color: cs.primary)))
-              : Row(children: [
+              : _selectedKeys.isNotEmpty
+                  ? Row(children: [
                   Expanded(child: FilledButton.tonalIcon(
                     onPressed: () => _batchMarkFinished(true, lib),
                     icon: const Icon(Icons.check_circle_rounded, size: 18),
@@ -411,7 +467,13 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
                       backgroundColor: cs.error.withValues(alpha: 0.1),
                     ),
                   ),
-                ]),
+                ])
+                  : OutlinedButton.icon(
+                      onPressed: () => _deletePlaylist(context, lib),
+                      icon: const Icon(Icons.delete_outline_rounded),
+                      label: Text(l.deletePlaylist),
+                      style: OutlinedButton.styleFrom(foregroundColor: cs.error),
+                    ),
         ),
     ]);
   }
@@ -439,7 +501,14 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
                   Navigator.pop(context);
                   AppShell.goToAbsorbingGlobal();
                   await PlayerSettings.setQueueModePlaylist(playlistId);
-                  await lib.playPlaylistFromStart(playlistId);
+                  final started = await lib.playPlaylistFromStart(playlistId);
+                  if (started) {
+                    unawaited(lib.syncQueueAutoDownloads());
+                  } else {
+                    unawaited(
+                      PlayerSettings.clearQueueModePlaylistIfActive(playlistId),
+                    );
+                  }
                 }
               : null,
           icon: Icon(allFinished
@@ -451,10 +520,10 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
     );
   }
 
-  Widget _buildReorderList(ColorScheme cs, TextTheme tt, LibraryProvider lib, AppLocalizations l) {
-    final items = _reorderItems!;
+  Widget _buildEditList(ColorScheme cs, TextTheme tt, LibraryProvider lib, AppLocalizations l) {
+    final items = _editItems!;
     return ReorderableListView.builder(
-      padding: EdgeInsets.only(top: 8, bottom: 8 + MediaQuery.of(context).viewPadding.bottom),
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
       onReorderStart: (_) => HapticFeedback.mediumImpact(),
       onReorder: (oldIndex, newIndex) {
         setState(() {
@@ -476,147 +545,61 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
         final media = libraryItem['media'] as Map<String, dynamic>? ?? {};
         final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
         final title = metadata['title'] as String? ?? l.unknown;
-        final coverUrl = lib.getCoverUrl(libraryItemId);
-
-        String? episodeTitle;
-        if (episodeId != null) {
-          episodeTitle = _getEpisodeTitle(item, libraryItem, episodeId);
-        }
-
-        return Container(
-          key: ValueKey('$libraryItemId-${episodeId ?? ''}'),
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 3),
-          decoration: BoxDecoration(
-            color: cs.onSurface.withValues(alpha: 0.05),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
-          ),
-          child: ListTile(
-            dense: true,
-            leading: SizedBox(
-              width: 36, height: 36,
-              child: Stack(children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(4),
-                  child: coverUrl != null
-                      ? (coverUrl.startsWith('/')
-                          ? Image.file(File(coverUrl), fit: BoxFit.cover, width: 36, height: 36,
-                              errorBuilder: (_, __, ___) => _placeholder(cs))
-                          : Image.network(coverUrl, fit: BoxFit.cover, width: 36, height: 36,
-                              headers: lib.mediaHeaders,
-                              errorBuilder: (_, __, ___) => _placeholder(cs)))
-                      : _placeholder(cs),
-                ),
-                if (PlayerSettings.showExplicitBadge && metadata['explicit'] == true)
-                  Positioned(
-                    top: 2, right: 2,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
-                      decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                      child: Text(l.bookCardExplicitBadge, style: const TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w800)),
-                    ),
-                  ),
-              ]),
-            ),
-            title: Text(
-              episodeTitle ?? title,
-              maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500,
-                color: cs.onSurface),
-            ),
-            trailing: ReorderableDragStartListener(
-              index: index,
-              child: Padding(
-                padding: const EdgeInsets.all(8),
-                child: Icon(Icons.drag_handle_rounded, size: 18,
-                  color: cs.onSurfaceVariant.withValues(alpha: 0.5)),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-
-  Widget _buildSelectList(ColorScheme cs, TextTheme tt, LibraryProvider lib, List<dynamic> items, AppLocalizations l) {
-    return ListView.builder(
-      controller: widget.scrollController,
-      padding: EdgeInsets.only(bottom: (_selectedKeys.isNotEmpty ? 64.0 : 32.0) + MediaQuery.of(context).viewPadding.bottom),
-      itemCount: items.length,
-      itemBuilder: (context, index) {
-        final item = items[index] as Map<String, dynamic>;
-        final libraryItemId = item['libraryItemId'] as String? ?? '';
-        final episodeId = item['episodeId'] as String?;
-        final libraryItem = item['libraryItem'] as Map<String, dynamic>?;
-        if (libraryItem == null) return const SizedBox.shrink();
-
-        final media = libraryItem['media'] as Map<String, dynamic>? ?? {};
-        final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
-        final title = metadata['title'] as String? ?? l.unknown;
         final author = metadata['authorName'] as String? ?? '';
         final coverUrl = lib.getCoverUrl(libraryItemId);
-        final key = _itemKey(item);
-        final selected = _selectedKeys.contains(key);
+        final itemKey = _itemKey(item);
 
         String? episodeTitle;
         if (episodeId != null) {
           episodeTitle = _getEpisodeTitle(item, libraryItem, episodeId);
         }
 
-        return InkWell(
-          onTap: () => setState(() {
-            if (selected) { _selectedKeys.remove(key); } else { _selectedKeys.add(key); }
+        return EditableSheetItem(
+          key: ValueKey(itemKey),
+          index: index,
+          selected: _selectedKeys.contains(itemKey),
+          onSelectedChanged: (selected) => setState(() {
+            if (selected) {
+              _selectedKeys.add(itemKey);
+            } else {
+              _selectedKeys.remove(itemKey);
+            }
           }),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-            child: Row(children: [
-              Checkbox(
-                value: selected,
-                onChanged: (v) => setState(() {
-                  if (v == true) { _selectedKeys.add(key); } else { _selectedKeys.remove(key); }
-                }),
-                visualDensity: VisualDensity.compact,
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                width: 40, height: 40,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: coverUrl != null
-                      ? (coverUrl.startsWith('/')
-                          ? Image.file(File(coverUrl), fit: BoxFit.cover,
-                              errorBuilder: (_, __, ___) => _placeholder(cs))
-                          : Image.network(coverUrl, fit: BoxFit.cover,
-                              headers: lib.mediaHeaders,
-                              errorBuilder: (_, __, ___) => _placeholder(cs)))
-                      : _placeholder(cs),
+          title: episodeTitle ?? title,
+          subtitle: episodeTitle != null ? title : (author.isEmpty ? null : author),
+          leading: Stack(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: coverUrl != null
+                  ? (coverUrl.startsWith('/')
+                      ? Image.file(File(coverUrl), fit: BoxFit.cover,
+                          width: 36, height: 36,
+                          errorBuilder: (_, __, ___) => _placeholder(cs))
+                      : Image.network(coverUrl, fit: BoxFit.cover,
+                          width: 36, height: 36,
+                          headers: lib.mediaHeaders,
+                          errorBuilder: (_, __, ___) => _placeholder(cs)))
+                  : _placeholder(cs),
+            ),
+            if (PlayerSettings.showExplicitBadge && metadata['explicit'] == true)
+              Positioned(
+                top: 2, right: 2,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 0.5),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.85),
+                    borderRadius: BorderRadius.circular(3),
+                  ),
+                  child: Text(l.bookCardExplicitBadge, style: const TextStyle(color: Colors.white, fontSize: 7, fontWeight: FontWeight.w800)),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(episodeTitle ?? title, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: cs.onSurface)),
-                  Text(episodeTitle != null ? title : author, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
-                ],
-              )),
-            ]),
-          ),
+          ]),
         );
       },
     );
   }
 
   Widget _buildItemList(ColorScheme cs, TextTheme tt, LibraryProvider lib, List<dynamic> items, AppLocalizations l) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
-
     return ListView.builder(
       controller: widget.scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4).copyWith(bottom: 40),
@@ -637,7 +620,7 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
         final progressKey = episodeId != null ? '$libraryItemId-$episodeId' : libraryItemId;
         final progress = lib.getProgress(progressKey);
         final isFinished = lib.getProgressData(progressKey)?['isFinished'] == true;
-        final isDownloaded = DownloadService().isDownloaded(libraryItemId);
+        final isDownloaded = DownloadService().isDownloaded(progressKey);
 
         String? episodeTitle;
         if (episodeId != null) {
@@ -645,39 +628,21 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
         }
 
         final isOnAbsorbing = lib.isOnAbsorbingList(progressKey);
-        return Dismissible(
+        // Removing an item lives in the edit mode. It used to be a left swipe,
+        // which put an un-undoable server change one stray scroll away.
+        return SwipeAction(
           key: ValueKey('$libraryItemId-${episodeId ?? ''}'),
-          direction: DismissDirection.horizontal,
-          confirmDismiss: (direction) async {
-            if (direction == DismissDirection.startToEnd) {
-              if (isOnAbsorbing) return false;
-              await lib.addToAbsorbingQueue(progressKey);
-              lib.absorbingItemCache[progressKey] = Map<String, dynamic>.from(libraryItem);
-              HapticFeedback.mediumImpact();
-              if (context.mounted) {
-                showOverlayToast(context, Wording.of(context).playlistDetailAddedToAbsorbing(episodeTitle ?? title), icon: Icons.add_circle_outline_rounded);
-              }
-              return false;
-            }
-            // endToStart = delete
-            _removeItem(lib, libraryItemId, episodeId: episodeId);
-            return true;
-          },
-          background: Container(
-            alignment: Alignment.centerLeft,
-            padding: const EdgeInsets.only(left: 20),
-            decoration: BoxDecoration(
-              color: cs.primary.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Icon(Icons.add_circle_outline_rounded, color: cs.primary),
-          ),
-          secondaryBackground: Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            color: cs.error.withValues(alpha: 0.1),
-            child: Icon(Icons.delete_rounded, color: cs.error),
-          ),
+          onStartToEnd: isOnAbsorbing
+              ? null
+              : SwipeActionSpec(
+                  icon: Icons.add_circle_outline_rounded,
+                  color: cs.primary,
+                  onTrigger: () async {
+                    await addToAbsorbingWithPicker(context, progressKey,
+                        item: libraryItem,
+                        addedToast: Wording.of(context).playlistDetailAddedToAbsorbing(episodeTitle ?? title));
+                  },
+                ),
           child: Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Card(
@@ -720,33 +685,7 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
                         if (isFinished || isDownloaded)
                           Positioned(
                             left: 0, right: 0, bottom: 0,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                              decoration: BoxDecoration(
-                                gradient: LinearGradient(
-                                  begin: Alignment.bottomCenter,
-                                  end: Alignment.topCenter,
-                                  colors: [
-                                    Colors.black.withValues(alpha: 0.85),
-                                    Colors.black.withValues(alpha: 0.0),
-                                  ],
-                                ),
-                              ),
-                              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                if (isFinished)
-                                  Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                    Icon(Icons.check_circle_rounded, size: 10, color: doneColor),
-                                    const SizedBox(width: 3),
-                                    Text(l.playlistDetailDone, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: doneColor)),
-                                  ]),
-                                if (isDownloaded)
-                                  Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                    Icon(Icons.download_done_rounded, size: 10, color: cs.primary),
-                                    const SizedBox(width: 3),
-                                    Text(l.saved, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: cs.primary)),
-                                  ]),
-                              ]),
-                            ),
+                            child: CoverStateBadges(isDownloaded: isDownloaded, isFinished: isFinished),
                           ),
                       ]),
                     ),
@@ -779,17 +718,14 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
   }
 
   Widget _buildGrid(ColorScheme cs, TextTheme tt, LibraryProvider lib, List<dynamic> items, AppLocalizations l) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final doneColor = isDark ? Colors.greenAccent[400]! : Colors.green.shade700;
-
     return GridView.builder(
       controller: widget.scrollController,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4)
           .copyWith(bottom: 40),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        mainAxisSpacing: 12,
-        crossAxisSpacing: 12,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: coverGridCount(context),
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
         childAspectRatio: 0.62,
       ),
       itemCount: items.length,
@@ -809,7 +745,7 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
         final progressKey = episodeId != null ? '$libraryItemId-$episodeId' : libraryItemId;
         final progress = lib.getProgress(progressKey);
         final isFinished = lib.getProgressData(progressKey)?['isFinished'] == true;
-        final isDownloaded = DownloadService().isDownloaded(libraryItemId);
+        final isDownloaded = DownloadService().isDownloaded(progressKey);
 
         String? episodeTitle;
         if (episodeId != null) {
@@ -864,33 +800,7 @@ class _PlaylistDetailSheetState extends State<PlaylistDetailSheet> {
                     if (isFinished || isDownloaded)
                       Positioned(
                         left: 0, right: 0, bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [
-                                Colors.black.withValues(alpha: 0.85),
-                                Colors.black.withValues(alpha: 0.0),
-                              ],
-                            ),
-                          ),
-                          child: Column(mainAxisSize: MainAxisSize.min, children: [
-                            if (isFinished)
-                              Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.check_circle_rounded, size: 10, color: doneColor),
-                                const SizedBox(width: 3),
-                                Text(l.playlistDetailDone, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: doneColor)),
-                              ]),
-                            if (isDownloaded)
-                              Row(mainAxisAlignment: MainAxisAlignment.center, mainAxisSize: MainAxisSize.min, children: [
-                                Icon(Icons.download_done_rounded, size: 10, color: cs.primary),
-                                const SizedBox(width: 3),
-                                Text(l.saved, style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: cs.primary)),
-                              ]),
-                          ]),
-                        ),
+                        child: CoverStateBadges(isDownloaded: isDownloaded, isFinished: isFinished),
                       ),
                   ]),
                 ),

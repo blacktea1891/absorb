@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'overlay_toast.dart';
+import 'absorb_placement.dart';
+import 'swipe_action.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:provider/provider.dart';
 import 'package:cached_network_image/cached_network_image.dart';
@@ -12,6 +14,8 @@ import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
 import '../services/chromecast_service.dart';
 import '../providers/auth_provider.dart';
+import '../screens/admin_podcasts_screen.dart';
+import '../services/socket_service.dart';
 import 'card_buttons.dart';
 import 'html_description.dart';
 import 'stackable_sheet.dart';
@@ -24,17 +28,31 @@ export 'episode_detail_sheet.dart';
 class EpisodeListSheet extends StatefulWidget {
   final Map<String, dynamic> podcastItem;
   final ScrollController? scrollController;
+  final String? sourcePlaylistId;
+  final String? sourcePlaylistEpisodeId;
 
-  const EpisodeListSheet({super.key, required this.podcastItem})
+  const EpisodeListSheet({
+    super.key,
+    required this.podcastItem,
+    this.sourcePlaylistId,
+    this.sourcePlaylistEpisodeId,
+  })
       : scrollController = null;
 
   const EpisodeListSheet._({
     required this.podcastItem,
     required this.scrollController,
+    this.sourcePlaylistId,
+    this.sourcePlaylistEpisodeId,
   }) : super(key: null);
 
   /// Show the episode list as a modal bottom sheet.
-  static void show(BuildContext context, Map<String, dynamic> podcastItem) {
+  static void show(
+    BuildContext context,
+    Map<String, dynamic> podcastItem, {
+    String? sourcePlaylistId,
+    String? sourcePlaylistEpisodeId,
+  }) {
     showStackableSheet(
       context: context,
       useSafeArea: true,
@@ -43,6 +61,8 @@ class EpisodeListSheet extends StatefulWidget {
       builder: (_, scrollController) => EpisodeListSheet._(
         podcastItem: podcastItem,
         scrollController: scrollController,
+        sourcePlaylistId: sourcePlaylistId,
+        sourcePlaylistEpisodeId: sourcePlaylistEpisodeId,
       ),
     );
   }
@@ -52,21 +72,24 @@ class EpisodeListSheet extends StatefulWidget {
 }
 
 class _EpisodeListSheetState extends State<EpisodeListSheet> {
+  late Map<String, dynamic> _podcastItem;
   List<dynamic> _episodes = [];
   bool _isLoading = true;
   bool _isDownloadingAll = false;
   bool _autoDownloadEnabled = false;
   bool _subscribed = false;
-  bool _newestFirst = true;
+  String _newEpisodePosition = 'start';
+  String _sortMode = 'pubDate';
+  bool _sortAscending = false;
   bool _hideFinished = false;
   bool _selectMode = false;
   final Set<String> _selectedEpisodeIds = {};
   bool _isBatchUpdating = false;
 
-  String get _itemId => widget.podcastItem['id'] as String? ?? '';
+  String get _itemId => _podcastItem['id'] as String? ?? '';
 
   Map<String, dynamic> get _media =>
-      widget.podcastItem['media'] as Map<String, dynamic>? ?? {};
+      _podcastItem['media'] as Map<String, dynamic>? ?? {};
 
   Map<String, dynamic> get _metadata =>
       _media['metadata'] as Map<String, dynamic>? ?? {};
@@ -93,18 +116,76 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
   @override
   void initState() {
     super.initState();
+    _podcastItem = Map<String, dynamic>.from(widget.podcastItem);
     _loadSortOrder();
     _loadHideFinished();
     _loadEpisodes();
     _loadAutoDownloadState();
+    _loadNewEpisodePosition();
+    SocketService().addItemUpdatedListener(_onSocketItemUpdated);
+  }
+
+  @override
+  void dispose() {
+    SocketService().removeItemUpdatedListener(_onSocketItemUpdated);
+    _liveRefreshDebounce?.cancel();
+    super.dispose();
+  }
+
+  // Live-refresh the episode list when this show changes on the server, e.g.
+  // an episode download finishing or a new episode arriving via auto-download.
+  // Always fetches fresh - _loadEpisodes would early-return on the stale
+  // episode list already embedded in the sheet's item snapshot.
+  Timer? _liveRefreshDebounce;
+  void _onSocketItemUpdated(Map<String, dynamic> data) {
+    if (!mounted || data['id'] != _itemId) return;
+    _liveRefreshDebounce?.cancel();
+    _liveRefreshDebounce = Timer(const Duration(milliseconds: 800), () {
+      if (mounted) unawaited(_refreshShowFromServer());
+    });
+  }
+
+  Future<void> _refreshShowFromServer() async {
+    final lib = context.read<LibraryProvider>();
+    final api = context.read<AuthProvider>().apiService;
+    if (api == null || lib.isOffline) return;
+    final fullItem = await api.getLibraryItem(_itemId);
+    if (fullItem == null || !mounted) return;
+    final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+    final episodes = media['episodes'] as List<dynamic>? ?? [];
+    setState(() {
+      _podcastItem = Map<String, dynamic>.from(fullItem);
+      _episodes = _sortEpisodes(episodes);
+      _isLoading = false;
+    });
+  }
+
+  void _loadNewEpisodePosition() async {
+    if (_itemId.isEmpty) return;
+    final pos = await PlayerSettings.getPodcastNewEpisodePosition(_itemId);
+    if (mounted) setState(() => _newEpisodePosition = pos);
   }
 
   void _loadSortOrder() async {
     final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getBool('podcast_sort_newest_$_itemId');
-    if (saved != null && mounted) {
+    var mode = 'pubDate';
+    var ascending = false;
+    final saved = prefs.getString('podcast_sort_mode_$_itemId');
+    if (saved != null) {
+      final split = saved.lastIndexOf('_');
+      if (split > 0) {
+        mode = saved.substring(0, split);
+        ascending = saved.substring(split + 1) == 'asc';
+      }
+    } else {
+      final legacy = prefs.getBool('podcast_sort_newest_$_itemId');
+      if (legacy == null) return;
+      ascending = !legacy;
+    }
+    if (mounted) {
       setState(() {
-        _newestFirst = saved;
+        _sortMode = mode;
+        _sortAscending = ascending;
         _episodes = _sortEpisodes(_episodes);
       });
     }
@@ -147,6 +228,9 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       final media = fullItem['media'] as Map<String, dynamic>? ?? {};
       final episodes = media['episodes'] as List<dynamic>? ?? [];
       setState(() {
+        // Adopt the full item so a synthetic/lean map from the caller gets
+        // real metadata (title, description) once the fetch lands.
+        _podcastItem = Map<String, dynamic>.from(fullItem);
         _episodes = _sortEpisodes(episodes);
         _isLoading = false;
       });
@@ -155,13 +239,49 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
     }
   }
 
-  /// Sort episodes by publishedAt according to current sort order.
+  /// Sort episodes by the current mode; ties fall back to newest first so
+  /// shows with missing numbers or identical dates keep a sensible order.
   List<dynamic> _sortEpisodes(List<dynamic> episodes) {
+    int epInt(Map<String, dynamic> ep, String key) =>
+        int.tryParse((ep[key] as String? ?? '').trim()) ?? 0;
+    String fileName(Map<String, dynamic> ep) =>
+        (((ep['audioFile'] as Map<String, dynamic>?)?['metadata']
+                    as Map<String, dynamic>?)?['filename'] as String? ??
+                '')
+            .toLowerCase();
+    int published(Map<String, dynamic> ep) =>
+        (ep['publishedAt'] as num?)?.toInt() ?? 0;
+
     final sorted = List<dynamic>.from(episodes);
     sorted.sort((a, b) {
-      final aTime = (a['publishedAt'] as num?)?.toInt() ?? 0;
-      final bTime = (b['publishedAt'] as num?)?.toInt() ?? 0;
-      return _newestFirst ? bTime.compareTo(aTime) : aTime.compareTo(bTime);
+      final ma = a as Map<String, dynamic>;
+      final mb = b as Map<String, dynamic>;
+      int c;
+      switch (_sortMode) {
+        case 'title':
+          c = (ma['title'] as String? ?? '')
+              .toLowerCase()
+              .compareTo((mb['title'] as String? ?? '').toLowerCase());
+          break;
+        case 'season':
+          c = epInt(ma, 'season').compareTo(epInt(mb, 'season'));
+          if (c == 0) c = epInt(ma, 'episode').compareTo(epInt(mb, 'episode'));
+          break;
+        case 'episode':
+          c = epInt(ma, 'episode').compareTo(epInt(mb, 'episode'));
+          break;
+        case 'fileName':
+          c = fileName(ma).compareTo(fileName(mb));
+          break;
+        default:
+          c = published(ma).compareTo(published(mb));
+      }
+      if (!_sortAscending) c = -c;
+      if (c == 0) c = published(mb).compareTo(published(ma));
+      if (c == 0) {
+        c = (ma['id'] as String? ?? '').compareTo(mb['id'] as String? ?? '');
+      }
+      return c;
     });
     return sorted;
   }
@@ -179,14 +299,120 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
     });
   }
 
-  void _toggleSortOrder() {
+  void _applySort(String mode) {
     setState(() {
-      _newestFirst = !_newestFirst;
+      if (_sortMode == mode) {
+        _sortAscending = !_sortAscending;
+      } else {
+        _sortMode = mode;
+        _sortAscending = mode != 'pubDate';
+      }
       _episodes = _sortEpisodes(_episodes);
     });
     SharedPreferences.getInstance().then((prefs) {
-      prefs.setBool('podcast_sort_newest_$_itemId', _newestFirst);
+      prefs.setString('podcast_sort_mode_$_itemId',
+          '${_sortMode}_${_sortAscending ? 'asc' : 'desc'}');
     });
+  }
+
+  String _sortLabel(AppLocalizations l) {
+    switch (_sortMode) {
+      case 'title':
+        return l.episodeListSortTitle;
+      case 'season':
+        return l.episodeListSortSeason;
+      case 'episode':
+        return l.episodeListSortEpisode;
+      case 'fileName':
+        return l.episodeListSortFileName;
+      default:
+        return _sortAscending ? l.episodeListSortOldest : l.episodeListSortNewest;
+    }
+  }
+
+  void _showSortPicker() {
+    final l = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
+    final options = <String, String>{
+      'pubDate': l.episodeListSortPubDate,
+      'title': l.episodeListSortTitle,
+      'season': l.episodeListSortSeason,
+      'episode': l.episodeListSortEpisode,
+      'fileName': l.episodeListSortFileName,
+    };
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(l.episodeListSortBy,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+            ),
+            for (final entry in options.entries)
+              ListTile(
+                leading: Icon(
+                  _sortMode == entry.key
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: _sortMode == entry.key ? cs.primary : cs.onSurfaceVariant,
+                ),
+                title: Text(entry.value),
+                subtitle: _sortMode == entry.key
+                    ? Text(l.episodeListSortReverseHint,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: cs.onSurfaceVariant))
+                    : null,
+                trailing: _sortMode == entry.key
+                    ? Icon(
+                        _sortAscending
+                            ? Icons.arrow_upward_rounded
+                            : Icons.arrow_downward_rounded,
+                        size: 18,
+                        color: cs.primary)
+                    : null,
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _applySort(entry.key);
+                },
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  String? _playlistSourceForEpisode(String episodeId) {
+    if (widget.sourcePlaylistEpisodeId != episodeId) return null;
+    return widget.sourcePlaylistId;
+  }
+
+  Future<void> _activateQueueSource(String episodeId) async {
+    final playlistId = _playlistSourceForEpisode(episodeId);
+    if (playlistId != null && playlistId.isNotEmpty) {
+      await PlayerSettings.setQueueModePlaylist(playlistId);
+    }
+  }
+
+  Future<void> _restoreActivatedQueueSource(
+      String episodeId, QueueModeSnapshot backup) async {
+    final playlistId = _playlistSourceForEpisode(episodeId);
+    if (playlistId != null && playlistId.isNotEmpty) {
+      await PlayerSettings.restoreQueueModeIfPlaylistActive(playlistId, backup);
+    }
   }
 
   Future<void> _batchMarkFinished(bool finished) async {
@@ -224,6 +450,7 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
           duration: duration,
           isFinished: false,
         );
+        await lib.markNotFinishedLocally(key);
       }
     }
 
@@ -235,14 +462,13 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
         _selectedEpisodeIds.clear();
       });
       final l = AppLocalizations.of(context)!;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(finished
+      showOverlayToast(
+        context,
+        finished
             ? l.episodeListMarkedFinished(ids.length)
-            : l.episodeListMarkedUnfinished(ids.length)),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ));
+            : l.episodeListMarkedUnfinished(ids.length),
+        icon: finished ? Icons.check_circle_rounded : Icons.replay_rounded,
+      );
     }
   }
 
@@ -276,6 +502,9 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       return;
     }
 
+    final lib = context.read<LibraryProvider>();
+    final queueModeBackup = await PlayerSettings.queueModeSnapshot();
+    await _activateQueueSource(episodeId);
     final player = AudioPlayerService();
     final error = await player.playItem(
       api: api,
@@ -287,9 +516,20 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       chapters: chapters,
       episodeId: episodeId,
       episodeTitle: episodeTitle,
+      // The show's own library, not the browsing library - with unified
+      // libraries on, this sheet can open shows from other libraries and the
+      // selected library would pin the wrong per-library skip amounts. Null
+      // is fine: the player resolves it from the session/server.
+      libraryId: _podcastItem['libraryId'] as String?,
+      fromUi: true,
     );
+    if (error == null) {
+      unawaited(lib.syncQueueAutoDownloads());
+    } else {
+      unawaited(_restoreActivatedQueueSource(episodeId, queueModeBackup));
+    }
     if (mounted) {
-      if (error != null) showErrorSnackBar(context, error);
+      if (error != null) showErrorToast(context, error);
       Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst);
     }
   }
@@ -311,7 +551,8 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       author: _title,
       coverUrl: coverUrl,
       episodeId: episodeId,
-      libraryId: context.read<LibraryProvider>().selectedLibraryId,
+      libraryId: _podcastItem['libraryId'] as String? ??
+          context.read<LibraryProvider>().selectedLibraryId,
     );
 
     if (error != null && mounted) {
@@ -340,7 +581,8 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
       );
       if (enable == true && mounted) {
         final lib = context.read<LibraryProvider>();
-        await lib.enableRollingDownload(_itemId);
+        await lib.enableRollingDownload(_itemId,
+            name: _title, kind: 'podcast');
         setState(() => _autoDownloadEnabled = true);
       }
     }
@@ -397,6 +639,7 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
 
   void _showPodcastMoreSheet(ColorScheme cs, bool allDownloaded, int downloaded) {
     final l = AppLocalizations.of(context)!;
+    final isAdmin = context.read<AuthProvider>().isAdmin;
     showModalBottomSheet(
       context: context,
       backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
@@ -423,7 +666,8 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
                     onTap: () async {
                       Navigator.pop(ctx);
                       final lib = context.read<LibraryProvider>();
-                      await lib.toggleRollingDownload(_itemId);
+                      await lib.toggleRollingDownload(_itemId,
+                          name: _title, kind: 'podcast');
                       setState(() => _autoDownloadEnabled = lib.isRollingDownloadEnabled(_itemId));
                     }),
                 if (_itemId.isNotEmpty)
@@ -453,18 +697,106 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
                           final lib = context.read<LibraryProvider>();
                           await lib.subscribePodcast(_itemId);
                           setState(() => _subscribed = true);
+                          // Surface where new episodes will land right after
+                          // subscribing; the position pill lets them change it
+                          // later.
+                          if (mounted) _showNewEpisodePositionPicker();
                         }
                       }
                     }),
+                if (_itemId.isNotEmpty && _subscribed)
+                  ActionPillData(
+                    icon: Icons.low_priority_rounded,
+                    label: l.episodeListNewEpisodePosition,
+                    onTap: () { Navigator.pop(ctx); _showNewEpisodePositionPicker(); }),
                 ActionPillData(
                   icon: _hideFinished ? Icons.visibility_rounded : Icons.visibility_off_rounded,
                   label: _hideFinished ? l.episodeListShowFinishedEpisodes : l.episodeListHideFinishedEpisodes,
                   onTap: () { Navigator.pop(ctx); _toggleHideFinished(); }),
+                if (isAdmin && _itemId.isNotEmpty)
+                  ActionPillData(
+                    icon: Icons.settings_rounded,
+                    label: l.episodeListShowSettings,
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      final libraryId = _podcastItem['libraryId'] as String? ??
+                          context.read<LibraryProvider>().selectedLibraryId ??
+                          '';
+                      unawaited(showPodcastAdminSettings(
+                        context,
+                        item: _podcastItem,
+                        libraryId: libraryId,
+                        onChanged: () => unawaited(_refreshShowFromServer()),
+                      ));
+                    }),
               ]),
             ]),
           ),
         );
       },
+    );
+  }
+
+  void _showNewEpisodePositionPicker() {
+    final l = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
+    // 'none' keeps everything else about the subscription - new-episode
+    // detection, the notification, the download - and only skips the queue,
+    // for people subscribed to enough shows that it buries the rest.
+    final options = <String, ({String title, String? subtitle})>{
+      'start': (title: l.episodeListPositionTop, subtitle: null),
+      'second': (title: l.episodeListPositionSecond, subtitle: null),
+      'end': (title: l.episodeListPositionEnd, subtitle: null),
+      'none': (
+        title: l.episodeListPositionNone,
+        subtitle: l.episodeListPositionNoneDesc
+      ),
+    };
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(8, 8, 8, 16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Center(child: Container(width: 40, height: 4, margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(color: cs.onSurface.withValues(alpha: 0.24), borderRadius: BorderRadius.circular(2)))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(l.episodeListNewEpisodePosition,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600)),
+              ),
+            ),
+            for (final entry in options.entries)
+              ListTile(
+                leading: Icon(
+                  _newEpisodePosition == entry.key
+                      ? Icons.radio_button_checked_rounded
+                      : Icons.radio_button_unchecked_rounded,
+                  color: _newEpisodePosition == entry.key ? cs.primary : cs.onSurfaceVariant,
+                ),
+                title: Text(entry.value.title),
+                subtitle: entry.value.subtitle == null
+                    ? null
+                    : Text(entry.value.subtitle!,
+                        style: Theme.of(context)
+                            .textTheme
+                            .bodySmall
+                            ?.copyWith(color: cs.onSurfaceVariant)),
+                onTap: () async {
+                  Navigator.pop(ctx);
+                  await PlayerSettings.setPodcastNewEpisodePosition(_itemId, entry.key);
+                  if (mounted) setState(() => _newEpisodePosition = entry.key);
+                },
+              ),
+          ]),
+        ),
+      ),
     );
   }
 
@@ -632,14 +964,14 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
                     ),
                     const SizedBox(width: 4),
                     GestureDetector(
-                      onTap: _toggleSortOrder,
+                      onTap: _showSortPicker,
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(_newestFirst ? l.episodeListSortNewest : l.episodeListSortOldest,
+                          Text(_sortLabel(l),
                             style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.6))),
                           const SizedBox(width: 2),
-                          Icon(_newestFirst ? Icons.arrow_downward_rounded : Icons.arrow_upward_rounded,
+                          Icon(_sortAscending ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded,
                             size: 14, color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
                         ],
                       ),
@@ -718,37 +1050,31 @@ class _EpisodeListSheetState extends State<EpisodeListSheet> {
                             final absorbKey = '$_itemId-$epId';
                             final isOnAbsorbing = lib.isOnAbsorbingList(absorbKey);
                             final epTitle = ep['title'] as String? ?? l.episodeListEpisodeFallback;
-                            return Dismissible(
+                            return SwipeAction(
                               key: ValueKey('absorb-$absorbKey'),
-                              direction: isOnAbsorbing ? DismissDirection.none : DismissDirection.startToEnd,
-                              confirmDismiss: (_) async {
-                                await lib.addToAbsorbingQueue(absorbKey);
-                                final cached = Map<String, dynamic>.from(widget.podcastItem);
-                                cached['recentEpisode'] = Map<String, dynamic>.from(ep);
-                                cached['_absorbingKey'] = absorbKey;
-                                lib.absorbingItemCache[absorbKey] = cached;
-                                HapticFeedback.mediumImpact();
-                                if (context.mounted) {
-                                  showOverlayToast(context, Wording.of(context).episodeListAddedToAbsorbing(epTitle), icon: Icons.add_circle_outline_rounded);
-                                }
-                                return false;
-                              },
-                              background: Container(
-                                alignment: Alignment.centerLeft,
-                                padding: const EdgeInsets.only(left: 20),
-                                decoration: BoxDecoration(
-                                  color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: Icon(Icons.add_circle_outline_rounded, color: Theme.of(context).colorScheme.primary),
-                              ),
+                              onStartToEnd: isOnAbsorbing
+                                  ? null
+                                  : SwipeActionSpec(
+                                      icon: Icons.add_circle_outline_rounded,
+                                      color: Theme.of(context).colorScheme.primary,
+                                      onTrigger: () async {
+                                        await addToAbsorbingWithPicker(context, absorbKey,
+                                            item: {
+                                              ..._podcastItem,
+                                              'recentEpisode': Map<String, dynamic>.from(ep),
+                                            },
+                                            addedToast: Wording.of(context).episodeListAddedToAbsorbing(epTitle));
+                                      },
+                                    ),
                               child: EpisodeRow(
                                 episode: ep,
-                                podcastItem: widget.podcastItem,
+                                podcastItem: _podcastItem,
                                 itemId: _itemId,
                                 podcastTitle: _title,
                                 onPlay: () => _playEpisode(ep),
                                 onDownload: () => _downloadEpisode(ep),
+                                sourcePlaylistId:
+                                    _playlistSourceForEpisode(epId),
                               ),
                             );
                           },

@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive now-playing widget: full-bleed cover. At 1x1 it's cover + a
+     centered play/pause tap target. Resize it larger and a notification-style
+     player panel (title / author / chapter / progress / transport) fades in
+     over the bottom of the cover; rows appear as there's room for them. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_outer"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:paddingStart="5dp"
+    android:paddingEnd="5dp"
+    android:paddingTop="5dp"
+    android:paddingBottom="5dp">
+
+<FrameLayout
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_background"
+    android:clipToOutline="true">
+
+    <ImageView
+        android:id="@+id/widget_cover"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:src="@mipmap/ic_launcher"
+        android:contentDescription="Cover art" />
+
+    <!-- Tiny-size indicator: reflects state; the whole tile is the tap target -->
+    <ImageView
+        android:id="@+id/widget_play_pause"
+        android:layout_width="48dp"
+        android:layout_height="40dp"
+        android:layout_gravity="center"
+        android:padding="9dp"
+        android:src="@drawable/ic_widget_play_dark"
+        android:background="@drawable/widget_play_btn_bg"
+        android:scaleType="centerInside"
+        android:contentDescription="Play or pause" />
+
+    <ProgressBar
+        android:id="@+id/widget_play_pending_tile"
+        style="?android:attr/progressBarStyleSmall"
+        android:layout_width="18dp"
+        android:layout_height="18dp"
+        android:layout_gravity="center"
+        android:indeterminate="true"
+        android:indeterminateTint="#1A1A1A"
+        android:visibility="gone" />
+
+    <!-- Player panel pinned to the bottom of the cover. The scrim is the panel's
+         own background so it always wraps whatever rows are visible. -->
+    <LinearLayout
+        android:id="@+id/widget_panel"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:background="@drawable/widget_controls_scrim"
+        android:paddingTop="22dp"
+        android:paddingBottom="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/widget_title"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:textColor="#FFFFFFFF"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:fontFamily="sans-serif-medium"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/widget_author"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:textColor="#CCFFFFFF"
+            android:textSize="12sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/widget_chapter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:paddingTop="1dp"
+            android:textColor="#99FFFFFF"
+            android:textSize="11sp"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:visibility="gone" />
+
+        <!-- Progress row: elapsed / remaining clocks flank the bar on wide
+             widgets. The bar is drawn as a bitmap (see drawProgressBar): a
+             static Android-Auto-style squiggle while playing, flat when
+             paused. fitXY fills the row width exactly, so the played
+             fraction lines up regardless of our width estimate. -->
+        <LinearLayout
+            android:id="@+id/widget_progress_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="2dp"
+            android:paddingStart="18dp"
+            android:paddingEnd="18dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/widget_time_elapsed"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="8dp"
+                android:textColor="#CCFFFFFF"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"
+                android:visibility="gone" />
+
+            <ImageView
+                android:id="@+id/widget_progress"
+                android:layout_width="0dp"
+                android:layout_height="12dp"
+                android:layout_weight="1"
+                android:scaleType="fitXY"
+                android:contentDescription="Progress" />
+
+            <TextView
+                android:id="@+id/widget_time_remaining"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="#CCFFFFFF"
+                android:textSize="10sp"
+                android:fontFamily="sans-serif-medium"
+                android:visibility="gone" />
+
+        </LinearLayout>
+
+        <!-- Transport row: skip buttons pushed toward the edges, play/pause
+             centered. Weighted so the cluster spreads across the full width. -->
+        <LinearLayout
+            android:id="@+id/widget_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <!-- Skip back: arrow icon with duration overlay -->
+            <FrameLayout
+                android:id="@+id/widget_skip_back"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:contentDescription="Skip backward">
+                <ImageView
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_widget_skip_back"
+                    android:scaleType="centerInside" />
+                <TextView
+                    android:id="@+id/widget_skip_back_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_marginTop="2dp"
+                    android:text="10"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-medium" />
+            </FrameLayout>
+
+            <!-- Play/pause: white circle with dark icon -->
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content">
+                <ImageButton
+                    android:id="@+id/widget_pp"
+                    android:layout_width="84dp"
+                    android:layout_height="52dp"
+                    android:padding="12dp"
+                    android:src="@drawable/ic_widget_play_dark"
+                    android:background="@drawable/widget_play_btn_bg"
+                    android:contentDescription="Play or pause"
+                    android:scaleType="centerInside" />
+                <ProgressBar
+                    android:id="@+id/widget_play_pending"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:layout_gravity="center"
+                    android:indeterminate="true"
+                    android:indeterminateTint="#1A1A1A"
+                    android:visibility="gone" />
+            </FrameLayout>
+
+            <!-- Skip forward: arrow icon with duration overlay -->
+            <FrameLayout
+                android:id="@+id/widget_skip_forward"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:contentDescription="Skip forward">
+                <ImageView
+                    android:layout_width="34dp"
+                    android:layout_height="34dp"
+                    android:layout_gravity="center"
+                    android:src="@drawable/ic_widget_skip_forward"
+                    android:scaleType="centerInside" />
+                <TextView
+                    android:id="@+id/widget_skip_forward_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center"
+                    android:layout_marginTop="2dp"
+                    android:text="30"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="9sp"
+                    android:textStyle="bold"
+                    android:fontFamily="sans-serif-medium" />
+            </FrameLayout>
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+</FrameLayout>
+</FrameLayout>

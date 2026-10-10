@@ -56,7 +56,7 @@ class _CardEdgeProgressBarState extends State<CardEdgeProgressBar>
   double _dragStartDy = 0;
   double _lastLongPressDx = 0;
   double _edgeScrubSpeed = 1.0;
-  bool _showBookSlider = false;
+  CardScrubberMode _scrubberMode = CardScrubberMode.chapter;
 
   static const _thinHeight = 3.5;
   static const _expandedHeight = 50.0;
@@ -83,9 +83,9 @@ class _CardEdgeProgressBarState extends State<CardEdgeProgressBar>
     PlayerSettings.getSpeedAdjustedTime().then((v) {
       if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
     });
-    PlayerSettings.getShowBookSlider().then((v) {
-      if (mounted && v != _showBookSlider) {
-        setState(() => _showBookSlider = v);
+    PlayerSettings.getCardScrubberMode().then((mode) {
+      if (mounted && mode != _scrubberMode) {
+        setState(() => _scrubberMode = mode);
       }
     });
   }
@@ -197,6 +197,13 @@ class _CardEdgeProgressBarState extends State<CardEdgeProgressBar>
     if (seekTarget != null && (seekTarget - _lastKnownPos).abs() > 2.0) {
       return seekTarget;
     }
+    // Paused while active: trust the engine's real position (the position
+    // stream only ticks during playback, so a stale seed could leave the bar
+    // ahead of reality until the next play).
+    if (widget.isActive && !_isPlaying) {
+      final realPos = widget.player.position.inMilliseconds / 1000.0;
+      if (realPos > 0) return realPos;
+    }
     if (!widget.isActive || !_isPlaying) return _lastKnownPos;
     final elapsed = DateTime.now().difference(_lastPosTime).inMilliseconds / 1000.0;
     return _lastKnownPos + elapsed * _currentSpeed;
@@ -277,7 +284,7 @@ class _CardEdgeProgressBarState extends State<CardEdgeProgressBar>
         final barHeight = lerpDouble(_thinHeight, 8.0, expandT)!;
         final displayProgress = _dragValue ?? bookProgress;
 
-        final interactive = active && _showBookSlider;
+        final interactive = active && _scrubberMode.allowsBookSeeking;
         return GestureDetector(
           behavior: HitTestBehavior.translucent,
           onHorizontalDragStart: interactive ? (d) {

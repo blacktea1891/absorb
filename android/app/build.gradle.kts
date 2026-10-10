@@ -18,6 +18,10 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
@@ -43,6 +47,12 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        resValue("string", "app_name", "Absorb")
+        buildConfigField(
+            "int",
+            "ABSORB_BASE_VERSION_CODE",
+            flutter.versionCode.toString()
+        )
     }
 
     flavorDimensions += "distribution"
@@ -59,6 +69,14 @@ android {
             dimension = "distribution"
             proguardFiles("proguard-flutter-keep.pro")
         }
+        // Local testing build that installs beside the stable app: its own
+        // application id, name and icon tint, otherwise the github build.
+        create("dev") {
+            dimension = "distribution"
+            applicationIdSuffix = ".dev"
+            resValue("string", "app_name", "Absorb Dev")
+            proguardFiles("proguard-flutter-keep.pro")
+        }
         // GMS-free build for F-Droid: no Chromecast, Wear bridge, or in-app updater.
         create("fdroid") {
             dimension = "distribution"
@@ -72,6 +90,7 @@ android {
     sourceSets {
         getByName("github").java.srcDir("src/gms/kotlin")
         getByName("playstore").java.srcDir("src/gms/kotlin")
+        getByName("dev").java.srcDir("src/gms/kotlin")
     }
 
     buildTypes {
@@ -89,21 +108,41 @@ android {
     }
 }
 
-    // F-Droid builds one APK per ABI. Put the ABI in the lowest digit of the
-    // version code so a newer version always outranks an older one on every
-    // ABI (Flutter's own split scheme puts the ABI in the highest digit, which
-    // breaks F-Droid's update ordering). Universal builds have no ABI filter
-    // and keep the plain version code.
+    // F-Droid builds one APK per ABI and its recipe declares each build's code
+    // as versionCode * 10 + abiCode, so that scheme has to stay exactly as it
+    // is: flattening it would fail F-Droid's build and strand everyone already
+    // installed on a higher code, since F-Droid never offers a lower one.
+    // (Flutter's own split scheme puts the ABI in the highest digit, which
+    // breaks F-Droid's update ordering, hence the override in the first place.)
+    //
+    // Everywhere else every APK keeps the plain build number, so the universal
+    // APK and the per-ABI ones install over each other in either direction.
     val abiCodes = mapOf("armeabi-v7a" to 1, "arm64-v8a" to 2, "x86_64" to 3)
     applicationVariants.all {
         val variant = this
         outputs.all {
             val output = this as com.android.build.gradle.internal.api.ApkVariantOutputImpl
-            val abiCode = abiCodes[output.filters.find { it.filterType == "ABI" }?.identifier]
+            val abi = output.filters.find { it.filterType == "ABI" }?.identifier
+            val abiCode = abiCodes[abi]
             if (abiCode != null) {
-                output.versionCodeOverride = variant.versionCode * 10 + abiCode
+                output.versionCodeOverride = if (variant.flavorName == "fdroid") {
+                    variant.versionCode * 10 + abiCode
+                } else {
+                    // Flutter's split plugin already set abi * 1000 + code here,
+                    // so the plain build number has to be written back over it.
+                    variant.versionCode
+                }
             }
-            output.outputFileName = "absorb-${variant.versionName}-${output.versionCode}.apk"
+            // "all-universal" rather than "universal" so the every-ABI APK sorts
+            // above arm64-v8a/armeabi-v7a in the release asset list. Updaters
+            // built before 1.9.3+228 just take the first .apk they find, so the
+            // one that installs anywhere has to be the one they land on. The
+            // word "universal" stays in the name because newer updaters match it
+            // as a token when no per-ABI build fits.
+            val packageKind = abi ?: "all-universal"
+            val flavorTag = if (variant.flavorName == "dev") "-dev" else ""
+            output.outputFileName =
+                "absorb-${variant.versionName}-${variant.versionCode}$flavorTag-$packageKind.apk"
         }
     }
 }
@@ -114,6 +153,15 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    testImplementation("junit:junit:4.13.2")
+
+    // SAF document moves for custom download folders (MainActivity.moveBookToSaf).
+    implementation("androidx.documentfile:documentfile:1.0.1")
+
+    // Baseline armv8-a whisper engine for CPUs without dotprod/fp16 (Boox
+    // Palma and friends); the plugin's Dart side picks it over the fast lib
+    // at runtime.
+    implementation(project(":whisper_ggml_plus_compat"))
 
     // Google Play Services — Chromecast + Wearable Data Layer (pushes ABS
     // session credentials to the paired Wear OS app so the watch can sign in
@@ -127,6 +175,7 @@ dependencies {
     gmsImpl.forEach {
         add("githubImplementation", it)
         add("playstoreImplementation", it)
+        add("devImplementation", it)
     }
 }
 

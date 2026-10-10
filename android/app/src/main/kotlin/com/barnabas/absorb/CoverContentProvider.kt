@@ -11,13 +11,14 @@ import android.util.Log
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import org.json.JSONObject
 
 /**
  * ContentProvider that serves cover images to Android Auto.
  *
  * Android Auto cannot load HTTP or file:// URIs directly — it requires
  * content:// URIs.  This provider maps:
- *   content://com.barnabas.absorb.covers/cover/<itemId>
+ *   content://<applicationId>.covers/cover/<itemId>
  *
  * Lookup order:
  *   1. Locally downloaded cover (item's download directory)
@@ -27,11 +28,16 @@ import java.net.URL
 class CoverContentProvider : ContentProvider() {
 
     companion object {
-        const val AUTHORITY = "com.barnabas.absorb.covers"
         private const val TAG = "CoverProvider"
+        private val refreshLock = Any()
 
-        fun buildCoverUri(itemId: String): Uri {
-            return Uri.parse("content://$AUTHORITY/cover/$itemId")
+        // Per install: the dev flavor sits beside the stable app under its own
+        // application id, and two apps can't share a provider authority.
+        fun authority(context: android.content.Context): String =
+            "${context.packageName}.covers"
+
+        fun buildCoverUri(context: android.content.Context, itemId: String): Uri {
+            return Uri.parse("content://${authority(context)}/cover/$itemId")
         }
     }
 
@@ -99,6 +105,9 @@ class CoverContentProvider : ContentProvider() {
             val prefs = context.getSharedPreferences(
                 "FlutterSharedPreferences", android.content.Context.MODE_PRIVATE
             )
+            if (prefs.getString("flutter.server_backend", null) == "bookorbit") {
+                return fetchViaBookOrbitProxy(context, prefs, itemId)
+            }
             val serverUrl = prefs.getString("flutter.server_url", null)
             var token = prefs.getString("flutter.token", null)
             if (serverUrl.isNullOrEmpty() || token.isNullOrEmpty()) {
@@ -107,17 +116,18 @@ class CoverContentProvider : ContentProvider() {
             }
 
             val cleanUrl = serverUrl.trimEnd('/')
+            val customHeaders = readCustomHeaders(prefs)
             val cacheDir = File(context.cacheDir, "aa_covers")
             if (!cacheDir.exists()) cacheDir.mkdirs()
             val cacheFile = File(cacheDir, "$itemId.jpg")
 
-            var result = fetchCover(cleanUrl, itemId, token, cacheFile)
+            var result = fetchCover(cleanUrl, itemId, token, cacheFile, customHeaders)
             if (result == 401) {
                 // Access token expired - try refreshing via the refresh token
-                val newToken = refreshAccessToken(cleanUrl, prefs)
+                val newToken = refreshAccessToken(cleanUrl, token, prefs, customHeaders)
                 if (newToken != null) {
                     token = newToken
-                    result = fetchCover(cleanUrl, itemId, token, cacheFile)
+                    result = fetchCover(cleanUrl, itemId, token, cacheFile, customHeaders)
                 }
             }
 
@@ -133,12 +143,63 @@ class CoverContentProvider : ContentProvider() {
         }
     }
 
-    private fun fetchCover(serverUrl: String, itemId: String, token: String, outFile: File): Int {
+    // BookOrbit covers need a Bearer header and its refresh tokens are single
+    // use, so they come through the app's loopback proxy, which owns the
+    // session. Nothing here touches the tokens.
+    private fun fetchViaBookOrbitProxy(
+        context: android.content.Context,
+        prefs: android.content.SharedPreferences,
+        itemId: String,
+    ): File? {
+        val port = try {
+            prefs.getLong("flutter.bookorbit_proxy_port", 0L)
+        } catch (e: ClassCastException) {
+            0L
+        }
+        val secret = prefs.getString("flutter.bookorbit_proxy_secret", null)
+        if (port <= 0L || secret.isNullOrEmpty()) {
+            Log.w(TAG, "BookOrbit proxy not set up - cannot fetch cover")
+            return null
+        }
+        val cacheDir = File(context.cacheDir, "aa_covers")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+        val cacheFile = File(cacheDir, "$itemId.jpg")
+        val connection = URL("http://127.0.0.1:$port/$secret/api/v1/books/$itemId/cover?medium=audio")
+            .openConnection() as HttpURLConnection
+        connection.connectTimeout = 3000
+        connection.readTimeout = 8000
+        try {
+            if (connection.responseCode != 200) {
+                Log.w(TAG, "BookOrbit cover fetch failed: HTTP ${connection.responseCode} for $itemId")
+                return null
+            }
+            connection.inputStream.use { input ->
+                cacheFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "BookOrbit cover fetch error for $itemId: ${e.message}")
+            cacheFile.delete()
+            return null
+        } finally {
+            connection.disconnect()
+        }
+        return if (cacheFile.length() > 0) cacheFile else null
+    }
+
+    private fun fetchCover(
+        serverUrl: String,
+        itemId: String,
+        token: String,
+        outFile: File,
+        customHeaders: Map<String, String>,
+    ): Int {
         val fetchUrl = "$serverUrl/api/items/$itemId/cover?width=400&token=$token"
         val connection = URL(fetchUrl).openConnection() as HttpURLConnection
         connection.connectTimeout = 5000
         connection.readTimeout = 5000
         connection.instanceFollowRedirects = true
+        connection.setRequestProperty("User-Agent", "Absorb Android Auto")
+        customHeaders.forEach { (key, value) -> connection.setRequestProperty(key, value) }
         try {
             val code = connection.responseCode
             if (code != 200) {
@@ -158,40 +219,47 @@ class CoverContentProvider : ContentProvider() {
 
     private fun refreshAccessToken(
         serverUrl: String,
-        prefs: android.content.SharedPreferences
-    ): String? {
+        staleAccessToken: String,
+        prefs: android.content.SharedPreferences,
+        customHeaders: Map<String, String>,
+    ): String? = synchronized(refreshLock) {
+        // Flutter or another provider request may have completed the rotation
+        // while this cover request was receiving its 401.
+        val latestAccess = prefs.getString("flutter.token", null)
+        if (!latestAccess.isNullOrEmpty() && latestAccess != staleAccessToken) {
+            return@synchronized latestAccess
+        }
+
         val refreshToken = prefs.getString("flutter.refresh_token", null)
         if (refreshToken.isNullOrEmpty()) {
             Log.w(TAG, "No refresh token available")
-            return null
+            return@synchronized null
         }
         try {
-            val connection = URL("$serverUrl/api/authorize").openConnection() as HttpURLConnection
+            val connection = URL("$serverUrl/auth/refresh").openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
-            connection.setRequestProperty("Authorization", "Bearer $refreshToken")
-            connection.setRequestProperty("x-return-tokens", "true")
+            connection.setRequestProperty("x-refresh-token", refreshToken)
+            connection.setRequestProperty("User-Agent", "Absorb Android Auto")
+            customHeaders.forEach { (key, value) -> connection.setRequestProperty(key, value) }
             try {
                 if (connection.responseCode != 200) {
                     Log.w(TAG, "Token refresh failed: HTTP ${connection.responseCode}")
-                    return null
+                    return@synchronized null
                 }
                 val body = connection.inputStream.bufferedReader().readText()
-                // Simple JSON parsing - extract accessToken and refreshToken
-                val newAccess = extractJsonString(body, "accessToken")
-                val newRefresh = extractJsonString(body, "refreshToken")
-                if (newAccess != null) {
-                    prefs.edit()
-                        .putString("flutter.token", newAccess)
-                        .apply()
-                    if (newRefresh != null) {
-                        prefs.edit()
-                            .putString("flutter.refresh_token", newRefresh)
-                            .apply()
-                    }
+                val tokens = parseCoverRefreshTokens(body)
+                if (tokens != null) {
+                    // Commit the rotating pair together so no reader can see a
+                    // new access token paired with the spent refresh token.
+                    val saved = prefs.edit()
+                        .putString("flutter.token", tokens.accessToken)
+                        .putString("flutter.refresh_token", tokens.refreshToken)
+                        .commit()
+                    if (!saved) return@synchronized null
                     Log.d(TAG, "Token refreshed successfully from CoverContentProvider")
-                    return newAccess
+                    return@synchronized tokens.accessToken
                 }
             } finally {
                 connection.disconnect()
@@ -199,13 +267,25 @@ class CoverContentProvider : ContentProvider() {
         } catch (e: Exception) {
             Log.e(TAG, "Token refresh error", e)
         }
-        return null
+        null
     }
 
-    private fun extractJsonString(json: String, key: String): String? {
-        val pattern = "\"$key\"\\s*:\\s*\"([^\"]+)\""
-        val match = Regex(pattern).find(json)
-        return match?.groupValues?.get(1)
+    private fun readCustomHeaders(
+        prefs: android.content.SharedPreferences,
+    ): Map<String, String> {
+        val raw = prefs.getString("flutter.custom_headers", null) ?: return emptyMap()
+        return try {
+            val json = JSONObject(raw)
+            buildMap {
+                json.keys().forEach { key ->
+                    val value = json.optString(key)
+                    if (value.isNotEmpty()) put(key, value)
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to decode custom headers", e)
+            emptyMap()
+        }
     }
 
     // If the URI carries a `ts` query param newer than the aa_covers file's
@@ -275,4 +355,19 @@ class CoverContentProvider : ContentProvider() {
     override fun insert(uri: Uri, values: ContentValues?): Uri? = null
     override fun update(uri: Uri, values: ContentValues?, s: String?, sa: Array<out String>?): Int = 0
     override fun delete(uri: Uri, s: String?, sa: Array<out String>?): Int = 0
+}
+
+internal data class CoverRefreshTokens(
+    val accessToken: String,
+    val refreshToken: String,
+)
+
+internal fun parseCoverRefreshTokens(json: String): CoverRefreshTokens? {
+    fun value(key: String): String? {
+        val match = Regex("\"$key\"\\s*:\\s*\"([^\"]+)\"").find(json)
+        return match?.groupValues?.get(1)
+    }
+    val accessToken = value("accessToken") ?: return null
+    val refreshToken = value("refreshToken") ?: return null
+    return CoverRefreshTokens(accessToken, refreshToken)
 }

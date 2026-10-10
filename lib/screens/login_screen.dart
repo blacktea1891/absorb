@@ -7,25 +7,38 @@ import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../providers/auth_provider.dart';
 import '../services/api_service.dart';
 import '../services/backup_service.dart';
+import '../services/log_service.dart';
 import '../services/oidc_service.dart';
+import '../services/server_backend.dart';
+import '../services/settings_sync_service.dart';
+import '../services/setup_link_service.dart';
 import '../services/user_account_service.dart';
 import '../widgets/absorb_wave_icon.dart';
 import '../widgets/overlay_toast.dart';
+import '../widgets/setup_link_login.dart';
+import '../services/signed_out_playback.dart';
 import '../services/audio_player_service.dart';
-import '../main.dart' show applyTrustAllCerts, oledNotifier;
+import '../main.dart' show applyTrustAllCerts, flatNotifier;
 import '../l10n/app_localizations.dart';
 import '../services/wording.dart';
 
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  final SavedAccount? prefillAccount;
+  final String? prefillServerUrl;
+
+  const LoginScreen({
+    super.key,
+    this.prefillAccount,
+    this.prefillServerUrl,
+  });
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
-
 class _LoginScreenState extends State<LoginScreen>
     with SingleTickerProviderStateMixin {
   final _formKey = GlobalKey<FormState>();
@@ -39,11 +52,16 @@ class _LoginScreenState extends State<LoginScreen>
   bool _obscureApiKey = true;
   bool _isConnecting = false;
   String _protocol = 'https://';
+  ServerBackend _backend = ServerBackend.audiobookshelf;
 
   // Server validation state
   bool _serverValid = false;
   bool _serverChecking = false;
   String? _serverError;
+  // Technical reason the last check failed (TLS, timeout, HTTP status, etc.),
+  // shown beneath the field so unreachable-in-app-but-fine-in-browser servers
+  // are diagnosable instead of just "could not reach server".
+  String? _serverErrorDetail;
   Timer? _debounce;
 
   // Login error
@@ -83,6 +101,56 @@ class _LoginScreenState extends State<LoginScreen>
     _animController.forward();
     _serverController.addListener(_onServerChanged);
     _loadVersion();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      final account = widget.prefillAccount;
+      if (account != null) {
+        _setInitialHeaders(account.customHeaders);
+        setState(() => _backend = account.backend);
+        _prefillLogin(account.serverUrl, account.username);
+        return;
+      }
+      final requestedServer = widget.prefillServerUrl;
+      if (requestedServer != null && requestedServer.isNotEmpty) {
+        _setInitialHeaders(auth.customHeaders);
+        _prefillLogin(requestedServer, '');
+        return;
+      }
+      final serverUrl = auth.serverUrl;
+      if (!auth.isAuthenticated && serverUrl != null && serverUrl.isNotEmpty) {
+        setState(() => _backend = auth.backend);
+        _prefillLogin(serverUrl, auth.username ?? '');
+      }
+    });
+  }
+
+  void _prefillLogin(String serverUrl, String username) {
+    final uri = Uri.tryParse(serverUrl);
+    final protocol = uri?.scheme == 'http' || uri?.scheme == 'https'
+        ? '${uri!.scheme}://'
+        : _protocol;
+    setState(() => _protocol = protocol);
+    _serverController.text = serverUrl.startsWith(protocol)
+        ? serverUrl.substring(protocol.length)
+        : serverUrl;
+    _usernameController.text = username;
+  }
+
+  void _setInitialHeaders(Map<String, String> headers) {
+    for (final (key, value) in _headerControllers) {
+      key.dispose();
+      value.dispose();
+    }
+    _headerControllers
+      ..clear()
+      ..addAll(headers.entries.map(
+        (entry) => (
+          TextEditingController(text: entry.key),
+          TextEditingController(text: entry.value),
+        ),
+      ));
+    if (headers.isNotEmpty) _showAdvanced = true;
   }
 
   Future<void> _loadVersion() async {
@@ -127,6 +195,7 @@ class _LoginScreenState extends State<LoginScreen>
         _serverValid = false;
         _serverChecking = false;
         _serverError = null;
+        _serverErrorDetail = null;
         _lastValidatedServer = '';
       });
       _debounce?.cancel();
@@ -173,14 +242,21 @@ class _LoginScreenState extends State<LoginScreen>
 
     try {
       final headers = _collectHeaders();
-      final ok = await ApiService.pingServer(fullUrl, customHeaders: headers);
+      final backend = _backend;
+      final result = await ApiService.pingServerDetailed(
+        fullUrl,
+        customHeaders: headers,
+        backend: backend,
+      );
+      final ok = result.ok;
       if (!mounted) return;
-      if (_serverController.text.trim() != text) return;
+      if (_serverController.text.trim() != text || _backend != backend) return;
 
       setState(() {
         _serverChecking = false;
         _serverValid = ok;
         _serverError = ok ? null : AppLocalizations.of(context)!.loginCouldNotReachServer;
+        _serverErrorDetail = ok ? null : result.detail;
         if (ok) {
           _lastValidatedServer = fullUrl;
         } else {
@@ -191,8 +267,11 @@ class _LoginScreenState extends State<LoginScreen>
 
       if (ok) {
         // Also check if OIDC is available
-        OidcService.checkOidcEnabled(fullUrl, customHeaders: headers).then((config) {
-          if (mounted && _serverController.text.trim() == text) {
+        final check = backend.isBookOrbit
+            ? OidcService.checkBookOrbitOidc(fullUrl, customHeaders: headers)
+            : OidcService.checkOidcEnabled(fullUrl, customHeaders: headers);
+        check.then((config) {
+          if (mounted && _serverController.text.trim() == text && _backend == backend) {
             setState(() => _oidcConfig = config);
           }
         });
@@ -205,6 +284,7 @@ class _LoginScreenState extends State<LoginScreen>
         _serverChecking = false;
         _serverValid = false;
         _serverError = AppLocalizations.of(context)!.loginCouldNotReachServer;
+        _serverErrorDetail = e.toString();
         _oidcConfig = null;
       });
     }
@@ -238,11 +318,22 @@ class _LoginScreenState extends State<LoginScreen>
 
     final headers = _collectHeaders();
 
-    final success = apiKey.isNotEmpty
+    final success = apiKey.isNotEmpty && _backend.isBookOrbit
+        ? await auth.login(
+            serverUrl: fullUrl,
+            username: '',
+            password: '',
+            customHeaders: headers,
+            backend: _backend,
+            magicLink: apiKey,
+            l: AppLocalizations.of(context),
+          )
+        : apiKey.isNotEmpty
         ? await auth.loginWithApiKey(
             serverUrl: fullUrl,
             apiKey: apiKey,
             customHeaders: headers,
+            backend: _backend,
             l: AppLocalizations.of(context),
           )
         : await auth.login(
@@ -250,6 +341,7 @@ class _LoginScreenState extends State<LoginScreen>
             username: _usernameController.text.trim(),
             password: _passwordController.text,
             customHeaders: headers,
+            backend: _backend,
             l: AppLocalizations.of(context),
           );
 
@@ -285,7 +377,19 @@ class _LoginScreenState extends State<LoginScreen>
 
     final headers = _collectHeaders();
     final oidc = OidcService();
-    final callbackUri = await oidc.startLogin(fullUrl, customHeaders: headers);
+    BookOrbitOidcProvider? provider;
+    if (_backend.isBookOrbit) {
+      final providers = _oidcConfig?.bookOrbitProviders ?? const <BookOrbitOidcProvider>[];
+      provider = providers.length == 1 ? providers.single : await _pickOidcProvider(providers);
+      if (!mounted) return;
+      if (provider == null) {
+        setState(() => _isOidcLoading = false);
+        return;
+      }
+    }
+    final callbackUri = provider != null
+        ? await oidc.startBookOrbitLogin(fullUrl, provider, customHeaders: headers)
+        : await oidc.startLogin(fullUrl, customHeaders: headers);
     if (callbackUri == null) {
       if (!mounted) return;
       // Quiet path: user just dismissed the popup. Don't surface an error.
@@ -302,7 +406,9 @@ class _LoginScreenState extends State<LoginScreen>
       return;
     }
 
-    final result = await oidc.handleCallback(callbackUri);
+    final result = provider != null
+        ? await oidc.handleBookOrbitCallback(callbackUri)
+        : await oidc.handleCallback(callbackUri);
     if (result != null && mounted) {
       FocusManager.instance.primaryFocus?.unfocus();
       final auth = context.read<AuthProvider>();
@@ -310,6 +416,7 @@ class _LoginScreenState extends State<LoginScreen>
         serverUrl: fullUrl,
         result: result,
         customHeaders: headers,
+        backend: provider != null ? ServerBackend.bookorbit : ServerBackend.audiobookshelf,
         l: AppLocalizations.of(context),
       );
       if (mounted) {
@@ -330,6 +437,32 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  Future<BookOrbitOidcProvider?> _pickOidcProvider(List<BookOrbitOidcProvider> providers) {
+    if (providers.isEmpty) return Future.value(null);
+    final l = AppLocalizations.of(context)!;
+    return showDialog<BookOrbitOidcProvider>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text(l.loginChooseSsoProvider),
+        children: [
+          for (final p in providers)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(ctx, p),
+              child: Text(p.displayName),
+            ),
+        ],
+      ),
+    );
+  }
+
+  String _oidcButtonText(AppLocalizations l) {
+    final providers = _oidcConfig!.bookOrbitProviders;
+    if (providers.isEmpty) return _oidcConfig!.buttonText;
+    return providers.length == 1
+        ? l.loginSignInWithProvider(providers.single.displayName)
+        : l.loginSignInWithSso;
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -339,7 +472,7 @@ class _LoginScreenState extends State<LoginScreen>
     return Scaffold(
       resizeToAvoidBottomInset: true,
       body: Container(
-        decoration: oledNotifier.value ? null : BoxDecoration(
+        decoration: flatNotifier.value ? null : BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -459,7 +592,17 @@ class _LoginScreenState extends State<LoginScreen>
                                     ),
                                   ),
 
-                                  // Server URL
+                                  if (context.watch<AuthProvider>().isSignedOut) ...[
+                                    _buildSignedOutSyncNote(cs),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  _buildBackendPicker(cs),
+                                  if (_backend.isBookOrbit) ...[
+                                    const SizedBox(height: 10),
+                                    _buildBookOrbitNotice(cs),
+                                  ],
+                                  const SizedBox(height: 14),
+
                                   _buildInputField(
                                     controller: _serverController,
                                     label: l.loginServerAddress,
@@ -532,6 +675,20 @@ class _LoginScreenState extends State<LoginScreen>
                                             : null,
                                     errorText: _serverError,
                                   ),
+
+                                  if (_serverErrorDetail != null) ...[
+                                    const SizedBox(height: 6),
+                                    Padding(
+                                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                                      child: Text(
+                                        _serverErrorDetail!,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
 
                                   // Advanced: Custom Headers — must be before server validation
                                   const SizedBox(height: 8),
@@ -654,9 +811,9 @@ class _LoginScreenState extends State<LoginScreen>
                                     const SizedBox(height: 8),
                                     const Divider(height: 1),
                                     const SizedBox(height: 8),
-                                    Text(l.loginApiKey, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant.withValues(alpha: 0.7))),
+                                    Text(_backend.isBookOrbit ? l.loginMagicLink : l.loginApiKey, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant.withValues(alpha: 0.7))),
                                     const SizedBox(height: 4),
-                                    Text(l.loginApiKeyDescription,
+                                    Text(_backend.isBookOrbit ? l.loginMagicLinkDescription : l.loginApiKeyDescription,
                                       style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant.withValues(alpha: 0.4))),
                                     const SizedBox(height: 8),
                                     TextField(
@@ -667,7 +824,7 @@ class _LoginScreenState extends State<LoginScreen>
                                       style: TextStyle(fontSize: 13, color: cs.onSurface),
                                       onChanged: (_) => setState(() {}),
                                       decoration: InputDecoration(
-                                        hintText: l.loginApiKey,
+                                        hintText: _backend.isBookOrbit ? l.loginMagicLink : l.loginApiKey,
                                         hintStyle: TextStyle(color: cs.onSurfaceVariant.withValues(alpha: 0.3), fontSize: 13),
                                         filled: true,
                                         fillColor: cs.surfaceContainerHighest.withValues(alpha: 0.5),
@@ -686,16 +843,6 @@ class _LoginScreenState extends State<LoginScreen>
                                     ),
                                   ],
 
-                                  // SSO / OIDC button — only shown when server supports it
-                                  AnimatedSize(
-                                    duration: const Duration(milliseconds: 350),
-                                    curve: Curves.easeOutCubic,
-                                    alignment: Alignment.topCenter,
-                                    child: _serverValid && _oidcConfig != null && _oidcConfig!.enabled
-                                        ? _buildOidcButton(cs, tt)
-                                        : const SizedBox.shrink(),
-                                  ),
-
                                   // Credentials — always visible
                                   _buildCredentialFields(cs, tt),
                                 ],
@@ -706,6 +853,30 @@ class _LoginScreenState extends State<LoginScreen>
                       ),
                     ),
                   ),
+
+                  if (SignedOutPlayback.available && !context.watch<AuthProvider>().isSignedOut) ...[
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 48,
+                      child: FilledButton.tonalIcon(
+                        key: const Key('play-downloads-signed-out'),
+                        icon: const Icon(Icons.download_done_rounded),
+                        label: Text(l.loginPlayDownloads),
+                        style: FilledButton.styleFrom(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: () {
+                          final account = SignedOutPlayback.expiredAccount();
+                          if (account != null) {
+                            context.read<AuthProvider>().continueSignedOut(account);
+                          }
+                        },
+                      ),
+                    ),
+                  ],
 
                   // ── Version + Restore pill ──
                   const SizedBox(height: 32),
@@ -721,20 +892,42 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ),
                         const SizedBox(height: 12),
-                        ActionChip(
-                          avatar: Icon(Icons.restore_rounded, size: 16,
-                            color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
-                          label: Text(l.loginRestoreFromBackup,
-                            style: tt.labelSmall?.copyWith(
-                              color: cs.onSurfaceVariant.withValues(alpha: 0.6),
-                            )),
-                          backgroundColor: cs.surfaceContainerHighest.withValues(alpha: 0.3),
-                          side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.15)),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          onPressed: _restoreFromBackup,
-                        ),
+                        Wrap(
+                          alignment: WrapAlignment.center,
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            ActionChip(
+                              avatar: Icon(Icons.restore_rounded, size: 16,
+                                color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                              label: Text(l.loginRestoreFromBackup,
+                                style: tt.labelSmall?.copyWith(
+                                  color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                                )),
+                              backgroundColor: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+                              side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.15)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              onPressed: _restoreFromBackup,
+                            ),
+                            ActionChip(
+                              key: const Key('paste-login-link'),
+                              avatar: Icon(Icons.content_paste_rounded, size: 16,
+                                color: cs.onSurfaceVariant.withValues(alpha: 0.6)),
+                              label: Text(l.loginPasteLink,
+                                style: tt.labelSmall?.copyWith(
+                                  color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                                )),
+                              backgroundColor: cs.surfaceContainerHighest.withValues(alpha: 0.3),
+                              side: BorderSide(color: cs.outlineVariant.withValues(alpha: 0.15)),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              onPressed: _pasteLoginLink,
+                            ),
+                          ],
+                        )
                       ],
                     ),
                   ),
@@ -748,6 +941,127 @@ class _LoginScreenState extends State<LoginScreen>
         ),
       ),
     ),
+    );
+  }
+
+  /// Signing back in after the session ended: say which account the
+  /// listening done since then belongs to, since only that one sends it up.
+  Widget _buildSignedOutSyncNote(ColorScheme cs) {
+    final l = AppLocalizations.of(context)!;
+    final tt = Theme.of(context).textTheme;
+    final auth = context.read<AuthProvider>();
+    final server = (auth.serverUrl ?? '')
+        .replaceAll(RegExp(r'^https?://'), '')
+        .replaceAll(RegExp(r'/+$'), '');
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.primary.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.primary.withValues(alpha: 0.25)),
+      ),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.sync_rounded, size: 18, color: cs.primary),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            l.signedOutSyncNote(auth.username ?? '', server),
+            style: tt.bodySmall?.copyWith(color: cs.onSurface, height: 1.4),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  /// BookOrbit support is new; say so before anyone signs in.
+  Widget _buildBookOrbitNotice(ColorScheme cs) {
+    final l = AppLocalizations.of(context)!;
+    final tt = Theme.of(context).textTheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+      decoration: BoxDecoration(
+        color: cs.error.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.error.withValues(alpha: 0.3)),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(l.loginBookOrbitPreview, style: tt.bodySmall?.copyWith(color: cs.error, height: 1.4)),
+        Wrap(children: [
+          TextButton.icon(
+            onPressed: () => launchUrl(
+              Uri.parse('https://github.com/pounat/absorb'),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.code_rounded, size: 16),
+            label: const Text('GitHub'),
+            style: TextButton.styleFrom(
+              foregroundColor: cs.error,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => LogService().contactEmail(),
+            icon: const Icon(Icons.email_outlined, size: 16),
+            label: Text(l.contact),
+            style: TextButton.styleFrom(
+              foregroundColor: cs.error,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+          ),
+          TextButton.icon(
+            onPressed: () => launchUrl(
+              Uri.parse('https://discord.gg/bwH6hdvzZ4'),
+              mode: LaunchMode.externalApplication,
+            ),
+            icon: const Icon(Icons.discord, size: 16),
+            label: Text(l.joinDiscord),
+            style: TextButton.styleFrom(
+              foregroundColor: cs.error,
+              visualDensity: VisualDensity.compact,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+            ),
+          ),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _buildBackendPicker(ColorScheme cs) {
+    return Semantics(
+      label: AppLocalizations.of(context)!.loginServerType,
+      child: SizedBox(
+        width: double.infinity,
+        child: SegmentedButton<ServerBackend>(
+          key: const Key('login-backend-picker'),
+          showSelectedIcon: false,
+          style: SegmentedButton.styleFrom(
+            visualDensity: VisualDensity.compact,
+            textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          segments: [
+            for (final b in ServerBackend.values)
+              ButtonSegment(value: b, label: Text(b.displayName)),
+          ],
+          selected: {_backend},
+          onSelectionChanged: _isConnecting || _isOidcLoading
+              ? null
+              : (selection) {
+                  final picked = selection.first;
+                  if (picked == _backend) return;
+                  setState(() {
+                    _backend = picked;
+                    _oidcConfig = null;
+                    _loginError = null;
+                    _apiKeyController.clear();
+                  });
+                  _revalidateServer();
+                },
+        ),
+      ),
     );
   }
 
@@ -776,9 +1090,12 @@ class _LoginScreenState extends State<LoginScreen>
             ),
             const SizedBox(height: 12),
             ...accounts.map((account) {
-              final shortUrl = account.serverUrl
+              final host = account.serverUrl
                   .replaceAll(RegExp(r'^https?://'), '')
                   .replaceAll(RegExp(r'/+$'), '');
+              final shortUrl = account.backend.isBookOrbit
+                  ? '$host - ${account.backend.displayName}'
+                  : host;
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: Material(
@@ -848,9 +1165,8 @@ class _LoginScreenState extends State<LoginScreen>
       if (!data.containsKey('version')) {
         if (mounted) {
           final l = AppLocalizations.of(context)!;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(l.loginInvalidBackupFile)),
-          );
+          showOverlayToast(context, l.loginInvalidBackupFile,
+              icon: Icons.error_outline_rounded);
         }
         return;
       }
@@ -919,6 +1235,8 @@ class _LoginScreenState extends State<LoginScreen>
         final l3 = AppLocalizations.of(context)!;
         showOverlayToast(context, l3.loginSettingsRestored, icon: Icons.check_circle_outline_rounded);
       }
+
+      await SettingsSyncService().resolveSourceAfterRestore();
     } catch (e) {
       if (mounted) {
         final l4 = AppLocalizations.of(context)!;
@@ -927,7 +1245,87 @@ class _LoginScreenState extends State<LoginScreen>
     }
   }
 
+  Future<void> _pasteLoginLink() async {
+    final l = AppLocalizations.of(context)!;
+    final controller = TextEditingController();
+    String? errorText;
+    final link = await showDialog<Uri>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void submit() {
+            final uri = Uri.tryParse(controller.text.trim());
+            try {
+              if (uri == null) throw const SetupLinkException('Invalid link');
+              SetupLinkService.parseLink(uri);
+              Navigator.pop(dialogContext, uri);
+            } on SetupLinkException {
+              setDialogState(() => errorText = l.setupLinkInvalid);
+            }
+          }
+
+          return AlertDialog(
+            title: Text(l.loginPasteLink),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(l.loginPasteLinkHelp),
+                const SizedBox(height: 16),
+                TextField(
+                  key: const Key('login-link-field'),
+                  controller: controller,
+                  autofocus: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  keyboardType: TextInputType.url,
+                  minLines: 2,
+                  maxLines: 4,
+                  decoration: InputDecoration(
+                    hintText: 'absorb://setup/...',
+                    errorText: errorText,
+                    suffixIcon: IconButton(
+                      tooltip: l.loginPasteLink,
+                      icon: const Icon(Icons.content_paste_rounded),
+                      onPressed: () async {
+                        final data = await Clipboard.getData('text/plain');
+                        controller.text = data?.text ?? '';
+                        setDialogState(() => errorText = null);
+                      },
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: Text(l.cancel),
+              ),
+              FilledButton(
+                key: const Key('submit-login-link'),
+                onPressed: submit,
+                child: Text(l.loginSignIn),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+    controller.dispose();
+    if (link == null || !mounted) return;
+    await handleSetupLinkLogin(context, link);
+  }
+
   Future<void> _quickSwitch(SavedAccount account) async {
+    if (account.token.isEmpty) {
+      _setInitialHeaders(account.customHeaders);
+      setState(() => _backend = account.backend);
+      _prefillLogin(account.serverUrl, account.username);
+      _passwordController.clear();
+      _usernameFocus.unfocus();
+      return;
+    }
     setState(() => _isConnecting = true);
 
     final auth = context.read<AuthProvider>();
@@ -1007,10 +1405,10 @@ class _LoginScreenState extends State<LoginScreen>
     final l = AppLocalizations.of(context)!;
     return Column(
       children: [
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
         SizedBox(
           width: double.infinity,
-          height: 52,
+          height: 44,
           child: OutlinedButton.icon(
             onPressed: _isConnecting || _isOidcLoading ? null : _handleOidcLogin,
             icon: _isOidcLoading
@@ -1020,7 +1418,7 @@ class _LoginScreenState extends State<LoginScreen>
                   )
                 : Icon(Icons.login_rounded, size: 20, color: cs.primary),
             label: Text(
-              _isOidcLoading ? l.loginWaitingForSso : _oidcConfig!.buttonText,
+              _isOidcLoading ? l.loginWaitingForSso : _oidcButtonText(l),
               style: tt.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
                 color: cs.primary,
@@ -1029,29 +1427,18 @@ class _LoginScreenState extends State<LoginScreen>
             style: OutlinedButton.styleFrom(
               side: BorderSide(color: cs.primary.withValues(alpha: 0.3)),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(12),
               ),
             ),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Text(
-          l.loginRedirectUri,
+          _backend.isBookOrbit ? l.loginRedirectUriBookOrbit : l.loginRedirectUri,
           style: tt.labelSmall?.copyWith(
             color: cs.onSurfaceVariant.withValues(alpha: 0.4),
             letterSpacing: 0.3,
           ),
-        ),
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            Expanded(child: Divider(color: cs.outlineVariant.withValues(alpha: 0.2))),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Text(l.loginOrSignInManually, style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant.withValues(alpha: 0.5))),
-            ),
-            Expanded(child: Divider(color: cs.outlineVariant.withValues(alpha: 0.2))),
-          ],
         ),
       ],
     );
@@ -1176,6 +1563,14 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
             ),
           ),
+        ),
+        AnimatedSize(
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: _serverValid && _oidcConfig != null && _oidcConfig!.enabled
+              ? _buildOidcButton(cs, tt)
+              : const SizedBox.shrink(),
         ),
 
 

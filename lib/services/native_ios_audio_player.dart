@@ -78,36 +78,70 @@ class NativeIosAudioPlayer {
 
   // ─── Source loading ───
 
+  // Loads still waiting on the engine. The engine's periodic observer keeps
+  // ticking through a load, and the first ticks after the item swap report
+  // the new item at 0 before its start seek lands. Position readers turned
+  // that into "track offset + 0" and saved it as progress (a book mid-way
+  // through track 2 came back at 20s). Like just_audio, report the requested
+  // start until the load has answered.
+  int _loadsInFlight = 0;
+
   Future<Duration?> setAudioSource(ja.AudioSource source, {
     Duration? initialPosition,
     int? initialIndex,
     bool preload = true,
+    String? itemId,
   }) async {
     final tracks = _flattenSource(source);
     if (tracks.isEmpty) return null;
 
+    // A new source must never inherit the outgoing track's duration. The
+    // native load may legitimately return no duration, and returning the old
+    // cache here made single-file books look truncated after a title switch.
+    _duration = null;
+    _durationController.add(null);
+
+    // `initialPosition` is local to `initialIndex`, the same shape as seek().
+    // The engine needs the index spelled out: the offsets handed to it below
+    // are empty, so deriving the track from the start position would put
+    // every mid-book load on track 0.
+    final startIndex = initialIndex ?? 0;
     final startS = (initialPosition?.inMilliseconds ?? 0) / 1000.0;
-    final eqEnabled = await ScopedPrefs.getBool('eq_enabled') ?? false;
-    final result = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>('load', {
-      'tracks': tracks.map(_trackToMap).toList(),
-      'trackOffsets': _buildTrackOffsets(tracks),
-      'startPositionS': startS,
-      'totalDurationS': _totalDurationHint,
-      'speed': _speed,
-      'volume': _volume,
-      'eqEnabled': eqEnabled,
-    });
-    final durS = result?['durationS'] as double?;
-    if (durS != null) {
-      _duration = Duration(milliseconds: (durS * 1000).round());
-      _durationController.add(_duration);
+    _currentIndex = startIndex;
+    _currentIndexController.add(startIndex);
+    _position = initialPosition ?? Duration.zero;
+    _updateTime = DateTime.now();
+    _loadsInFlight++;
+    try {
+      final eqEnabled = await ScopedPrefs.getBool('eq_enabled') ?? false;
+      final result = await _methodChannel.invokeMethod<Map<dynamic, dynamic>>('load', {
+        'tracks': tracks.map(_trackToMap).toList(),
+        'trackOffsets': _buildTrackOffsets(tracks),
+        'startTrackIndex': startIndex,
+        'startPositionS': startS,
+        'totalDurationS': _totalDurationHint,
+        'speed': _speed,
+        'volume': _volume,
+        'eqEnabled': eqEnabled,
+        // Lets AbsorbPlayerCore recognise this book on a widget-driven resume so
+        // it adopts the live engine instead of starting a duplicate stream.
+        if (itemId != null) 'itemId': itemId,
+      });
+      final durS = (result?['durationS'] as num?)?.toDouble();
+      final loadedDuration = durS != null && durS > 0
+          ? Duration(milliseconds: (durS * 1000).round())
+          : null;
+      _duration = loadedDuration;
+      _durationController.add(loadedDuration);
+      return loadedDuration;
+    } finally {
+      _loadsInFlight--;
     }
-    return _duration;
   }
 
   /// New: pre-buffer the next book so the engine can swap to it gaplessly when
   /// the current item ends. Not part of just_audio's API.
-  Future<bool> setNextSource(ja.AudioSource? source, {double startPositionS = 0, double totalDurationS = 0}) async {
+  Future<bool> setNextSource(ja.AudioSource? source, {double startPositionS = 0, double totalDurationS = 0, String? itemId}) async {
     if (source == null) {
       await _methodChannel.invokeMethod('clearNextSource');
       return true;
@@ -119,6 +153,8 @@ class NativeIosAudioPlayer {
       'trackOffsets': _buildTrackOffsets(tracks),
       'startPositionS': startPositionS,
       'totalDurationS': totalDurationS,
+      // So the engine can adopt the right book id after it auto-advances.
+      if (itemId != null) 'itemId': itemId,
     });
     return result ?? false;
   }
@@ -180,6 +216,39 @@ class NativeIosAudioPlayer {
     throw UnsupportedError('NativeIosAudioPlayer.setAsset is not implemented; use ja.AudioPlayer for the chime.');
   }
 
+  /// Snapshot of what the native engine is actually doing right now. Used on
+  /// foreground resume to reconcile after a widget-driven session: the engine
+  /// may have kept playing (or advanced) while Flutter was suspended. Returns
+  /// null on failure.
+  Future<NativeEngineState?> engineState() async {
+    try {
+      final raw = await _methodChannel
+          .invokeMethod<Map<dynamic, dynamic>>('engineState');
+      if (raw == null) return null;
+      return NativeEngineState(
+        itemId: raw['itemId'] as String?,
+        isLoaded: (raw['isLoaded'] as bool?) ?? false,
+        isPlaying: (raw['isPlaying'] as bool?) ?? false,
+        trackIndex: (raw['trackIndex'] as int?) ?? 0,
+        globalPositionS: (raw['globalPositionS'] as num?)?.toDouble() ?? 0,
+      );
+    } catch (e) {
+      debugPrint('[NativeIosAudioPlayer] engineState failed: $e');
+      return null;
+    }
+  }
+
+  /// Adopt the engine's current playing-state without issuing a new command.
+  /// Called when foreground resume finds the engine already playing the right
+  /// book - we just sync the Dart mirror so the UI reflects reality.
+  void adoptPlayingState(bool playing) {
+    _playing = playing;
+    _processingState = ja.ProcessingState.ready;
+    _processingStateController.add(_processingState);
+    _emitPlayerState();
+    _playbackEventController.add(_buildPlaybackEvent());
+  }
+
   Future<void> attachEqualizerTap() async {
     await _methodChannel.invokeMethod('attachEqualizerTap');
   }
@@ -211,6 +280,7 @@ class NativeIosAudioPlayer {
     final type = raw['type'] as String?;
     switch (type) {
       case 'position':
+        if (_loadsInFlight > 0) break;
         final s = (raw['positionS'] as num?)?.toDouble() ?? 0;
         _position = Duration(milliseconds: (s * 1000).round());
         _updateTime = DateTime.now();
@@ -341,4 +411,21 @@ class _NativeTrack {
   final String url;
   final bool isLocal;
   final Map<String, String> headers;
+}
+
+/// Snapshot of the native iOS engine's live state, read over the method
+/// channel for foreground-resume reconciliation.
+class NativeEngineState {
+  NativeEngineState({
+    required this.itemId,
+    required this.isLoaded,
+    required this.isPlaying,
+    required this.trackIndex,
+    required this.globalPositionS,
+  });
+  final String? itemId;
+  final bool isLoaded;
+  final bool isPlaying;
+  final int trackIndex;
+  final double globalPositionS;
 }

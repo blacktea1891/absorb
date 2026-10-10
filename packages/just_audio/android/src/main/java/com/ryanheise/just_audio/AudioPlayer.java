@@ -430,24 +430,36 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
     public void onPlayerError(PlaybackException error) {
         if (error instanceof ExoPlaybackException) {
             final ExoPlaybackException exoError = (ExoPlaybackException)error;
+            String forwardedMessage = exoError.getMessage();
+            String sourceCause = null;
             switch (exoError.type) {
             case ExoPlaybackException.TYPE_SOURCE:
-                Log.e(TAG, "TYPE_SOURCE: " + exoError.getSourceException().getMessage());
+                final Throwable sourceException = exoError.getSourceException();
+                sourceCause = sourceException.getClass().getSimpleName()
+                        + (sourceException.getMessage() != null
+                        ? ": " + sourceException.getMessage()
+                        : "");
+                Log.e(TAG, "TYPE_SOURCE: " + sourceCause);
+                forwardedMessage = "Source error: " + sourceCause;
                 break;
 
             case ExoPlaybackException.TYPE_RENDERER:
-                Log.e(TAG, "TYPE_RENDERER: " + exoError.getRendererException().getMessage());
+                sourceCause = describeThrowable(exoError.getRendererException());
+                Log.e(TAG, "TYPE_RENDERER: " + sourceCause);
                 break;
 
             case ExoPlaybackException.TYPE_UNEXPECTED:
-                Log.e(TAG, "TYPE_UNEXPECTED: " + exoError.getUnexpectedException().getMessage());
+                sourceCause = describeThrowable(exoError.getUnexpectedException());
+                Log.e(TAG, "TYPE_UNEXPECTED: " + sourceCause);
                 break;
 
             default:
                 Log.e(TAG, "default ExoPlaybackException: " + exoError.getUnexpectedException().getMessage());
             }
             // TODO: send both errorCode and type
-            sendError(String.valueOf(exoError.type), exoError.getMessage(), mapOf("index", currentIndex));
+            final Map<String, Object> details = mapOf("index", currentIndex);
+            if (sourceCause != null) details.put("cause", sourceCause);
+            sendError(String.valueOf(exoError.type), forwardedMessage, details);
         } else {
             Log.e(TAG, "default PlaybackException: " + error.getMessage());
             sendError(String.valueOf(error.errorCode), error.getMessage(), mapOf("index", currentIndex));
@@ -946,11 +958,11 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
                         Context context,
                         boolean enableFloatOutput,
                         boolean enableAudioTrackPlaybackParams) {
-                    Log.i(TAG, "PATCH ACTIVE: buildAudioSink with SonicAudioProcessor + MonoProcessor, AudioTrack speed DISABLED");
+                    Log.i(TAG, "PATCH ACTIVE: buildAudioSink with SonicAudioProcessor + MonoProcessor + GainAudioProcessor, AudioTrack speed DISABLED");
                     return new DefaultAudioSink.Builder(context)
                         .setEnableFloatOutput(enableFloatOutput)
                         .setEnableAudioTrackPlaybackParams(false)
-                        .setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[]{sonicAudioProcessor, monoProcessor})
+                        .setAudioProcessors(new androidx.media3.common.audio.AudioProcessor[]{sonicAudioProcessor, monoProcessor, new GainAudioProcessor()})
                         .build();
                 }
             };
@@ -1115,6 +1127,27 @@ public class AudioPlayer implements MethodCallHandler, Player.Listener, Metadata
 
     private void sendError(String errorCode, String errorMsg) {
         sendError(errorCode, errorMsg, null);
+    }
+
+    // Absorb patch: the class, message and first frames of an ExoPlayer
+    // failure, so the Dart log says what broke instead of "runtime error".
+    private static String describeThrowable(Throwable t) {
+        if (t == null) return "null";
+        StringBuilder sb = new StringBuilder(t.getClass().getSimpleName());
+        if (t.getMessage() != null) sb.append(": ").append(t.getMessage());
+        StackTraceElement[] frames = t.getStackTrace();
+        for (int i = 0; i < frames.length && i < 4; i++) {
+            String cls = frames[i].getClassName();
+            sb.append(" @ ").append(cls.substring(cls.lastIndexOf('.') + 1))
+              .append('.').append(frames[i].getMethodName())
+              .append(':').append(frames[i].getLineNumber());
+        }
+        Throwable cause = t.getCause();
+        if (cause != null && cause != t) {
+            sb.append(" <- ").append(cause.getClass().getSimpleName());
+            if (cause.getMessage() != null) sb.append(": ").append(cause.getMessage());
+        }
+        return sb.toString();
     }
 
     private void sendError(String errorCode, String errorMsg, Object details) {

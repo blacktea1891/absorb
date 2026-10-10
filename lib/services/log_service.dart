@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
+import '../build_info.dart';
 import 'api_service.dart';
 
 class LogService {
@@ -56,7 +57,7 @@ class LogService {
       // Start fresh - write device/server info header
       final header = StringBuffer()
         ..writeln('=== Absorb Log ===')
-        ..writeln('App Version: ${ApiService.appVersion}')
+        ..writeln('App Version: ${versionWithBeta(ApiService.appVersionFull)}')
         ..writeln('Device: ${ApiService.deviceManufacturer} ${ApiService.deviceModel}')
         ..writeln('OS: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
         ..writeln('Created: ${DateTime.now().toIso8601String()}')
@@ -69,10 +70,12 @@ class LogService {
     // Rotate on startup if needed
     await _rotateIfNeeded();
 
-    // Session header
+    // Session header - stamps the app version here too, since the file
+    // header above only gets rewritten on clear/24h rollover and can go
+    // stale across an app update in between.
     final now = DateTime.now().toIso8601String();
     await _logFile!.writeAsString(
-      '\n=== Session started $now ===\n',
+      '\n=== Session started $now (App Version: ${versionWithBeta(ApiService.appVersionFull)}) ===\n',
       mode: FileMode.append,
     );
 
@@ -146,7 +149,7 @@ class LogService {
       // still have device info (don't wait for next init/restart).
       final header = StringBuffer()
         ..writeln('=== Absorb Log ===')
-        ..writeln('App Version: ${ApiService.appVersion}')
+        ..writeln('App Version: ${versionWithBeta(ApiService.appVersionFull)}')
         ..writeln('Device: ${ApiService.deviceManufacturer} ${ApiService.deviceModel}')
         ..writeln('OS: ${Platform.operatingSystem} ${Platform.operatingSystemVersion}')
         ..writeln('Created: ${DateTime.now().toIso8601String()}')
@@ -166,7 +169,7 @@ class LogService {
   /// Build device info string used by both email methods.
   String _deviceInfo({String? serverVersion}) {
     final buf = StringBuffer()
-      ..writeln('App Version: ${ApiService.appVersion}')
+      ..writeln('App Version: ${versionWithBeta(ApiService.appVersionFull)}')
       ..writeln('Device: ${ApiService.deviceManufacturer} ${ApiService.deviceModel}')
       ..writeln('Device ID: ${ApiService.deviceId}');
     if (serverVersion != null) {

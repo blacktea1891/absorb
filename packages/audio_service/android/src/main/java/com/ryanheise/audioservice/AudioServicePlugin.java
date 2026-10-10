@@ -67,9 +67,19 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
     public static String getFlutterEngineId() {
         return flutterEngineId;
     }
+    // Absorb patch: true when the cached engine was created by a headless
+    // service start (Android Auto bind, media button on a dead process).
+    // MainActivity uses this to replace such an engine with a fresh one
+    // instead of attaching to it - a never-rendered engine sticks the launch
+    // on the splash screen.
+    private static boolean engineBornHeadless = false;
+    public static boolean wasEngineBornHeadless() {
+        return engineBornHeadless;
+    }
     public static synchronized FlutterEngine getFlutterEngine(Context context) {
         FlutterEngine flutterEngine = FlutterEngineCache.getInstance().get(flutterEngineId);
         if (flutterEngine == null) {
+            engineBornHeadless = !(context instanceof Activity);
             // XXX: The constructor triggers onAttachedToEngine so this variable doesn't help us.
             // Maybe need a boolean flag to tell us we're currently loading the main flutter engine.
             flutterEngine = new FlutterEngine(context.getApplicationContext());
@@ -146,6 +156,17 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
     static AudioHandlerInterface audioHandlerInterface() throws Exception {
         if (audioHandlerInterface == null) throw new Exception("Background audio task not running");
         return audioHandlerInterface;
+    }
+
+    // Absorb patch: re-register the handler as the service listener after the
+    // service is recreated. AudioService.onDestroy nulls the static listener,
+    // and nothing upstream ever sets it again (init only runs on engine
+    // attach), so a recreated service silently dropped every media button
+    // event in MediaSessionCallback while audio kept playing in-process.
+    static void restoreServiceListener() {
+        if (audioHandlerInterface != null) {
+            AudioService.init(audioHandlerInterface);
+        }
     }
 
     private static MediaBrowserCompat mediaBrowser;
@@ -266,6 +287,7 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
     public void onAttachedToEngine(FlutterPluginBinding binding) {
         flutterPluginBinding = binding;
         clientInterface = new ClientInterface(flutterPluginBinding.getBinaryMessenger());
+        clientInterface.plugin = this;
         clientInterface.setContext(flutterPluginBinding.getApplicationContext());
         clientInterfaces.add(clientInterface);
         if (applicationContext == null) {
@@ -278,9 +300,27 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
             audioHandlerInterface = new AudioHandlerInterface(flutterPluginBinding.getBinaryMessenger());
             AudioService.init(audioHandlerInterface);
         }
-        if (mediaBrowser == null) {
-            connect();
-        }
+        // Absorb patch: do NOT connect() here. Auxiliary engines (WorkManager's
+        // background job) also attach this plugin, and connecting from them
+        // starts AudioService, which caches a FlutterEngine running the full
+        // app main() headless in a frozen background process - the activity
+        // then attaches to that stuck engine and sits on the splash screen.
+        // Engines that actually host audio connect via onAttachedToActivity or
+        // the "configure" call below.
+
+        // Absorb patch: the diag snapshot channel lives here instead of in
+        // MainActivity.configureFlutterEngine, which never runs for an engine
+        // Android Auto starts without the activity. There the car-client check
+        // always read "not seen" and the route-loss pause stopped the book
+        // every couple of minutes (GH #369).
+        new MethodChannel(binding.getBinaryMessenger(), "com.absorb.audio_diag")
+                .setMethodCallHandler((call, result) -> {
+                    if ("snapshot".equals(call.method)) {
+                        result.success(AudioService.getDiagnosticSnapshot());
+                    } else {
+                        result.notImplemented();
+                    }
+                });
     }
 
     @Override
@@ -413,6 +453,10 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
         private final MethodChannel channel;
         private boolean wrongEngineDetected;
         private boolean serviceConnectionFailed;
+        // Absorb patch: back-reference to the owning plugin instance so the
+        // "configure" handler can call the (instance) connect() - see the
+        // connect() relocation comments in onAttachedToEngine.
+        private AudioServicePlugin plugin;
 
         // This is implemented in Dart already.
         // But we may need to bring this back if we want to connect to another process's media session.
@@ -499,6 +543,14 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
                             audioHandlerInterface.switchToMessenger(messenger);
                         }
                         audioHandlerInterface.invokePendingMethods();
+                    }
+                    // Absorb patch: connect() moved here from onAttachedToEngine
+                    // (see the comment there). This runs for every engine that
+                    // hosts an AudioHandler - the activity's engine and the
+                    // service-spawned headless engine - but never for auxiliary
+                    // engines that don't call AudioService.init.
+                    if (mediaBrowser == null && plugin != null) {
+                        plugin.connect();
                     }
                     if (mediaController != null) {
                         result.success(mapOf());
@@ -912,22 +964,27 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
                         for (int i = 0; i < compactActionIndices.length; i++)
                             compactActionIndices[i] = (Integer)compactActionIndexList.get(i);
                     }
-                    AudioService.instance.setState(
-                            actions,
-                            actionBits,
-                            compactActionIndices,
-                            processingState,
-                            playing,
-                            position,
-                            bufferedPosition,
-                            speed,
-                            updateTimeSinceBoot,
-                            errorCode,
-                            errorMessage,
-                            repeatMode,
-                            shuffleMode,
-                            captioningEnabled,
-                            queueIndex);
+                    // Absorb patch: null-guard so a state push after the
+                    // service was destroyed doesn't NPE into the channel's
+                    // error handler.
+                    if (AudioService.instance != null) {
+                        AudioService.instance.setState(
+                                actions,
+                                actionBits,
+                                compactActionIndices,
+                                processingState,
+                                playing,
+                                position,
+                                bufferedPosition,
+                                speed,
+                                updateTimeSinceBoot,
+                                errorCode,
+                                errorMessage,
+                                repeatMode,
+                                shuffleMode,
+                                captioningEnabled,
+                                queueIndex);
+                    }
                     result.success(null);
                     break;
                 }
@@ -944,7 +1001,11 @@ public class AudioServicePlugin implements FlutterPlugin, ActivityAware {
                 case "notifyChildrenChanged": {
                     String parentMediaId = (String)args.get("parentMediaId");
                     Map<?, ?> options = (Map<?, ?>)args.get("options");
-                    AudioService.instance.notifyChildrenChanged(parentMediaId, mapToBundle(options));
+                    if (options == null) {
+                        AudioService.instance.notifyChildrenChanged(parentMediaId);
+                    } else {
+                        AudioService.instance.notifyChildrenChanged(parentMediaId, mapToBundle(options));
+                    }
                     result.success(null);
                     break;
                 }

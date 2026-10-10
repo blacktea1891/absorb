@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:provider/provider.dart';
 import '../l10n/app_localizations.dart';
+import 'cover_badges.dart';
+import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
@@ -42,10 +44,12 @@ class BookResultTile extends StatelessWidget {
     final isExplicit = PlayerSettings.showExplicitBadge && metadata['explicit'] == true;
     final isDownloaded = itemId != null && DownloadService().isDownloaded(itemId);
     final isFinished = itemId != null && lib.getProgressData(itemId)?['isFinished'] == true;
-    final greenColor = Theme.of(context).brightness == Brightness.dark ? Colors.greenAccent[400]! : Colors.green.shade700;
 
     String? coverUrl;
-    if (itemId != null && serverUrl != null && token != null) {
+    final bookOrbitApi = context.read<AuthProvider>().apiService;
+    if (itemId != null && bookOrbitApi != null && bookOrbitApi.isBookOrbit) {
+      coverUrl = lib.getCoverUrl(itemId, width: 200);
+    } else if (itemId != null && serverUrl != null && token != null) {
       final cleanUrl = serverUrl!.endsWith('/')
           ? serverUrl!.substring(0, serverUrl!.length - 1)
           : serverUrl!;
@@ -66,7 +70,7 @@ class BookResultTile extends StatelessWidget {
             FocusManager.instance.primaryFocus?.unfocus();
             if (itemId != null) {
               final lib = context.read<LibraryProvider>();
-              if (lib.isPodcastLibrary) {
+              if (lib.isPodcastItem(item)) {
                 EpisodeListSheet.show(context, item);
               } else {
                 showBookDetailSheet(context, itemId);
@@ -119,32 +123,11 @@ class BookResultTile extends StatelessWidget {
                     if (isFinished || isDownloaded)
                       Positioned(
                         left: 0, right: 0, bottom: 0,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.bottomCenter,
-                              end: Alignment.topCenter,
-                              colors: [Colors.black.withValues(alpha: 0.85), Colors.black.withValues(alpha: 0.0)],
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (isFinished) ...[
-                                Icon(Icons.check_circle_rounded, size: 8, color: greenColor),
-                                const SizedBox(width: 2),
-                                Text(l.librarySearchResultsDone, style: TextStyle(fontSize: 7, fontWeight: FontWeight.w600, color: greenColor)),
-                              ],
-                              if (isFinished && isDownloaded) const SizedBox(width: 4),
-                              if (isDownloaded) ...[
-                                Icon(Icons.download_done_rounded, size: 8, color: cs.primary),
-                                const SizedBox(width: 2),
-                                Text(l.librarySearchResultsSaved, style: TextStyle(fontSize: 7, fontWeight: FontWeight.w600, color: cs.primary)),
-                              ],
-                            ],
-                          ),
+                        child: CoverStateBadges(
+                          isDownloaded: isDownloaded,
+                          isFinished: isFinished,
+                          iconOnly: true,
+                          iconSize: 14,
                         ),
                       ),
                   ],
@@ -417,7 +400,10 @@ class AuthorResultTile extends StatelessWidget {
     final numBooks = author['numBooks'] as int?;
 
     String? imageUrl;
-    if (authorId.isNotEmpty && serverUrl != null && token != null) {
+    final api = context.read<AuthProvider>().apiService;
+    if (api != null && api.isBookOrbit) {
+      if (author['imagePath'] != null) imageUrl = api.getAuthorImageUrl(authorId);
+    } else if (authorId.isNotEmpty && serverUrl != null && token != null) {
       final cleanUrl = serverUrl!.endsWith('/')
           ? serverUrl!.substring(0, serverUrl!.length - 1)
           : serverUrl!;

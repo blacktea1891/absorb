@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
@@ -13,7 +15,14 @@ import '../services/scoped_prefs.dart';
 import '../widgets/bookmark_detail_dialog.dart';
 import '../widgets/card_buttons.dart';
 import '../services/download_service.dart';
+import '../services/ebook_annotation_service.dart';
+import '../services/ebook_cache.dart';
+import '../utils/episode_key.dart';
 import '../widgets/absorb_page_header.dart';
+import '../widgets/adaptive_modal.dart';
+import '../widgets/ebook_router.dart';
+import '../widgets/quote_share_sheet.dart';
+import '../widgets/overlay_toast.dart';
 import '../l10n/app_localizations.dart';
 
 class BookmarksScreen extends StatefulWidget {
@@ -22,21 +31,164 @@ class BookmarksScreen extends StatefulWidget {
   State<BookmarksScreen> createState() => _BookmarksScreenState();
 }
 
-class _BookmarksScreenState extends State<BookmarksScreen> {
+class _BookmarksScreenState extends State<BookmarksScreen>
+    with SingleTickerProviderStateMixin {
   bool _loading = true;
   Map<String, List<Bookmark>> _allBookmarks = {};
+  Map<String, List<EbookAnnotation>> _highlights = {};
+  late final TabController _tabs;
+  int _tabIndex = 0;
   bool _selecting = false;
   String _sort = 'newest';
   // Selected bookmarks as "itemId::bookmarkId" keys
   final Set<String> _selected = {};
+  // Same idea on the highlights tab, keyed "itemId::annotationId". Separate
+  // sets so a selection can't leak across tabs.
+  final Set<String> _selectedHighlights = {};
   final Map<String, String> _titleCache = {};
+  bool _speedAdjustedTime = true;
+  // Per-book playback speed so each group's timestamps honor the
+  // speed-adjusted-time setting at that book's own speed.
+  final Map<String, double> _bookSpeeds = {};
+  double _defaultSpeed = 1.0;
+  final TextEditingController _searchCtl = TextEditingController();
+  String _query = '';
+  // Books opened on the bookmarks tab; all start folded. Kept while the screen is open.
+  final Set<String> _expanded = {};
+  // Same for the highlights tab; kept apart since a book can be in both.
+  final Set<String> _expandedHighlights = {};
 
   static const _titleCacheKey = 'bookmark_book_titles';
 
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: 2, vsync: this);
+    _tabs.addListener(() {
+      if (!mounted || _tabs.index == _tabIndex) return;
+      setState(() => _tabIndex = _tabs.index);
+      // Selection is a bookmarks-only mode, so leave it behind on the way out.
+      if (_tabs.index != 0 && _selecting) _exitSelection();
+    });
     _loadSort();
+    _loadHighlights();
+    PlayerSettings.getSpeedAdjustedTime().then((v) {
+      if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
+    });
+  }
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    _searchCtl.dispose();
+    super.dispose();
+  }
+
+  /// A book matching the search keeps all its bookmarks; otherwise only the
+  /// bookmarks whose title or note match stay, and empty books drop out.
+  Map<String, List<Bookmark>> _filteredBookmarks() {
+    if (_query.isEmpty) return _allBookmarks;
+    final out = <String, List<Bookmark>>{};
+    for (final entry in _allBookmarks.entries) {
+      final book = '${_resolveTitle(entry.key) ?? ''} ${_resolveShowTitle(entry.key) ?? ''}'
+          .toLowerCase();
+      if (book.contains(_query)) {
+        out[entry.key] = entry.value;
+        continue;
+      }
+      final hits = entry.value
+          .where((b) =>
+              b.title.toLowerCase().contains(_query) ||
+              (b.note ?? '').toLowerCase().contains(_query))
+          .toList();
+      if (hits.isNotEmpty) out[entry.key] = hits;
+    }
+    return out;
+  }
+
+  /// Same rule as bookmarks: a matching book keeps all its highlights,
+  /// otherwise only highlights whose text or note match.
+  Map<String, List<EbookAnnotation>> _filteredHighlights() {
+    if (_query.isEmpty) return _highlights;
+    final out = <String, List<EbookAnnotation>>{};
+    for (final entry in _highlights.entries) {
+      if ((_resolveTitle(entry.key) ?? '').toLowerCase().contains(_query)) {
+        out[entry.key] = entry.value;
+        continue;
+      }
+      final hits = entry.value
+          .where((h) =>
+              (h.selectedText ?? '').toLowerCase().contains(_query) ||
+              (h.note ?? '').toLowerCase().contains(_query))
+          .toList();
+      if (hits.isNotEmpty) out[entry.key] = hits;
+    }
+    return out;
+  }
+
+  Future<void> _loadHighlights() async {
+    final highlights = await EbookAnnotationService().getAllHighlights();
+    if (!mounted) return;
+    // The tab bar disappears with the last highlight, so don't strand the view
+    // on a tab that no longer has a header.
+    if (highlights.isEmpty && _tabs.index != 0) _tabs.index = 0;
+    setState(() => _highlights = highlights);
+    await _fetchMissingTitles(highlights.keys.toList());
+  }
+
+  /// Fills the title cache for books we only know by ID, so highlight cards
+  /// show a real title instead of a placeholder bar.
+  Future<void> _fetchMissingTitles(List<String> itemIds) async {
+    final api = context.read<AuthProvider>().apiService;
+    var dirty = false;
+    for (final itemId in itemIds) {
+      if (!mounted) break;
+      if (_titleCache.containsKey(itemId)) continue;
+      final resolved = _resolveTitle(itemId);
+      if (resolved != null) {
+        _titleCache[itemId] = resolved;
+        dirty = true;
+        continue;
+      }
+      if (api == null) continue;
+      final item = await api.getLibraryItem(itemId);
+      final media = item?['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      final title = metadata['title'] as String?;
+      if (title != null && title.isNotEmpty) {
+        _titleCache[itemId] = title;
+        dirty = true;
+      }
+    }
+    if (dirty) {
+      await _saveTitleCache();
+      if (mounted) setState(() {});
+    }
+  }
+
+  Future<void> _loadBookSpeeds() async {
+    _defaultSpeed = await PlayerSettings.getDefaultSpeed();
+    var changed = false;
+    for (final key in _allBookmarks.keys) {
+      final itemId = splitEpisodeKey(key).itemId;
+      if (_bookSpeeds.containsKey(itemId)) continue;
+      final s = await PlayerSettings.getBookSpeed(itemId);
+      if (s != null) {
+        _bookSpeeds[itemId] = s;
+        changed = true;
+      }
+    }
+    if (mounted && changed) setState(() {});
+  }
+
+  double _displaySpeedFor(String key) {
+    if (!_speedAdjustedTime) return 1.0;
+    // Speed is saved per book, and a podcast's per-show, so an episode key has
+    // to come apart before either lookup.
+    final itemId = splitEpisodeKey(key).itemId;
+    final player = AudioPlayerService();
+    if (player.currentItemId == itemId) return player.speed;
+    return _bookSpeeds[itemId] ?? _defaultSpeed;
   }
 
   Future<void> _loadSort() async {
@@ -71,52 +223,36 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
   Future<void> _load() async {
     final all = await BookmarkService().getAllBookmarks(sort: _sort);
     if (mounted) setState(() { _allBookmarks = all; _loading = false; });
+    await _loadBookSpeeds();
   }
 
   Future<void> _syncAll() async {
     final api = context.read<AuthProvider>().apiService;
     if (api == null) return;
-    final user = await api.getMe();
-    if (user == null || !mounted) return;
+    final userBookmarks = await api.getAllBookmarks();
+    if (userBookmarks == null || !mounted) return;
     final itemIds = <String>{};
-    // Bookmarks on the user object (keyed by libraryItemId)
-    final userBookmarks = user['bookmarks'] as List<dynamic>?;
-    if (userBookmarks != null) {
-      for (final b in userBookmarks) {
-        if (b is Map<String, dynamic>) {
-          final itemId = b['libraryItemId'] as String? ?? '';
-          if (itemId.isNotEmpty) itemIds.add(itemId);
-        }
-      }
-    }
-    // Also check mediaProgress for bookmarks
-    final progressList = user['mediaProgress'] as List<dynamic>? ?? [];
-    for (final p in progressList) {
-      if (p is! Map<String, dynamic>) continue;
-      final bookmarks = p['bookmarks'] as List?;
-      if (bookmarks != null && bookmarks.isNotEmpty) {
-        final itemId = p['libraryItemId'] as String? ?? '';
-        if (itemId.isNotEmpty) itemIds.add(itemId);
-      }
+    for (final b in userBookmarks) {
+      final itemId = b['libraryItemId'] as String? ?? '';
+      if (itemId.isNotEmpty) itemIds.add(itemId);
     }
     // Also include items we have local bookmarks for
     final local = await BookmarkService().getAllBookmarks();
     itemIds.addAll(local.keys);
     // Group server bookmarks by itemId for efficient sync
     final serverByItem = <String, List<Map<String, dynamic>>>{};
-    if (userBookmarks != null) {
-      for (final b in userBookmarks) {
-        if (b is Map<String, dynamic>) {
-          final id = b['libraryItemId'] as String? ?? '';
-          if (id.isNotEmpty) {
-            serverByItem.putIfAbsent(id, () => []).add(b);
-          }
-        }
+    for (final b in userBookmarks) {
+      final id = b['libraryItemId'] as String? ?? '';
+      if (id.isNotEmpty) {
+        serverByItem.putIfAbsent(id, () => []).add(b);
       }
     }
-    // Sync each item with pre-loaded server data
+    // Sync each item with pre-loaded server data. Podcast episodes are keyed
+    // 'showId-episodeId' and never leave the device, so they have nothing to
+    // merge and an empty server list must not be read as "deleted".
     for (final itemId in itemIds) {
       if (!mounted) break;
+      if (isEpisodeKey(itemId)) continue;
       await BookmarkService().syncBookmarks(itemId, api,
         preloadedServerBookmarks: serverByItem[itemId] ?? []);
     }
@@ -128,13 +264,32 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
       // Only need a server fetch when no cache (library/download/title) has it.
       final resolved = _resolveTitle(itemId);
       if (resolved == null) {
-        final item = await api.getLibraryItem(itemId);
+        final ids = splitEpisodeKey(itemId);
+        final item = await api.getLibraryItem(ids.itemId);
         if (item != null) {
           final media = item['media'] as Map<String, dynamic>? ?? {};
           final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
-          final title = metadata['title'] as String?;
+          // An episode's group is named after the episode, so the show title
+          // is only the fallback when the episode has gone from the feed.
+          final episodeTitle = ids.episodeId == null
+              ? null
+              : ((media['episodes'] as List<dynamic>?) ?? const [])
+                  .whereType<Map<String, dynamic>>()
+                  .where((e) => e['id'] == ids.episodeId)
+                  .firstOrNull?['title'] as String?;
+          final showTitle = metadata['title'] as String?;
+          final title =
+              (episodeTitle?.isNotEmpty ?? false) ? episodeTitle : showTitle;
           if (title != null && title.isNotEmpty) {
             _titleCache[itemId] = title;
+            titleCacheDirty = true;
+          }
+          // Cache the show under its own id too, so the episode group can name
+          // the feed it came from without a second fetch.
+          if (ids.episodeId != null &&
+              showTitle != null &&
+              showTitle.isNotEmpty) {
+            _titleCache[ids.itemId] = showTitle;
             titleCacheDirty = true;
           }
         }
@@ -188,7 +343,83 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     setState(() {
       _selecting = false;
       _selected.clear();
+      _selectedHighlights.clear();
     });
+  }
+
+  void _toggleHighlight(String itemId, String annotationId) {
+    setState(() {
+      final key = _selKey(itemId, annotationId);
+      if (_selectedHighlights.contains(key)) {
+        _selectedHighlights.remove(key);
+        if (_selectedHighlights.isEmpty) _selecting = false;
+      } else {
+        _selectedHighlights.add(key);
+      }
+    });
+  }
+
+  void _toggleHighlightGroup(String itemId, List<EbookAnnotation> highlights) {
+    setState(() {
+      final keys = highlights.map((h) => _selKey(itemId, h.id)).toSet();
+      if (keys.every(_selectedHighlights.contains)) {
+        _selectedHighlights.removeAll(keys);
+        if (_selectedHighlights.isEmpty) _selecting = false;
+      } else {
+        _selectedHighlights.addAll(keys);
+      }
+    });
+  }
+
+  void _enterHighlightSelection(String itemId, String annotationId) {
+    setState(() {
+      _selecting = true;
+      _selectedHighlights.add(_selKey(itemId, annotationId));
+    });
+  }
+
+  Future<void> _deleteSelectedHighlights() async {
+    if (_selectedHighlights.isEmpty) return;
+    final l = AppLocalizations.of(context)!;
+    final count = _selectedHighlights.length;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: const Icon(Icons.delete_outline_rounded),
+        title: Text(l.highlightsDeleteCount(count)),
+        content: Text(l.bookmarksDeleteContent),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(l.cancel),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(l.delete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final grouped = <String, List<String>>{};
+    for (final key in _selectedHighlights) {
+      final parts = key.split('::');
+      grouped.putIfAbsent(parts[0], () => []).add(parts[1]);
+    }
+    for (final entry in grouped.entries) {
+      for (final id in entry.value) {
+        await EbookAnnotationService()
+            .delete(itemId: entry.key, annotationId: id);
+      }
+    }
+
+    _exitSelection();
+    await _loadHighlights();
+    if (mounted) {
+      showOverlayToast(context, l.highlightsDeletedCount(count),
+          icon: Icons.delete_outline_rounded);
+    }
   }
 
   Future<void> _deleteSelected() async {
@@ -234,40 +465,70 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     await _load();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(l.bookmarksDeletedCount(count)),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ));
+      showOverlayToast(context, l.bookmarksDeletedCount(count),
+          icon: Icons.delete_outline_rounded);
     }
   }
 
   /// Returns the book title for [itemId] from any available cache, or null
   /// when the title isn't known locally yet. Callers should render a neutral
   /// placeholder on null rather than the raw item ID.
-  String? _resolveTitle(String itemId) {
-    final cached = _titleCache[itemId];
+  String? _resolveTitle(String key) {
+    final cached = _titleCache[key];
     if (cached != null && cached.isNotEmpty) return cached;
-    final libCache =
-        context.read<LibraryProvider>().absorbingItemCache[itemId];
+    // A downloaded podcast episode is stored under the episode key and carries
+    // the episode's own name - better than the show title the caches hold.
+    if (isEpisodeKey(key)) {
+      final ep = DownloadService().getInfo(key);
+      if (ep.title != null && ep.title!.isNotEmpty) return ep.title!;
+    }
+    final libCache = context.read<LibraryProvider>().absorbingItemCache[key];
     if (libCache != null) {
       final media = libCache['media'] as Map<String, dynamic>? ?? {};
       final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
       final title = metadata['title'] as String?;
       if (title != null && title.isNotEmpty) return title;
     }
-    final dl = DownloadService().getInfo(itemId);
+    final dl = DownloadService().getInfo(key);
     if (dl.title != null && dl.title!.isNotEmpty) return dl.title!;
     return null;
   }
 
-  Future<void> _jumpToBookmark(String itemId, Bookmark bookmark, String bookTitle) async {
+  /// The show a podcast episode belongs to, shown under the episode name so a
+  /// row of episodes from different feeds can be told apart. Null for books.
+  String? _resolveShowTitle(String key) {
+    final ids = splitEpisodeKey(key);
+    if (ids.episodeId == null) return null;
+    final libCache =
+        context.read<LibraryProvider>().absorbingItemCache[ids.itemId];
+    final metadata = (libCache?['media'] as Map<String, dynamic>?)?['metadata']
+        as Map<String, dynamic>?;
+    final title = metadata?['title'] as String?;
+    if (title != null && title.isNotEmpty) return title;
+    final cached = _titleCache[ids.itemId];
+    if (cached != null && cached.isNotEmpty) return cached;
+    final dl = DownloadService().getInfo(key);
+    if (dl.author != null && dl.author!.isNotEmpty) return dl.author;
+    return null;
+  }
+
+  Future<void> _jumpToBookmark(String key, Bookmark bookmark, String bookTitle) async {
     final l = AppLocalizations.of(context)!;
     final api = context.read<AuthProvider>().apiService;
-    final result = await showDialog<BookmarkDetailResult>(
+    final ids = splitEpisodeKey(key);
+    final itemId = ids.itemId;
+    final episodeId = ids.episodeId;
+    final result = await showModalBottomSheet<BookmarkDetailResult>(
       context: context,
-      builder: (ctx) => BookmarkDetailDialog(
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => BookmarkDetailSheet(
         itemId: itemId,
+        episodeId: episodeId,
         bookmark: bookmark,
         api: api,
       ),
@@ -295,8 +556,9 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
       return;
     }
 
-    // Same book already loaded: just seek.
-    if (player.currentItemId == itemId) {
+    // Same book or episode already loaded: just seek.
+    if (player.currentItemId == itemId &&
+        (episodeId == null || player.currentEpisodeId == episodeId)) {
       await player.seekTo(Duration(seconds: position.round()));
       if (!player.isPlaying) player.play();
       if (mounted) Navigator.pop(context);
@@ -306,10 +568,8 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
 
     if (api == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(l.bookmarksNotConnected),
-          behavior: SnackBarBehavior.floating,
-        ));
+        showOverlayToast(context, l.bookmarksNotConnected,
+            icon: Icons.cloud_off_rounded);
       }
       return;
     }
@@ -317,10 +577,8 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     final fullItem = await api.getLibraryItem(itemId);
     if (fullItem == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(l.bookmarksCouldNotLoad),
-          behavior: SnackBarBehavior.floating,
-        ));
+        showOverlayToast(context, l.bookmarksCouldNotLoad,
+            icon: Icons.error_outline_rounded);
       }
       return;
     }
@@ -328,27 +586,280 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     final media = fullItem['media'] as Map<String, dynamic>? ?? {};
     final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
     final title = metadata['title'] as String? ?? '';
-    final author = metadata['authorName'] as String? ?? '';
-    final coverUrl = lib.getCoverUrl(itemId);
-    final duration = (media['duration'] is num)
+    var author = metadata['authorName'] as String? ?? '';
+    final coverUrl = lib.getCoverUrl(key);
+    var duration = (media['duration'] is num)
         ? (media['duration'] as num).toDouble() : 0.0;
-    final chapters = (media['chapters'] as List<dynamic>?) ?? [];
+    var chapters = (media['chapters'] as List<dynamic>?) ?? [];
+
+    // A podcast bookmark's time belongs to one episode, so play that episode.
+    String? episodeTitle;
+    if (episodeId != null) {
+      final ep = ((media['episodes'] as List<dynamic>?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .where((e) => e['id'] == episodeId)
+          .firstOrNull;
+      if (ep == null) {
+        if (mounted) {
+          showOverlayToast(context, l.bookmarksCouldNotLoad,
+              icon: Icons.error_outline_rounded);
+        }
+        return;
+      }
+      episodeTitle = ep['title'] as String?;
+      if (author.isEmpty) author = title;
+      duration = (ep['duration'] as num?)?.toDouble() ??
+          ((ep['audioFile'] as Map<String, dynamic>?)?['duration'] as num?)
+              ?.toDouble() ??
+          0.0;
+      chapters = (ep['chapters'] as List<dynamic>?) ?? const [];
+    }
 
     final error = await player.playItem(
       api: api,
       itemId: itemId,
-      title: title,
+      title: episodeTitle ?? title,
       author: author,
       coverUrl: coverUrl,
       totalDuration: duration,
       chapters: chapters,
+      episodeId: episodeId,
+      episodeTitle: episodeTitle,
       startTime: position,
       forceStartTime: true,
+      libraryId: fullItem['libraryId'] as String?,
     );
-    if (error != null && mounted) showErrorSnackBar(context, error);
+    if (error != null && mounted) showErrorToast(context, error);
 
     if (mounted) Navigator.pop(context);
     AppShell.goToAbsorbingGlobal();
+  }
+
+  /// Opens the book at the highlight. A downloaded ebook opens from the reader
+  /// cache, so this still works offline.
+  Future<void> _openHighlight(String itemId, EbookAnnotation highlight) async {
+    final l = AppLocalizations.of(context)!;
+    final api = context.read<AuthProvider>().apiService;
+    var title = _resolveTitle(itemId);
+    var ebookFile = await cachedEbookFileFor(itemId);
+    if (ebookFile == null && api != null) {
+      final item = await api.getLibraryItem(itemId);
+      ebookFile = resolveEbookFile(item);
+      if (title == null) {
+        final media = item?['media'] as Map<String, dynamic>? ?? {};
+        final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+        title = metadata['title'] as String?;
+      }
+    }
+    if (!mounted) return;
+    if (ebookFile == null) {
+      showOverlayToast(
+        context,
+        api == null ? l.bookmarksNotConnected : l.noEbookFileFound,
+        icon: Icons.menu_book_outlined,
+      );
+      return;
+    }
+    await openEbookReader(
+      context,
+      itemId: itemId,
+      title: title ?? '',
+      ebookFile: ebookFile,
+      openAtCfi: highlight.cfi,
+    );
+    // Highlights added or removed while reading show up on the way back.
+    if (mounted) await _loadHighlights();
+  }
+
+  Future<void> _highlightActions(String itemId, EbookAnnotation highlight) async {
+    final l = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
+    final tt = Theme.of(context).textTheme;
+    final action = await showAdaptiveActionMenu<String>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Theme.of(context).bottomSheetTheme.backgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          if ((highlight.selectedText ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: Text(
+                highlight.selectedText!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ),
+          ListTile(
+            leading: Icon(Icons.ios_share_rounded, color: cs.onSurfaceVariant),
+            title: Text(l.quoteShareTitle),
+            onTap: () => Navigator.pop(ctx, 'share'),
+          ),
+          ListTile(
+            leading: Icon(Icons.menu_book_rounded, color: cs.onSurfaceVariant),
+            title: Text(l.highlightOpenInBook),
+            onTap: () => Navigator.pop(ctx, 'open'),
+          ),
+          ListTile(
+            leading: Icon(Icons.copy_rounded, color: cs.onSurfaceVariant),
+            title: Text(l.readerTooltipCopy),
+            onTap: () => Navigator.pop(ctx, 'copy'),
+          ),
+          ListTile(
+            leading: Icon(Icons.delete_outline_rounded, color: cs.error),
+            title: Text(l.highlightDeleteAction, style: TextStyle(color: cs.error)),
+            onTap: () => Navigator.pop(ctx, 'delete'),
+          ),
+        ]),
+      ),
+    );
+    if (action == null || !mounted) return;
+    if (action == 'share') {
+      await _shareHighlight(itemId, highlight);
+    } else if (action == 'open') {
+      await _openHighlight(itemId, highlight);
+    } else if (action == 'copy') {
+      await Clipboard.setData(ClipboardData(text: highlight.selectedText ?? ''));
+      if (mounted) showOverlayToast(context, l.readerCopied, icon: Icons.copy_rounded);
+    } else if (action == 'delete') {
+      await EbookAnnotationService()
+          .delete(itemId: itemId, annotationId: highlight.id);
+      await _loadHighlights();
+      if (mounted) {
+        showOverlayToast(context, l.highlightDeleted,
+            icon: Icons.delete_outline_rounded);
+      }
+    }
+  }
+
+  Future<void> _shareHighlight(String itemId, EbookAnnotation highlight) async {
+    await showQuoteShareSheet(
+      context,
+      itemId: itemId,
+      quote: highlight.selectedText ?? '',
+      bookTitle: _resolveTitle(itemId),
+      author: _resolveAuthor(itemId),
+      chapter: highlight.chapter,
+    );
+  }
+
+  /// Author for the quote card, from whatever cache already knows this book.
+  /// The card just drops the line when nothing does.
+  String? _resolveAuthor(String itemId) {
+    final libCache = context.read<LibraryProvider>().absorbingItemCache[itemId];
+    if (libCache != null) {
+      final media = libCache['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      final author = metadata['authorName'] as String?;
+      if (author != null && author.isNotEmpty) return author;
+    }
+    final dl = DownloadService().getInfo(itemId);
+    if (dl.author != null && dl.author!.isNotEmpty) return dl.author;
+    return null;
+  }
+
+  Widget _emptyState(ColorScheme cs, TextTheme tt, IconData icon, String label) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 48, color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
+          const SizedBox(height: 12),
+          Text(label, style: tt.bodyLarge?.copyWith(color: cs.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookmarksTab(ColorScheme cs, TextTheme tt, AppLocalizations l) {
+    if (_allBookmarks.isEmpty) {
+      return _emptyState(
+          cs, tt, Icons.bookmark_border_rounded, l.bookmarksNoBookmarks);
+    }
+    final groups = _filteredBookmarks();
+    if (groups.isEmpty) {
+      return _emptyState(
+          cs, tt, Icons.search_off_rounded, l.bookmarksNoMatches);
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      itemCount: groups.length,
+      itemBuilder: (ctx, i) {
+        final lib = context.read<LibraryProvider>();
+        final itemId = groups.keys.elementAt(i);
+        final bookmarks = groups[itemId]!;
+        final resolvedTitle = _resolveTitle(itemId);
+        final coverUrl = lib.getCoverUrl(itemId, width: 400);
+        return _BookGroup(
+          // A search keeps every match in view, folded or not.
+          expanded: _query.isNotEmpty || _expanded.contains(itemId),
+          onToggleExpanded: () => setState(() {
+            if (!_expanded.remove(itemId)) _expanded.add(itemId);
+          }),
+          itemId: itemId,
+          title: resolvedTitle,
+          subtitle: _resolveShowTitle(itemId),
+          coverUrl: coverUrl,
+          mediaHeaders: lib.mediaHeaders,
+          bookmarks: bookmarks,
+          displaySpeed: _displaySpeedFor(itemId),
+          cs: cs,
+          tt: tt,
+          selecting: _selecting,
+          selected: _selected,
+          onToggle: _toggleSelect,
+          onToggleGroup: () => _toggleBookGroup(itemId, bookmarks),
+          onLongPress: _enterSelection,
+          onJump: (id, bm) => _jumpToBookmark(id, bm, resolvedTitle ?? ''),
+        );
+      },
+    );
+  }
+
+  Widget _buildHighlightsTab(ColorScheme cs, TextTheme tt, AppLocalizations l) {
+    if (_highlights.isEmpty) {
+      return _emptyState(
+          cs, tt, Icons.format_quote_rounded, l.readerNoHighlights);
+    }
+    final groups = _filteredHighlights();
+    if (groups.isEmpty) {
+      return _emptyState(
+          cs, tt, Icons.search_off_rounded, l.bookmarksNoMatches);
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+      itemCount: groups.length,
+      itemBuilder: (ctx, i) {
+        final lib = context.read<LibraryProvider>();
+        final itemId = groups.keys.elementAt(i);
+        final highlights = groups[itemId]!;
+        return _HighlightGroup(
+          expanded: _query.isNotEmpty || _expandedHighlights.contains(itemId),
+          onToggleExpanded: () => setState(() {
+            if (!_expandedHighlights.remove(itemId)) {
+              _expandedHighlights.add(itemId);
+            }
+          }),
+          itemId: itemId,
+          title: _resolveTitle(itemId),
+          coverUrl: lib.getCoverUrl(itemId, width: 400),
+          mediaHeaders: lib.mediaHeaders,
+          highlights: highlights,
+          cs: cs,
+          tt: tt,
+          selecting: _selecting,
+          selected: _selectedHighlights,
+          onActions: _highlightActions,
+          onToggle: _toggleHighlight,
+          onToggleGroup: () => _toggleHighlightGroup(itemId, highlights),
+          onLongPress: _enterHighlightSelection,
+        );
+      },
+    );
   }
 
   @override
@@ -376,7 +887,13 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                           onPressed: _exitSelection,
                         )
                       else ...[
-                        if (_allBookmarks.isNotEmpty) ...[
+                        if (_tabIndex == 1 && _highlights.isNotEmpty)
+                          IconButton(
+                            icon: Icon(Icons.checklist_rounded, color: cs.onSurfaceVariant),
+                            tooltip: l.bookmarksSelect,
+                            onPressed: () => setState(() => _selecting = true),
+                          ),
+                        if (_tabIndex == 0 && _allBookmarks.isNotEmpty) ...[
                           GestureDetector(
                             onTap: () {
                               final next = _sort == 'newest' ? 'position'
@@ -424,53 +941,70 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Content
-                  if (_allBookmarks.isEmpty)
-                    Expanded(
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.bookmark_border_rounded, size: 48, color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
-                            const SizedBox(height: 12),
-                            Text(l.bookmarksNoBookmarks, style: tt.bodyLarge?.copyWith(color: cs.onSurfaceVariant)),
-                          ],
+                  if (_allBookmarks.isNotEmpty || _highlights.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                      child: TextField(
+                        controller: _searchCtl,
+                        onChanged: (v) =>
+                            setState(() => _query = v.trim().toLowerCase()),
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: l.bookmarksSearchHint,
+                          prefixIcon: const Icon(Icons.search_rounded),
+                          suffixIcon: _query.isEmpty
+                              ? null
+                              : IconButton(
+                                  icon: const Icon(Icons.close_rounded),
+                                  onPressed: () {
+                                    _searchCtl.clear();
+                                    setState(() => _query = '');
+                                  },
+                                ),
+                          isDense: true,
+                          filled: true,
+                          fillColor: cs.surfaceContainerHigh,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: BorderSide.none,
+                          ),
                         ),
-                      ),
-                    )
-                  else
-                    Expanded(
-                      child: ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                        itemCount: _allBookmarks.length,
-                        itemBuilder: (ctx, i) {
-                          final lib = context.read<LibraryProvider>();
-                          final itemId = _allBookmarks.keys.elementAt(i);
-                          final bookmarks = _allBookmarks[itemId]!;
-                          final resolvedTitle = _resolveTitle(itemId);
-                          final coverUrl = lib.getCoverUrl(itemId, width: 400);
-                          return _BookGroup(
-                            itemId: itemId,
-                            title: resolvedTitle,
-                            coverUrl: coverUrl,
-                            mediaHeaders: lib.mediaHeaders,
-                            bookmarks: bookmarks,
-                            cs: cs,
-                            tt: tt,
-                            selecting: _selecting,
-                            selected: _selected,
-                            onToggle: _toggleSelect,
-                            onToggleGroup: () => _toggleBookGroup(itemId, bookmarks),
-                            onLongPress: _enterSelection,
-                            onJump: (id, bm) =>
-                                _jumpToBookmark(id, bm, resolvedTitle ?? ''),
-                          );
-                        },
                       ),
                     ),
 
+                  // Audiobook bookmarks and ebook highlights, tabbed only once
+                  // there's at least one highlight to show.
+                  if (_highlights.isNotEmpty)
+                    TabBar(
+                      controller: _tabs,
+                      tabs: [
+                        Tab(text: l.bookmarksTabBookmarks),
+                        Tab(text: l.bookmarksTabHighlights),
+                      ],
+                      labelColor: cs.primary,
+                      unselectedLabelColor: cs.onSurfaceVariant,
+                      indicatorColor: cs.primary,
+                      dividerColor: Colors.transparent,
+                    ),
+                  if (_highlights.isNotEmpty) const SizedBox(height: 8),
+
+                  Expanded(
+                    child: _highlights.isEmpty
+                        ? _buildBookmarksTab(cs, tt, l)
+                        : TabBarView(
+                            controller: _tabs,
+                            children: [
+                              _buildBookmarksTab(cs, tt, l),
+                              _buildHighlightsTab(cs, tt, l),
+                            ],
+                          ),
+                  ),
+
                   // Bottom delete bar
-                  if (_selecting && _selected.isNotEmpty)
+                  if (_selecting &&
+                      (_tabIndex == 0
+                          ? _selected.isNotEmpty
+                          : _selectedHighlights.isNotEmpty))
                     Container(
                       padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
                       decoration: BoxDecoration(
@@ -481,7 +1015,9 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                         top: false,
                         child: Row(children: [
                           Text(
-                            l.bookmarksSelectedCount(_selected.length),
+                            l.bookmarksSelectedCount(_tabIndex == 0
+                                ? _selected.length
+                                : _selectedHighlights.length),
                             style: tt.bodyMedium?.copyWith(color: cs.onSurface),
                           ),
                           const Spacer(),
@@ -492,7 +1028,9 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                               backgroundColor: cs.errorContainer,
                               foregroundColor: cs.onErrorContainer,
                             ),
-                            onPressed: _deleteSelected,
+                            onPressed: _tabIndex == 0
+                                ? _deleteSelected
+                                : _deleteSelectedHighlights,
                           ),
                         ]),
                       ),
@@ -507,9 +1045,12 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
 class _BookGroup extends StatelessWidget {
   final String itemId;
   final String? title;
+  /// Show name under a podcast episode's title. Null for books.
+  final String? subtitle;
   final String? coverUrl;
   final Map<String, String> mediaHeaders;
   final List<Bookmark> bookmarks;
+  final double displaySpeed;
   final ColorScheme cs;
   final TextTheme tt;
   final bool selecting;
@@ -518,13 +1059,19 @@ class _BookGroup extends StatelessWidget {
   final VoidCallback onToggleGroup;
   final void Function(String itemId, String bookmarkId) onLongPress;
   final void Function(String itemId, Bookmark bookmark) onJump;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
 
   const _BookGroup({
+    required this.expanded,
+    required this.onToggleExpanded,
     required this.itemId,
     required this.title,
+    this.subtitle,
     this.coverUrl,
     this.mediaHeaders = const {},
     required this.bookmarks,
+    this.displaySpeed = 1.0,
     required this.cs,
     required this.tt,
     required this.selecting,
@@ -555,7 +1102,8 @@ class _BookGroup extends StatelessWidget {
             children: [
               // Book header with cover + title
               GestureDetector(
-                onTap: selecting ? onToggleGroup : null,
+                behavior: HitTestBehavior.opaque,
+                onTap: selecting ? onToggleGroup : onToggleExpanded,
                 child: Row(children: [
                   if (selecting)
                     Padding(
@@ -566,14 +1114,7 @@ class _BookGroup extends StatelessWidget {
                         color: allSelected ? cs.primary : cs.onSurfaceVariant.withValues(alpha: 0.5),
                       ),
                     ),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: SizedBox(
-                      width: 40,
-                      height: 40,
-                      child: _buildCover(),
-                    ),
-                  ),
+                  _BookCover(coverUrl: coverUrl, mediaHeaders: mediaHeaders, cs: cs),
                   const SizedBox(width: 12),
                   Expanded(
                     child: title == null
@@ -584,27 +1125,50 @@ class _BookGroup extends StatelessWidget {
                               borderRadius: BorderRadius.circular(4),
                             ),
                           )
-                        : Text(
-                            title!,
-                            style: tt.titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w600),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                title!,
+                                style: tt.titleSmall
+                                    ?.copyWith(fontWeight: FontWeight.w600),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              if (subtitle != null && subtitle!.isNotEmpty)
+                                Text(
+                                  subtitle!,
+                                  style: tt.labelSmall
+                                      ?.copyWith(color: cs.onSurfaceVariant),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                            ],
                           ),
                   ),
                   Text(
                     '${bookmarks.length}',
                     style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
                   ),
+                  if (!selecting)
+                    AnimatedRotation(
+                      turns: expanded ? 0 : -0.25,
+                      duration: const Duration(milliseconds: 150),
+                      child: Icon(Icons.expand_more_rounded,
+                          size: 20, color: cs.onSurfaceVariant),
+                    ),
                 ]),
               ),
-              const SizedBox(height: 8),
+              if (expanded) const SizedBox(height: 8),
               // Bookmark rows
+              if (expanded)
               for (var j = 0; j < bookmarks.length; j++) ...[
                 if (j > 0) Divider(height: 1, indent: selecting ? 32 : 28, endIndent: 0, color: cs.outlineVariant.withValues(alpha: 0.3)),
                 _BookmarkRow(
                   itemId: itemId,
                   bookmark: bookmarks[j],
+                  displaySpeed: displaySpeed,
                   cs: cs,
                   tt: tt,
                   selecting: selecting,
@@ -621,32 +1185,55 @@ class _BookGroup extends StatelessWidget {
     );
   }
 
-  Widget _buildCover() {
-    if (coverUrl == null || coverUrl!.isEmpty) return _coverPlaceholder();
+}
+
+class _BookCover extends StatelessWidget {
+  final String? coverUrl;
+  final Map<String, String> mediaHeaders;
+  final ColorScheme cs;
+  final IconData placeholderIcon;
+
+  const _BookCover({
+    required this.coverUrl,
+    required this.mediaHeaders,
+    required this.cs,
+    this.placeholderIcon = Icons.headphones_rounded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(6),
+      child: SizedBox(width: 40, height: 40, child: _image()),
+    );
+  }
+
+  Widget _image() {
+    if (coverUrl == null || coverUrl!.isEmpty) return _placeholder();
 
     if (coverUrl!.startsWith('/')) {
       final file = File(coverUrl!);
       if (file.existsSync()) {
         return Image.file(file, fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) => _coverPlaceholder());
+            errorBuilder: (_, __, ___) => _placeholder());
       }
-      return _coverPlaceholder();
+      return _placeholder();
     }
 
     return CachedNetworkImage(
       imageUrl: coverUrl!,
       fit: BoxFit.cover,
       httpHeaders: mediaHeaders,
-      placeholder: (_, __) => _coverPlaceholder(),
-      errorWidget: (_, __, ___) => _coverPlaceholder(),
+      placeholder: (_, __) => _placeholder(),
+      errorWidget: (_, __, ___) => _placeholder(),
     );
   }
 
-  Widget _coverPlaceholder() {
+  Widget _placeholder() {
     return Container(
       color: cs.surfaceContainerHighest,
       child: Center(
-        child: Icon(Icons.headphones_rounded, size: 20,
+        child: Icon(placeholderIcon, size: 20,
             color: cs.onSurfaceVariant.withValues(alpha: 0.4)),
       ),
     );
@@ -656,6 +1243,7 @@ class _BookGroup extends StatelessWidget {
 class _BookmarkRow extends StatelessWidget {
   final String itemId;
   final Bookmark bookmark;
+  final double displaySpeed;
   final ColorScheme cs;
   final TextTheme tt;
   final bool selecting;
@@ -667,6 +1255,7 @@ class _BookmarkRow extends StatelessWidget {
   const _BookmarkRow({
     required this.itemId,
     required this.bookmark,
+    this.displaySpeed = 1.0,
     required this.cs,
     required this.tt,
     required this.selecting,
@@ -723,7 +1312,7 @@ class _BookmarkRow extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Text(
-              bookmark.formattedPosition,
+              bookmark.formattedAt(displaySpeed),
               style: tt.labelSmall?.copyWith(
                 color: cs.onSurfaceVariant,
                 fontFeatures: [const FontFeature.tabularFigures()],
@@ -731,6 +1320,241 @@ class _BookmarkRow extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _HighlightGroup extends StatelessWidget {
+  final String itemId;
+  final String? title;
+  final String? coverUrl;
+  final Map<String, String> mediaHeaders;
+  final List<EbookAnnotation> highlights;
+  final ColorScheme cs;
+  final TextTheme tt;
+  final bool selecting;
+  final Set<String> selected;
+  final void Function(String itemId, EbookAnnotation highlight) onActions;
+  final void Function(String itemId, String annotationId) onToggle;
+  final VoidCallback onToggleGroup;
+  final void Function(String itemId, String annotationId) onLongPress;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
+
+  const _HighlightGroup({
+    required this.expanded,
+    required this.onToggleExpanded,
+    required this.itemId,
+    required this.title,
+    this.coverUrl,
+    this.mediaHeaders = const {},
+    required this.highlights,
+    required this.cs,
+    required this.tt,
+    required this.selecting,
+    required this.selected,
+    required this.onActions,
+    required this.onToggle,
+    required this.onToggleGroup,
+    required this.onLongPress,
+  });
+
+  String _selKey(String id) => '$itemId::$id';
+
+  @override
+  Widget build(BuildContext context) {
+    final groupKeys = highlights.map((h) => _selKey(h.id)).toSet();
+    final allSelected = selecting && groupKeys.every(selected.contains);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        elevation: 0,
+        color: cs.surfaceContainerHigh,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: selecting ? onToggleGroup : onToggleExpanded,
+                child: Row(children: [
+                if (selecting)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Icon(
+                      allSelected
+                          ? Icons.check_circle_rounded
+                          : Icons.circle_outlined,
+                      size: 22,
+                      color: allSelected
+                          ? cs.primary
+                          : cs.onSurfaceVariant.withValues(alpha: 0.5),
+                    ),
+                  ),
+                _BookCover(
+                  coverUrl: coverUrl,
+                  mediaHeaders: mediaHeaders,
+                  cs: cs,
+                  placeholderIcon: Icons.menu_book_rounded,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: title == null
+                      ? Container(
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: cs.onSurface.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                        )
+                      : Text(
+                          title!,
+                          style: tt.titleSmall?.copyWith(fontWeight: FontWeight.w600),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                ),
+                Text(
+                  '${highlights.length}',
+                  style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
+                if (!selecting)
+                  AnimatedRotation(
+                    turns: expanded ? 0 : -0.25,
+                    duration: const Duration(milliseconds: 150),
+                    child: Icon(Icons.expand_more_rounded,
+                        size: 20, color: cs.onSurfaceVariant),
+                  ),
+                ]),
+              ),
+              if (expanded) const SizedBox(height: 8),
+              if (expanded)
+              for (var j = 0; j < highlights.length; j++) ...[
+                if (j > 0)
+                  Divider(height: 1, indent: 14, color: cs.outlineVariant.withValues(alpha: 0.3)),
+                _HighlightRow(
+                  itemId: itemId,
+                  highlight: highlights[j],
+                  cs: cs,
+                  tt: tt,
+                  selecting: selecting,
+                  isSelected: selected.contains(_selKey(highlights[j].id)),
+                  onActions: onActions,
+                  onToggle: onToggle,
+                  onLongPress: onLongPress,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HighlightRow extends StatelessWidget {
+  final String itemId;
+  final EbookAnnotation highlight;
+  final ColorScheme cs;
+  final TextTheme tt;
+  final bool selecting;
+  final bool isSelected;
+  final void Function(String itemId, EbookAnnotation highlight) onActions;
+  final void Function(String itemId, String annotationId) onToggle;
+  final void Function(String itemId, String annotationId) onLongPress;
+
+  const _HighlightRow({
+    required this.itemId,
+    required this.highlight,
+    required this.cs,
+    required this.tt,
+    required this.selecting,
+    required this.isSelected,
+    required this.onActions,
+    required this.onToggle,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l = AppLocalizations.of(context)!;
+    final hex = (highlight.color ?? HighlightColor.yellow).hex;
+    final barColor = Color(int.parse('FF${hex.substring(1)}', radix: 16));
+    final created = highlight.createdAt;
+    final date = l.backupDateFormat(created.month, created.day, created.year);
+    final chapter = highlight.chapter;
+    final meta = chapter != null && chapter.isNotEmpty
+        ? l.highlightsMeta(chapter, date)
+        : date;
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: selecting
+          ? () => onToggle(itemId, highlight.id)
+          : () => onActions(itemId, highlight),
+      onLongPress: selecting ? null : () => onLongPress(itemId, highlight.id),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(children: [
+          if (selecting)
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: Icon(
+                isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                size: 20,
+                color: isSelected
+                    ? cs.primary
+                    : cs.onSurfaceVariant.withValues(alpha: 0.4),
+              ),
+            ),
+          Expanded(
+            child: Container(
+          padding: const EdgeInsets.only(left: 10),
+          decoration: BoxDecoration(
+            border: Border(left: BorderSide(color: barColor, width: 3)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                highlight.selectedText ?? '',
+                style: tt.bodyMedium,
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+              if (highlight.note != null && highlight.note!.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Icon(Icons.sticky_note_2_outlined, size: 14,
+                        color: cs.onSurfaceVariant.withValues(alpha: 0.7)),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        highlight.note!,
+                        style: tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ]),
+                ),
+              const SizedBox(height: 4),
+              Text(
+                meta,
+                style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+            ),
+          ),
+        ]),
       ),
     );
   }

@@ -7,14 +7,20 @@ import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../screens/app_shell.dart';
 import '../screens/car_mode_screen.dart';
+import '../screens/stats_screen.dart';
+import '../services/api_service.dart';
 import '../services/audio_player_service.dart';
 import '../services/bookmark_service.dart';
 import '../services/chromecast_service.dart';
 import '../services/download_service.dart';
+import '../services/lyrics_service.dart';
+import '../services/transcription_service.dart';
 import '../services/equalizer_service.dart';
 import '../services/playback_history_service.dart';
 import '../services/scoped_prefs.dart';
+import '../services/screen_wake.dart';
 import '../services/sleep_timer_service.dart';
+import '../utils/episode_key.dart';
 import 'absorb_slider.dart';
 import 'absorbing_shared.dart';
 import 'book_detail_sheet.dart';
@@ -26,9 +32,34 @@ import 'episode_detail_sheet.dart';
 import 'episode_list_sheet.dart';
 import 'equalizer_sheet.dart';
 import 'feature_hint.dart';
+import 'listening_session_card.dart';
 import 'notes_sheet.dart';
 import 'overlay_toast.dart';
 import 'sleep_timer_sheet.dart';
+import 'transcription_download_prompt.dart';
+
+/// E-ink screens dither faint greys and cover-colored accents into noise, so
+/// the card controls bump to near-black when e-ink mode is on. Disabled stays
+/// visibly lighter than enabled, just dark enough to survive the panel.
+Color _inkAccent(Color accent) =>
+    PlayerSettings.einkMode ? Colors.black : accent;
+double _inkAlpha(double normal, double eink) =>
+    PlayerSettings.einkMode ? eink : normal;
+
+/// A card button's fill under the Button background setting. Subtle is the
+/// tint at the given strength; Solid lays it over an opaque surface.
+Color _buttonFill(ColorScheme cs, Color tint, double normal, double eink, {bool neutral = false}) =>
+    switch (PlayerSettings.cardButtonFill) {
+      'clear' => Colors.transparent,
+      'solid' => neutral
+          ? cs.surfaceContainerHighest
+          : Color.alphaBlend(tint.withValues(alpha: 0.2), cs.surfaceContainerHighest),
+      _ => tint.withValues(alpha: _inkAlpha(normal, eink)),
+    };
+
+/// A card button's edge; Clear drops it with the fill.
+Color _buttonEdge(Color tint, double normal, double eink) =>
+    PlayerSettings.cardButtonFill == 'clear' ? Colors.transparent : tint.withValues(alpha: _inkAlpha(normal, eink));
 
 /// Wrapper that gives any child a press-down opacity+scale effect.
 class Pressable extends StatefulWidget {
@@ -66,19 +97,33 @@ class _PressableState extends State<Pressable> {
 }
 
 /// Show a toast when the user taps a button that requires active playback.
+/// The card's Keep screen on button: holds the screen while the player is up,
+/// until the app is closed. With the Settings switch on, the button switches
+/// it off for this run only; the next launch follows Settings again.
+void toggleKeepScreenOn(BuildContext context) {
+  final l = AppLocalizations.of(context)!;
+  if (PlayerScreenWake.always) {
+    final off = !PlayerScreenWake.sessionOff.value;
+    PlayerScreenWake.sessionOff.value = off;
+    showOverlayToast(context,
+        off ? l.keepScreenOnOffUntilRestart : l.keepScreenOnUntilClosed,
+        icon: off ? Icons.lightbulb_outline_rounded : Icons.lightbulb_rounded);
+    return;
+  }
+  final on = !PlayerScreenWake.sessionOn.value;
+  PlayerScreenWake.sessionOn.value = on;
+  showOverlayToast(context, on ? l.keepScreenOnUntilClosed : l.keepScreenOnOff,
+      icon: on ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded);
+}
+
 void showInactiveToast(BuildContext context) {
   final l = AppLocalizations.of(context)!;
-  ScaffoldMessenger.of(context)
-    ..clearSnackBars()
-    ..showSnackBar(SnackBar(
-      content: Text(l.startPlayingSomethingFirst),
-      duration: const Duration(seconds: 2),
-      behavior: SnackBarBehavior.floating,
-    ));
+  showOverlayToast(context, l.startPlayingSomethingFirst,
+      icon: Icons.play_disabled_rounded);
 }
 
 /// Show an error message to the user.
-void showErrorSnackBar(BuildContext context, String message) {
+void showErrorToast(BuildContext context, String message) {
   showOverlayToast(context, message, icon: Icons.error_outline_rounded);
 }
 
@@ -115,16 +160,23 @@ class CardWideButton extends StatelessWidget {
     final radius = compact ? 10.0 : (large ? 14.0 : 12.0);
     final showIconOnly = compact || iconsOnly;
     final fgColor = highlighted
-        ? accent
-        : (enabled ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24));
+        ? _inkAccent(accent)
+        : (enabled
+            ? cs.onSurfaceVariant
+            : cs.onSurface.withValues(alpha: _inkAlpha(0.24, 0.85)));
     return Pressable(
       onTap: enabled ? onTap : () => showInactiveToast(context),
       child: Container(
         padding: EdgeInsets.symmetric(vertical: vPad),
         decoration: BoxDecoration(
-          color: highlighted ? accent.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.06),
+          color: highlighted
+              ? _buttonFill(cs, _inkAccent(accent), 0.1, 0.12)
+              : _buttonFill(cs, cs.onSurface, 0.06, 0.03, neutral: true),
           borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: highlighted ? accent.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.08)),
+          border: Border.all(
+              color: highlighted
+                  ? _buttonEdge(_inkAccent(accent), 0.3, 1.0)
+                  : _buttonEdge(cs.onSurface, 0.08, 0.55)),
         ),
         child: showIconOnly
           ? Center(child: Icon(icon, size: iconSize, color: fgColor))
@@ -133,7 +185,7 @@ class CardWideButton extends StatelessWidget {
               children: [
                 Icon(icon, size: iconSize, color: fgColor),
                 const SizedBox(width: 6),
-                Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
+                Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
                   color: fgColor,
                   fontSize: fontSize, fontWeight: FontWeight.w500))),
               ],
@@ -149,6 +201,9 @@ class MoreMenuItem extends StatelessWidget {
   final String label;
   final Color accent;
   final bool enabled;
+  // A toggle that is currently on: the pill lights up in the accent so the
+  // state shows before you press it.
+  final bool active;
   final VoidCallback onTap;
 
   const MoreMenuItem({
@@ -156,10 +211,12 @@ class MoreMenuItem extends StatelessWidget {
     required this.icon, required this.label,
     required this.accent, required this.onTap,
     this.enabled = true,
+    this.active = false,
   });
 
   @override Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final ink = _inkAccent(accent);
     // Grid pill: centered icon over a short label, fills its (fixed-height)
     // grid cell. Matches the book menu's quick-actions pills. The loose
     // Flexible lets a long label ellipsise inside the cell at big font scales.
@@ -168,17 +225,28 @@ class MoreMenuItem extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
         decoration: BoxDecoration(
-          color: cs.surfaceContainerHigh,
+          color: active ? ink.withValues(alpha: _inkAlpha(0.18, 0.0)) : cs.surfaceContainerHigh,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+          border: Border.all(
+            color: active
+                ? ink.withValues(alpha: _inkAlpha(0.6, 1.0))
+                : cs.onSurface.withValues(alpha: _inkAlpha(0.08, 0.55)),
+            width: active ? 1.5 : 1,
+          ),
         ),
         child: Column(mainAxisSize: MainAxisSize.max, mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, size: 22, color: enabled ? accent.withValues(alpha: 0.85) : cs.onSurface.withValues(alpha: 0.24)),
+          Icon(icon, size: 22, color: enabled
+              ? ink.withValues(alpha: _inkAlpha(active ? 1.0 : 0.85, 1.0))
+              : cs.onSurface.withValues(alpha: _inkAlpha(0.24, 0.85))),
           const SizedBox(height: 7),
           Flexible(child: Text(label, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis,
             style: TextStyle(
-              color: enabled ? cs.onSurface.withValues(alpha: 0.85) : cs.onSurface.withValues(alpha: 0.24),
-              fontSize: 11, fontWeight: FontWeight.w500, height: 1.15))),
+              color: !enabled
+                  ? cs.onSurface.withValues(alpha: _inkAlpha(0.24, 0.85))
+                  : active
+                      ? ink
+                      : cs.onSurface.withValues(alpha: _inkAlpha(0.85, 1.0)),
+              fontSize: 11, fontWeight: active ? FontWeight.w700 : FontWeight.w500, height: 1.15))),
         ]),
       ),
     );
@@ -230,9 +298,13 @@ class CardSleepButtonInline extends StatelessWidget {
             height: h,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: active ? accent.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.06),
+              color: active
+                  ? _buttonFill(cs, _inkAccent(accent), 0.1, 0.12)
+                  : _buttonFill(cs, cs.onSurface, 0.06, 0.03, neutral: true),
               borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: active ? accent.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.08)),
+              border: Border.all(color: active
+                  ? _buttonEdge(_inkAccent(accent), 0.3, 1.0)
+                  : _buttonEdge(cs.onSurface, 0.08, 0.55)),
             ),
             child: Stack(children: [
               if (active && isTime)
@@ -240,17 +312,17 @@ class CardSleepButtonInline extends StatelessWidget {
                   widthFactor: sleep.timeProgress.clamp(0.0, 1.0),
                   child: Container(
                     decoration: BoxDecoration(
-                      color: accent.withValues(alpha: 0.15),
+                      color: _inkAccent(accent).withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(radius - 1),
                     ),
                   ),
                 ),
               Center(child: (compact || iconsOnly) && !active
                 ? Icon(Icons.nightlight_round_outlined, size: iconSz,
-                    color: isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))
+                    color: isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: _inkAlpha(0.24, 0.85)))
                 : iconsOnly && active
-                  ? Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
-                      color: accent,
+                  ? Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
+                      color: _inkAccent(accent),
                       fontSize: fontSize,
                       fontWeight: FontWeight.w700,
                       fontFeatures: isTime ? const [FontFeature.tabularFigures()] : null,
@@ -259,10 +331,10 @@ class CardSleepButtonInline extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.nightlight_round_outlined, size: iconSz,
-                        color: active ? accent : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24))),
+                        color: active ? _inkAccent(accent) : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: _inkAlpha(0.24, 0.85)))),
                       SizedBox(width: compact ? 4 : 8),
-                      Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
-                        color: active ? accent : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: 0.24)),
+                      Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
+                        color: active ? _inkAccent(accent) : (isActive ? cs.onSurfaceVariant : cs.onSurface.withValues(alpha: _inkAlpha(0.24, 0.85))),
                         fontSize: fontSize,
                         fontWeight: active ? FontWeight.w700 : FontWeight.w500,
                         fontFeatures: active && isTime ? const [FontFeature.tabularFigures()] : null,
@@ -335,9 +407,13 @@ class CardDownloadButtonInline extends StatelessWidget {
             height: h,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: downloaded ? dlGreen.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.06),
+              color: downloaded
+                  ? _buttonFill(cs, dlGreen, 0.1, 0.12)
+                  : _buttonFill(cs, cs.onSurface, 0.06, 0.03, neutral: true),
               borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: downloaded ? dlGreen.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.08)),
+              border: Border.all(color: downloaded
+                  ? _buttonEdge(dlGreen, 0.3, 0.9)
+                  : _buttonEdge(cs.onSurface, 0.08, 0.55)),
             ),
             child: Stack(children: [
               if (downloading)
@@ -357,7 +433,7 @@ class CardDownloadButtonInline extends StatelessWidget {
                     children: [
                       Icon(icon, size: iconSz, color: color),
                       SizedBox(width: compact ? 4 : 8),
-                      Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
+                      Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
                         color: color, fontSize: fontSize,
                         fontWeight: downloaded || downloading ? FontWeight.w700 : FontWeight.w500,
                       ))),
@@ -379,7 +455,7 @@ class CardDownloadButtonInline extends StatelessWidget {
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
           TextButton(onPressed: () {
-            dl.deleteDownload(_key);
+            dl.deleteDownload(_key, byUser: true);
             Navigator.pop(ctx);
             showOverlayToast(context, l.downloadRemoved, icon: Icons.delete_outline_rounded);
           }, child: Text(l.remove, style: const TextStyle(color: Colors.redAccent))),
@@ -405,11 +481,17 @@ class CardBookmarkButtonInline extends StatefulWidget {
   final Color accent;
   final bool isActive;
   final String itemId;
+  final String? episodeId;
   final bool large;
   final bool compact;
   final bool short;
   final bool iconsOnly;
-  const CardBookmarkButtonInline({super.key, required this.player, required this.accent, required this.isActive, required this.itemId, this.large = false, this.compact = false, this.short = false, this.iconsOnly = false});
+  const CardBookmarkButtonInline({super.key, required this.player, required this.accent, required this.isActive, required this.itemId, this.episodeId, this.large = false, this.compact = false, this.short = false, this.iconsOnly = false});
+
+  // Podcast bookmarks are keyed 'showId-episodeId' so each episode keeps its
+  // own; books use the plain itemId.
+  String get _key => episodeKeyFor(itemId, episodeId);
+
   @override State<CardBookmarkButtonInline> createState() => _CardBookmarkButtonInlineState();
 }
 
@@ -420,16 +502,21 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
   Future<void> _syncThenLoadCount() async {
     // Show local count immediately
     _loadCount();
-    // Then sync with server and update
-    final api = AudioPlayerService().currentApi;
+    // Then sync with server and update. The player's api is null when no book
+    // is loaded (browsing a not-playing book), so fall back to the signed-in
+    // one - server bookmarks should appear either way. Episode bookmarks never
+    // go to the server, so there is nothing to wait for.
+    if (widget.episodeId != null) return;
+    final api = AudioPlayerService().currentApi ??
+        (mounted ? context.read<AuthProvider>().apiService : null);
     if (api != null) {
-      await BookmarkService().syncBookmarks(widget.itemId, api);
+      await BookmarkService().syncBookmarks(widget._key, api);
       _loadCount();
     }
   }
 
   Future<void> _loadCount() async {
-    final c = await BookmarkService().getCount(widget.itemId);
+    final c = await BookmarkService().getCount(widget._key);
     if (mounted) setState(() => _count = c);
   }
 
@@ -451,9 +538,9 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
       child: Container(
         padding: EdgeInsets.symmetric(vertical: vPad),
         decoration: BoxDecoration(
-          color: cs.onSurface.withValues(alpha: 0.06),
+          color: _buttonFill(cs, cs.onSurface, 0.06, 0.03, neutral: true),
           borderRadius: BorderRadius.circular(radius),
-          border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+          border: Border.all(color: _buttonEdge(cs.onSurface, 0.08, 0.55)),
         ),
         child: cp || widget.iconsOnly
           ? Center(child: Icon(Icons.bookmark_outline_rounded, size: iconSz, color: cs.onSurfaceVariant))
@@ -462,7 +549,7 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
               children: [
                 Icon(Icons.bookmark_outline_rounded, size: iconSz, color: cs.onSurfaceVariant),
                 const SizedBox(width: 8),
-                Flexible(child: Text(label, overflow: TextOverflow.ellipsis, style: TextStyle(
+                Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(
                   color: cs.onSurfaceVariant, fontSize: fontSize, fontWeight: FontWeight.w500))),
               ],
             ),
@@ -489,11 +576,11 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
       final e = (m['end'] as num?)?.toDouble() ?? 0;
       if (pos >= s && pos < e) { chTitle = m['title'] as String?; break; }
     }
-    await BookmarkService().addBookmark(itemId: widget.itemId, positionSeconds: pos, title: chTitle ?? l.bookmark, api: AudioPlayerService().currentApi);
+    await BookmarkService().addBookmark(itemId: widget._key, positionSeconds: pos, title: chTitle ?? l.bookmark, api: AudioPlayerService().currentApi);
     _loadCount();
     if (ctx.mounted) {
-      ScaffoldMessenger.of(ctx).showSnackBar(SnackBar(duration: const Duration(seconds: 2), content: Text(l.bookmarkAdded), behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))));
+      showOverlayToast(ctx, l.bookmarkAdded,
+          icon: Icons.bookmark_added_rounded);
     }
   }
 
@@ -502,7 +589,7 @@ class _CardBookmarkButtonInlineState extends State<CardBookmarkButtonInline> {
       context: context, backgroundColor: Colors.transparent, isScrollControlled: true, useSafeArea: true,
       builder: (ctx) => DraggableScrollableSheet(
         initialChildSize: 0.6, minChildSize: 0.05, snap: true, maxChildSize: 0.9, expand: false,
-        builder: (ctx, sc) => SimpleBookmarkSheet(itemId: widget.itemId, player: widget.player, accent: widget.accent, scrollController: sc, onChanged: _loadCount),
+        builder: (ctx, sc) => SimpleBookmarkSheet(itemId: widget.itemId, episodeId: widget.episodeId, player: widget.player, accent: widget.accent, scrollController: sc, onChanged: _loadCount),
       ),
     );
   }
@@ -587,9 +674,9 @@ class _CardSpeedButtonInlineState extends State<CardSpeedButtonInline> {
           child: Container(
             height: h,
             decoration: BoxDecoration(
-              color: cs.onSurface.withValues(alpha: 0.06),
+              color: _buttonFill(cs, cs.onSurface, 0.06, 0.03, neutral: true),
               borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: cs.onSurface.withValues(alpha: 0.08)),
+              border: Border.all(color: _buttonEdge(cs.onSurface, 0.08, 0.55)),
             ),
             child: content,
           ),
@@ -655,7 +742,7 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
   }
   void _setSpeed(double v) {
     final s = (v * 20).round() / 20.0;
-    setState(() => _speed = s.clamp(0.5, 3.0));
+    setState(() => _speed = s.clamp(0.5, 5.0));
     if (_isCasting) {
       ChromecastService().setSpeed(_speed);
     } else if (widget.player.hasBook) {
@@ -727,7 +814,7 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
               child: Icon(Icons.remove_rounded, size: 20, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.7)),
             ),
           ),
-          Expanded(child: AbsorbSlider(value: _speed, min: 0.5, max: 3.0, divisions: 50, activeColor: widget.accent, onChanged: _setSpeed)),
+          Expanded(child: AbsorbSlider(value: _speed, min: 0.5, max: 5.0, divisions: 90, activeColor: widget.accent, onChanged: _setSpeed)),
           GestureDetector(
             onTap: () => _setSpeed(_speed + 0.05),
             child: Container(
@@ -741,7 +828,7 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text('0.5x', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 11)),
-            Text('3.0x', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 11)),
+            Text('5.0x', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.3), fontSize: 11)),
           ],
         )),
       ]),
@@ -752,34 +839,61 @@ class _CardSpeedSheetState extends State<CardSpeedSheet> {
 // ─── BOOKMARK SHEET ──────────────────────────────────────────
 
 class SimpleBookmarkSheet extends StatefulWidget {
-  final String itemId; final AudioPlayerService player; final Color accent; final ScrollController scrollController; final VoidCallback onChanged;
-  const SimpleBookmarkSheet({super.key, required this.itemId, required this.player, required this.accent, required this.scrollController, required this.onChanged});
+  final String itemId; final String? episodeId; final AudioPlayerService player; final Color accent; final ScrollController scrollController; final VoidCallback onChanged;
+  const SimpleBookmarkSheet({super.key, required this.itemId, this.episodeId, required this.player, required this.accent, required this.scrollController, required this.onChanged});
+
+  /// Storage key: 'showId-episodeId' for a podcast episode, the item id for a
+  /// book. [itemId] stays the library item for anything the server answers.
+  String get _key => episodeKeyFor(itemId, episodeId);
   @override State<SimpleBookmarkSheet> createState() => _SimpleBookmarkSheetState();
 }
 
 class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
   List<Bookmark>? _bookmarks;
   String _sort = 'newest';
-  @override void initState() { super.initState(); _loadSort(); }
+  bool _speedAdjustedTime = true;
+  double _savedSpeed = 1.0;
+  @override void initState() {
+    super.initState();
+    _loadSort();
+    PlayerSettings.getSpeedAdjustedTime().then((v) {
+      if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
+    });
+    PlayerSettings.getBookSpeed(widget.itemId).then((s) async {
+      final speed = s ?? await PlayerSettings.getDefaultSpeed();
+      if (mounted && speed != _savedSpeed) setState(() => _savedSpeed = speed);
+    });
+  }
+
+  double get _displaySpeed {
+    if (!_speedAdjustedTime) return 1.0;
+    if (_isCasting) return ChromecastService().castSpeed;
+    return widget.player.currentItemId == widget.itemId
+        ? widget.player.speed
+        : _savedSpeed;
+  }
   Future<void> _loadSort() async {
     _sort = await PlayerSettings.getBookmarkSort();
     // Show the local bookmarks first so the sheet never hangs on a slow or
     // unreachable server (it used to await the sync before loading anything,
     // which spun forever if the server didn't respond). Then sync in the
-    // background and refresh with whatever it pulled in.
+    // background and refresh with whatever it pulled in. The player's api is
+    // null when this book isn't loaded - fall back to the signed-in one.
     await _load();
-    final api = AudioPlayerService().currentApi;
+    if (widget.episodeId != null) return; // episode bookmarks stay local
+    final api = AudioPlayerService().currentApi ??
+        (mounted ? context.read<AuthProvider>().apiService : null);
     if (api != null) {
       try {
         await BookmarkService()
-            .syncBookmarks(widget.itemId, api)
+            .syncBookmarks(widget._key, api)
             .timeout(const Duration(seconds: 12));
       } catch (_) {}
       await _load();
     }
   }
   Future<void> _load() async {
-    final bm = await BookmarkService().getBookmarks(widget.itemId, sort: _sort);
+    final bm = await BookmarkService().getBookmarks(widget._key, sort: _sort);
     if (mounted) setState(() => _bookmarks = bm);
     widget.onChanged();
   }
@@ -850,10 +964,19 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                       final hasNote = bm.note != null && bm.note!.isNotEmpty;
                       return InkWell(
                         onTap: () async {
-                          final result = await showDialog<BookmarkDetailResult>(
+                          final result = await showModalBottomSheet<BookmarkDetailResult>(
                             context: ctx,
-                            builder: (_) => BookmarkDetailDialog(
+                            isScrollControlled: true,
+                            showDragHandle: true,
+                            backgroundColor:
+                                Theme.of(ctx).bottomSheetTheme.backgroundColor,
+                            shape: const RoundedRectangleBorder(
+                              borderRadius:
+                                  BorderRadius.vertical(top: Radius.circular(24)),
+                            ),
+                            builder: (_) => BookmarkDetailSheet(
                               itemId: widget.itemId,
+                              episodeId: widget.episodeId,
                               bookmark: bm,
                               api: context.read<AuthProvider>().apiService,
                             ),
@@ -864,7 +987,9 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                             return;
                           }
                           final position = result.position;
-                          final isActive = widget.player.currentItemId == widget.itemId;
+                          final isActive = widget.player.currentItemId == widget.itemId &&
+                              (widget.episodeId == null ||
+                                  widget.player.currentEpisodeId == widget.episodeId);
                           Navigator.pop(ctx); // Close bookmark sheet first
                           if (isActive || _isCasting) {
                             final seekDur = Duration(seconds: position.round());
@@ -891,7 +1016,7 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                               Text(bm.title, maxLines: 1, overflow: TextOverflow.ellipsis,
                                 style: tt.bodyMedium?.copyWith(color: cs.onSurface.withValues(alpha: 0.7))),
                               const SizedBox(height: 2),
-                              Text(bm.formattedPosition, style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
+                              Text(bm.formattedAt(_displaySpeed), style: tt.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
                               if (hasNote) ...[
                                 const SizedBox(height: 4),
                                 Container(
@@ -907,23 +1032,19 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                               ],
                             ])),
                             const SizedBox(width: 8),
-                            GestureDetector(
-                              onTap: () async {
-                                final confirmed = await showDialog<bool>(context: context, builder: (dlg) => AlertDialog(
-                                  title: Text(l.deleteBookmarkQuestion),
-                                  content: Text(l.bookmarksJumpShortContent(bm.title, bm.formattedPosition)),
-                                  actions: [
-                                    TextButton(onPressed: () => Navigator.pop(dlg, false), child: Text(l.cancel)),
-                                    TextButton(onPressed: () => Navigator.pop(dlg, true), child: Text(l.delete, style: TextStyle(color: Colors.red.shade300))),
-                                  ],
-                                ));
-                                if (confirmed != true) return;
-                                await BookmarkService().deleteBookmark(itemId: widget.itemId, bookmarkId: bm.id, api: AudioPlayerService().currentApi);
-                                _load();
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.all(10),
-                                child: Icon(Icons.delete_outline_rounded, size: 22, color: cs.onSurface.withValues(alpha: 0.35)),
+                            IconButton(
+                              key: ValueKey('bookmark-delete-${bm.id}'),
+                              tooltip: l.delete,
+                              onPressed: () => _confirmDeleteBookmark(bm),
+                              padding: const EdgeInsets.all(12),
+                              constraints: const BoxConstraints.tightFor(
+                                width: 48,
+                                height: 48,
+                              ),
+                              icon: Icon(
+                                Icons.delete_outline_rounded,
+                                size: 22,
+                                color: cs.onSurface.withValues(alpha: 0.35),
                               ),
                             ),
                           ]),
@@ -932,6 +1053,37 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
                     })),
       ]),
     );
+  }
+
+  Future<void> _confirmDeleteBookmark(Bookmark bookmark) async {
+    final l = AppLocalizations.of(context)!;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(l.deleteBookmarkQuestion),
+        content: Text(l.bookmarksJumpShortContent(
+          bookmark.title,
+          bookmark.formattedAt(_displaySpeed),
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(l.cancel),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(l.delete, style: TextStyle(color: Colors.red.shade300)),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || confirmed != true) return;
+    await BookmarkService().deleteBookmark(
+      itemId: widget._key,
+      bookmarkId: bookmark.id,
+      api: AudioPlayerService().currentApi,
+    );
+    if (mounted) await _load();
   }
 
   bool get _isCasting {
@@ -949,15 +1101,34 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
     final media = fullItem['media'] as Map<String, dynamic>? ?? {};
     final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
     final title = metadata['title'] as String? ?? '';
-    final author = metadata['authorName'] as String? ?? '';
-    final coverUrl = lib.getCoverUrl(widget.itemId);
-    final duration = (media['duration'] is num) ? (media['duration'] as num).toDouble() : 0.0;
-    final chapters = (media['chapters'] as List<dynamic>?) ?? [];
+    var author = metadata['authorName'] as String? ?? '';
+    final coverUrl = lib.getCoverUrl(widget._key);
+    var duration = (media['duration'] is num) ? (media['duration'] as num).toDouble() : 0.0;
+    var chapters = (media['chapters'] as List<dynamic>?) ?? [];
+    // A podcast bookmark belongs to one episode, so play that episode - its
+    // own duration and chapters, not the show's.
+    String? episodeTitle;
+    final epId = widget.episodeId;
+    if (epId != null) {
+      final ep = ((media['episodes'] as List<dynamic>?) ?? const [])
+          .whereType<Map<String, dynamic>>()
+          .where((e) => e['id'] == epId)
+          .firstOrNull;
+      if (ep == null) return;
+      episodeTitle = ep['title'] as String?;
+      if (author.isEmpty) author = title; // the show stands in for the author
+      duration = (ep['duration'] as num?)?.toDouble() ??
+          ((ep['audioFile'] as Map<String, dynamic>?)?['duration'] as num?)?.toDouble() ??
+          0.0;
+      chapters = (ep['chapters'] as List<dynamic>?) ?? const [];
+    }
     await player.playItem(
       api: api, itemId: widget.itemId,
-      title: title, author: author, coverUrl: coverUrl,
+      title: episodeTitle ?? title, author: author, coverUrl: coverUrl,
       totalDuration: duration, chapters: chapters,
+      episodeId: epId, episodeTitle: episodeTitle,
       startTime: positionSeconds, forceStartTime: true,
+      libraryId: fullItem['libraryId'] as String?,
     );
     AppShell.goToAbsorbingGlobal();
   }
@@ -968,12 +1139,13 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
     final pos = _isCasting
         ? cast.castPosition.inMilliseconds / 1000.0
         : widget.player.position.inMilliseconds / 1000.0;
-    final h = pos ~/ 3600; final m = (pos % 3600) ~/ 60; final s = pos.toInt() % 60;
-    final posStr = h > 0 ? '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}' : '$m:${s.toString().padLeft(2, '0')}';
 
-    // Find current chapter name for default title
+    // Default title is the current chapter name, or a plain "Bookmark". No
+    // timestamp in the title: the stored raw time would disagree with the
+    // speed-adjusted display here, and an adjusted one would disagree with the
+    // ABS web UI, which only knows raw times.
     final chapters = _isCasting ? cast.castingChapters : widget.player.chapters;
-    String defaultTitle = l.bookmarkAtPosition(posStr);
+    String defaultTitle = l.bookmark;
     for (final ch in chapters) {
       final cm = ch as Map<String, dynamic>;
       final cs = (cm['start'] as num?)?.toDouble() ?? 0;
@@ -984,12 +1156,23 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
     final titleC = TextEditingController(text: defaultTitle);
     final noteC = TextEditingController();
     final result = await showDialog<Map<String, String>>(context: context, builder: (ctx) => AlertDialog(
+      scrollable: true,
       title: Text(l.addBookmark),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: titleC, autofocus: true, decoration: InputDecoration(labelText: l.titleLabel, border: const OutlineInputBorder())),
-        const SizedBox(height: 12),
-        TextField(controller: noteC, maxLines: 3, decoration: InputDecoration(labelText: l.noteOptionalLabel, border: const OutlineInputBorder(), alignLabelWithHint: true)),
-      ]),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: titleC, autofocus: true, decoration: InputDecoration(labelText: l.titleLabel, border: const OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(
+            controller: noteC,
+            minLines: 3,
+            maxLines: 8,
+            keyboardType: TextInputType.multiline,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(labelText: l.noteOptionalLabel, border: const OutlineInputBorder(), alignLabelWithHint: true),
+          ),
+        ]),
+      ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
         FilledButton(onPressed: () => Navigator.pop(ctx, {'title': titleC.text, 'note': noteC.text}), child: Text(l.save)),
@@ -997,7 +1180,7 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
     ));
     if (result != null && result['title']!.isNotEmpty) {
       final note = result['note']?.isNotEmpty == true ? result['note'] : null;
-      await BookmarkService().addBookmark(itemId: widget.itemId, positionSeconds: pos, title: result['title']!, note: note, api: AudioPlayerService().currentApi);
+      await BookmarkService().addBookmark(itemId: widget._key, positionSeconds: pos, title: result['title']!, note: note, api: AudioPlayerService().currentApi);
       _load();
     }
   }
@@ -1007,12 +1190,23 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
     final titleC = TextEditingController(text: bm.title);
     final noteC = TextEditingController(text: bm.note ?? '');
     final result = await showDialog<Map<String, String>>(context: context, builder: (ctx) => AlertDialog(
+      scrollable: true,
       title: Text(l.editBookmark),
-      content: Column(mainAxisSize: MainAxisSize.min, children: [
-        TextField(controller: titleC, decoration: InputDecoration(labelText: l.titleLabel, border: const OutlineInputBorder())),
-        const SizedBox(height: 12),
-        TextField(controller: noteC, maxLines: 3, decoration: InputDecoration(labelText: l.noteOptionalLabel, border: const OutlineInputBorder(), alignLabelWithHint: true)),
-      ]),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          TextField(controller: titleC, decoration: InputDecoration(labelText: l.titleLabel, border: const OutlineInputBorder())),
+          const SizedBox(height: 12),
+          TextField(
+            controller: noteC,
+            minLines: 4,
+            maxLines: 10,
+            keyboardType: TextInputType.multiline,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(labelText: l.noteOptionalLabel, border: const OutlineInputBorder(), alignLabelWithHint: true),
+          ),
+        ]),
+      ),
       actions: [
         TextButton(onPressed: () => Navigator.pop(ctx), child: Text(l.cancel)),
         FilledButton(onPressed: () => Navigator.pop(ctx, {'title': titleC.text, 'note': noteC.text}), child: Text(l.save)),
@@ -1020,7 +1214,7 @@ class _SimpleBookmarkSheetState extends State<SimpleBookmarkSheet> {
     ));
     if (result != null && result['title']!.isNotEmpty) {
       await BookmarkService().updateBookmark(
-        itemId: widget.itemId, bookmarkId: bm.id,
+        itemId: widget._key, bookmarkId: bm.id,
         title: result['title']!, note: result['note']?.isNotEmpty == true ? result['note'] : null,
         api: AudioPlayerService().currentApi,
       );
@@ -1038,7 +1232,9 @@ class MoreMenuSheet extends StatefulWidget {
   final Color accent;
   final Widget Function(String id) buildItem;
   final void Function(List<String>, int) onReorder;
-  const MoreMenuSheet({super.key, required this.overflowIds, required this.allIds, this.visibleCount = 4, required this.accent, required this.buildItem, required this.onReorder});
+  // The transcript slot reads Read along on a card whose book has an epub.
+  final bool readAlongLabel;
+  const MoreMenuSheet({super.key, required this.overflowIds, required this.allIds, this.visibleCount = 4, required this.accent, required this.buildItem, required this.onReorder, this.readAlongLabel = false});
   @override State<MoreMenuSheet> createState() => _MoreMenuSheetState();
 }
 
@@ -1297,10 +1493,18 @@ class _MoreMenuSheetState extends State<MoreMenuSheet> {
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(children: [
-                        Icon(isMore ? Icons.more_horiz_rounded : def!.icon, size: 20,
+                        Icon(
+                          isMore
+                              ? Icons.more_horiz_rounded
+                              : (id == 'lyrics' && widget.readAlongLabel ? Icons.auto_stories_rounded : def!.icon),
+                          size: 20,
                           color: id == 'remove' ? Colors.red.shade300 : cs.onSurface.withValues(alpha: 0.7)),
                         const SizedBox(width: 12),
-                        Expanded(child: Text(isMore ? l.more : localizedCardButtonLabel(l, def!), style: tt.bodyMedium)),
+                        Expanded(child: Text(
+                          isMore
+                              ? l.more
+                              : (id == 'lyrics' && widget.readAlongLabel ? l.readAlong : localizedCardButtonLabel(l, def!)),
+                          style: tt.bodyMedium)),
                         if (isOnCard)
                           Padding(
                             padding: const EdgeInsets.only(right: 8),
@@ -1354,6 +1558,13 @@ class CardActionDelegate {
   final VoidCallback removeFromAbsorbing;
   final VoidCallback? onRemoveExtra;
   final void Function(List<String>, int) onReorder;
+  final bool isEbookPdf;
+  // An epub beside the audio turns the live transcript button into Read
+  // along: the reader lights the book's own words instead of a card overlay.
+  final bool isEbookEpub;
+  final VoidCallback? onEbookTap;
+  final VoidCallback? onFindInEbookTap;
+  final VoidCallback? onReadAlongTap;
 
   CardActionDelegate({
     required this.context,
@@ -1381,11 +1592,105 @@ class CardActionDelegate {
     required this.removeFromAbsorbing,
     this.onRemoveExtra,
     required this.onReorder,
+    this.isEbookPdf = false,
+    this.isEbookEpub = false,
+    this.onEbookTap,
+    this.onFindInEbookTap,
+    this.onReadAlongTap,
   });
+
+  bool get _readAlongInstead =>
+      isEbookEpub && episodeId == null && onReadAlongTap != null;
 
   Map<String, dynamic> get _media => item['media'] as Map<String, dynamic>? ?? {};
 
+  /// Which episode the bookmark surfaces belong to. A card that knows its own
+  /// episode wins; an active podcast card falls back to what is playing.
+  String? get _bookmarkEpisodeId =>
+      episodeId ?? (isPodcastEpisode ? player.currentEpisodeId : null);
+
   int get visibleButtonCount => visibleCount;
+
+  /// Toggle the live transcript (lyrics) overlay for whatever is loaded in
+  /// the player. Guards mirror the other transcription entry points.
+  Future<void> _toggleLyrics() async {
+    final l = AppLocalizations.of(context)!;
+    if (LyricsService.instance.isOn) {
+      LyricsService.instance.disable();
+      return;
+    }
+    if (!await PlayerSettings.getTranscriptionEnabled()) {
+      if (context.mounted) {
+        showOverlayToast(context, l.transcriptionDisabledHint,
+            icon: Icons.record_voice_over_rounded);
+      }
+      return;
+    }
+    final cardKey = episodeId != null ? '$itemId-$episodeId' : itemId;
+    if (!TranscriptionService.instance.canTranscribeBook(cardKey)) {
+      if (context.mounted) {
+        await promptDownloadForTranscription(context,
+            itemId: itemId,
+            episodeId: episodeId,
+            title: title,
+            author: author,
+            coverUrl: coverUrl);
+      }
+      return;
+    }
+    // One-time expectation setting: what this does, why to let the head
+    // start build before pressing play, and the battery cost.
+    if (!await PlayerSettings.getLyricsIntroShown()) {
+      if (!context.mounted) return;
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          icon: const Icon(Icons.subtitles_rounded),
+          title: Text(l.lyricsMode),
+          content: Text(l.lyricsIntroBody),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l.cancel),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l.lyricsTurnOn),
+            ),
+          ],
+        ),
+      );
+      if (go != true) return;
+      await PlayerSettings.setLyricsIntroShown();
+    }
+    // The transcript is for THIS card's book. When something else (or
+    // nothing) is loaded, load it paused with no session - the runway builds
+    // while it sits ready, and pressing play is still the user's move.
+    if (LyricsService.playerKey() != cardKey) {
+      if (!context.mounted) return;
+      final api = context.read<AuthProvider>().apiService;
+      if (api == null) return;
+      final error = await player.playItem(
+        api: api,
+        itemId: itemId,
+        episodeId: episodeId,
+        title: title,
+        author: author ?? '',
+        coverUrl: coverUrl,
+        totalDuration: duration,
+        chapters: chapters,
+        libraryId: item['libraryId'] as String?,
+        loadOnly: true,
+      );
+      if (error != null) {
+        if (context.mounted) {
+          showOverlayToast(context, error, icon: Icons.error_outline_rounded);
+        }
+        return;
+      }
+    }
+    await LyricsService.instance.enableForCurrent();
+  }
 
   // Predefined row groupings per button count.
   // Labels: max 3 per row. Icons: max 4 per row (5 allowed at count=5).
@@ -1459,9 +1764,13 @@ class CardActionDelegate {
             height: h,
             padding: EdgeInsets.symmetric(vertical: vPad),
             decoration: BoxDecoration(
-              color: castActive ? accent.withValues(alpha: 0.1) : cs.onSurface.withValues(alpha: 0.06),
+              color: castActive
+                  ? _buttonFill(cs, _inkAccent(accent), 0.1, 0.12)
+                  : _buttonFill(cs, cs.onSurface, 0.06, 0.03, neutral: true),
               borderRadius: BorderRadius.circular(radius),
-              border: Border.all(color: castActive ? accent.withValues(alpha: 0.3) : cs.onSurface.withValues(alpha: 0.08)),
+              border: Border.all(color: castActive
+                  ? _buttonEdge(_inkAccent(accent), 0.3, 1.0)
+                  : _buttonEdge(cs.onSurface, 0.08, 0.55)),
             ),
             child: iconsOnly
               ? Center(child: Icon(moreIcon, size: iconSz, color: iconColor))
@@ -1470,7 +1779,7 @@ class CardActionDelegate {
                   children: [
                     Icon(moreIcon, size: iconSz, color: iconColor),
                     const SizedBox(width: 6),
-                    Flexible(child: Text(castActive ? l.casting : l.more, overflow: TextOverflow.ellipsis,
+                    Flexible(child: Text(castActive ? l.casting : l.more, maxLines: 1, overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: iconColor, fontSize: fontSize, fontWeight: FontWeight.w500))),
                   ],
                 ),
@@ -1498,7 +1807,7 @@ class CardActionDelegate {
         return CardWideButton(
           icon: Icons.list_rounded, label: l.chapters,
           accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
-          onTap: chapters.isNotEmpty ? () => showChapters(context, accent, tt) : null,
+          onTap: chapters.isNotEmpty ? () => showChapters(context, accent, tt) : _showNoChapters,
         );
       case 'speed':
         return CardWideButton(
@@ -1518,7 +1827,8 @@ class CardActionDelegate {
           accent: accent, isActive: isPlaybackActive, large: large, compact: compact, iconsOnly: iconsOnly,
           child: CardBookmarkButtonInline(
             player: player, accent: accent,
-            isActive: isActive, itemId: itemId, large: large, compact: compact, short: short, iconsOnly: iconsOnly,
+            isActive: isActive, itemId: itemId, episodeId: _bookmarkEpisodeId,
+            large: large, compact: compact, short: short, iconsOnly: iconsOnly,
           ),
         );
       case 'details':
@@ -1570,6 +1880,12 @@ class CardActionDelegate {
             );
           },
         );
+      case 'airplay':
+        return CardWideButton(
+          icon: Icons.airplay_rounded, label: 'AirPlay',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
+          onTap: () => handleAirPlayTap(),
+        );
       case 'history':
         return CardWideButton(
           icon: Icons.history_rounded, label: (compact || short) ? l.historyShort : l.playbackHistory,
@@ -1588,6 +1904,17 @@ class CardActionDelegate {
           accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
           onTap: () => openCarMode(context),
         );
+      case 'wake':
+        return ValueListenableBuilder<bool>(
+          valueListenable: PlayerScreenWake.wanted,
+          builder: (_, on, __) => CardWideButton(
+            icon: on ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,
+            label: l.keepScreenOn,
+            accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
+            highlighted: on,
+            onTap: () => toggleKeepScreenOn(context),
+          ),
+        );
       case 'notes':
         return CardWideButton(
           icon: Icons.note_rounded, label: l.notes,
@@ -1604,6 +1931,40 @@ class CardActionDelegate {
             accent: accent, large: large, compact: compact, iconsOnly: iconsOnly,
           ),
         );
+      case 'ebook':
+        return CardWideButton(
+          icon: isEbookPdf ? Icons.picture_as_pdf_rounded : Icons.menu_book_rounded,
+          label: 'Read',
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
+          // The card handles the no-ebook case itself (it retries the item
+          // fetch before toasting).
+          onTap: () => onEbookTap?.call(),
+        );
+      case 'findinebook':
+        return CardWideButton(
+          icon: Icons.manage_search_rounded,
+          label: l.findInEbook,
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
+          onTap: () => onFindInEbookTap?.call(),
+        );
+      case 'lyrics':
+        if (_readAlongInstead) {
+          return CardWideButton(
+            icon: Icons.auto_stories_rounded,
+            label: l.readAlong,
+            accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
+            onTap: () => onReadAlongTap?.call(),
+          );
+        }
+        // Usable with nothing playing: the handler hot-loads this card's
+        // book paused so the runway can build before the user presses play.
+        return CardWideButton(
+          icon: Icons.subtitles_rounded,
+          label: l.lyricsMode,
+          accent: accent, isActive: true, alwaysEnabled: true, large: large, compact: compact, iconsOnly: iconsOnly,
+          highlighted: LyricsService.instance.isOn,
+          onTap: _toggleLyrics,
+        );
       default:
         return const SizedBox.shrink();
     }
@@ -1615,8 +1976,12 @@ class CardActionDelegate {
       case 'chapters':
         return MoreMenuItem(
           icon: Icons.list_rounded, label: l.chapters, accent: accent,
-          enabled: chapters.isNotEmpty,
-          onTap: () { Navigator.pop(ctx); showChapters(context, accent, tt); },
+          enabled: true,
+          onTap: () {
+            Navigator.pop(ctx);
+            if (chapters.isEmpty) { _showNoChapters(); return; }
+            showChapters(context, accent, tt);
+          },
         );
       case 'speed':
         return MoreMenuItem(
@@ -1646,7 +2011,7 @@ class CardActionDelegate {
             showModalBottomSheet(context: context, backgroundColor: Colors.transparent, isScrollControlled: true, useSafeArea: true,
               builder: (_) => DraggableScrollableSheet(
                 initialChildSize: 0.6, minChildSize: 0.05, snap: true, maxChildSize: 0.9, expand: false,
-                builder: (_, sc) => SimpleBookmarkSheet(itemId: itemId, player: player, accent: accent, scrollController: sc, onChanged: () {}),
+                builder: (_, sc) => SimpleBookmarkSheet(itemId: itemId, episodeId: _bookmarkEpisodeId, player: player, accent: accent, scrollController: sc, onChanged: () {}),
               ),
             );
           },
@@ -1683,6 +2048,11 @@ class CardActionDelegate {
             );
           },
         );
+      case 'airplay':
+        return MoreMenuItem(
+          icon: Icons.airplay_rounded, label: 'AirPlay', accent: accent,
+          onTap: () { Navigator.pop(ctx); handleAirPlayTap(); },
+        );
       case 'history':
         return MoreMenuItem(
           icon: Icons.history_rounded, label: l.playbackHistory, accent: accent,
@@ -1699,6 +2069,15 @@ class CardActionDelegate {
         return MoreMenuItem(
           icon: Icons.directions_car_rounded, label: l.carModeTitle, accent: accent,
           onTap: () { Navigator.pop(ctx); openCarMode(context); },
+        );
+      case 'wake':
+        final wakeOn = PlayerScreenWake.wanted.value;
+        return MoreMenuItem(
+          icon: wakeOn ? Icons.lightbulb_rounded : Icons.lightbulb_outline_rounded,
+          label: wakeOn ? l.keepScreenOnActive : l.keepScreenOn,
+          accent: accent,
+          active: wakeOn,
+          onTap: () { Navigator.pop(ctx); toggleKeepScreenOn(context); },
         );
       case 'notes':
         return MoreMenuItem(
@@ -1738,7 +2117,7 @@ class CardActionDelegate {
                     actions: [
                       TextButton(onPressed: () => Navigator.pop(dCtx), child: Text(l.cancel)),
                       TextButton(onPressed: () {
-                        dl.deleteDownload(dlKey);
+                        dl.deleteDownload(dlKey, byUser: true);
                         Navigator.pop(dCtx);
                         showOverlayToast(context, l.downloadRemoved, icon: Icons.delete_outline_rounded);
                       }, child: Text(l.remove, style: const TextStyle(color: Colors.redAccent))),
@@ -1760,6 +2139,43 @@ class CardActionDelegate {
             );
           },
         );
+      case 'ebook':
+        return MoreMenuItem(
+          icon: isEbookPdf ? Icons.picture_as_pdf_rounded : Icons.menu_book_rounded,
+          label: 'Read', accent: accent,
+          onTap: () {
+            Navigator.pop(ctx);
+            onEbookTap?.call();
+          },
+        );
+      case 'findinebook':
+        return MoreMenuItem(
+          icon: Icons.manage_search_rounded,
+          label: l.findInEbook, accent: accent,
+          onTap: () {
+            Navigator.pop(ctx);
+            onFindInEbookTap?.call();
+          },
+        );
+      case 'lyrics':
+        if (_readAlongInstead) {
+          return MoreMenuItem(
+            icon: Icons.auto_stories_rounded,
+            label: l.readAlong, accent: accent,
+            onTap: () {
+              Navigator.pop(ctx);
+              onReadAlongTap?.call();
+            },
+          );
+        }
+        return MoreMenuItem(
+          icon: Icons.subtitles_rounded,
+          label: l.lyricsMode, accent: accent,
+          onTap: () {
+            Navigator.pop(ctx);
+            _toggleLyrics();
+          },
+        );
       default:
         return const SizedBox.shrink();
     }
@@ -1779,6 +2195,7 @@ class CardActionDelegate {
         accent: accent,
         buildItem: (id) => buildMoreMenuItem(id, accent, tt, ctx),
         onReorder: (order, newCount) => onReorder(order, newCount),
+        readAlongLabel: _readAlongInstead,
       ),
     );
   }
@@ -1801,6 +2218,14 @@ class CardActionDelegate {
         episodeTitle: recentEpisode?['title'] as String?,
       ),
     ));
+  }
+
+  /// iOS only: open the system AirPlay route picker. Routed through the native
+  /// AVRoutePickerView (see AppDelegate's com.absorb.audio_output channel).
+  static const MethodChannel _audioOutputChannel =
+      MethodChannel('com.absorb.audio_output');
+  void handleAirPlayTap() {
+    _audioOutputChannel.invokeMethod('showRoutePicker').catchError((_) => null);
   }
 
   void handleCastTap(BuildContext ctx, Color accent) {
@@ -1861,23 +2286,26 @@ class CardActionDelegate {
     );
   }
 
+  void _showNoChapters() {
+    final l = AppLocalizations.of(context)!;
+    showOverlayToast(
+      context,
+      episodeId != null ? l.noChaptersPodcast : l.noChaptersBook,
+      icon: Icons.list_rounded,
+    );
+  }
+
   void showHistory(BuildContext ctx, Color accent, TextTheme tt) {
-    showModalBottomSheet(
-      context: ctx, isScrollControlled: true, useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetCtx) => DraggableScrollableSheet(
-        expand: false, initialChildSize: 0.6, minChildSize: 0.05, snap: true, maxChildSize: 0.9,
-        builder: (_, sc) => _PlaybackHistoryBody(
-          itemId: itemId,
-          accent: accent,
-          tt: tt,
-          isActive: isActive,
-          player: player,
-          parentCtx: ctx,
-          sheetCtx: sheetCtx,
-          scrollController: sc,
-        ),
-      ),
+    final historyEpisodeId = episodeId ??
+        (isPodcastEpisode ? player.currentEpisodeId : null);
+    showPlaybackHistorySheet(
+      ctx,
+      itemId: itemId,
+      episodeId: historyEpisodeId,
+      accent: accent,
+      textTheme: tt,
+      player: player,
+      isActive: isActive,
     );
   }
 
@@ -1896,6 +2324,11 @@ class CardActionDelegate {
     for (final ep in episodes) {
       if (ep is Map<String, dynamic> && ep['id'] == epId) return ep;
     }
+    final cachedEpisode = recentEpisode;
+    if (cachedEpisode != null &&
+        (epId == null || cachedEpisode['id'] == epId)) {
+      return cachedEpisode;
+    }
     final api = context.read<AuthProvider>().apiService;
     if (api != null) {
       final fullItem = await api.getLibraryItem(itemId);
@@ -1907,7 +2340,7 @@ class CardActionDelegate {
         }
       }
     }
-    if (recentEpisode != null) return recentEpisode!;
+    if (cachedEpisode != null) return cachedEpisode;
     return {
       'id': epId,
       'title': player.currentEpisodeTitle,
@@ -1916,45 +2349,156 @@ class CardActionDelegate {
   }
 }
 
+enum PlaybackHistoryTab { history, sessions }
+
+void showPlaybackHistorySheet(
+  BuildContext context, {
+  required String itemId,
+  String? episodeId,
+  PlaybackHistoryTab initialTab = PlaybackHistoryTab.history,
+  Color? accent,
+  TextTheme? textTheme,
+  AudioPlayerService? player,
+  bool? isActive,
+}) {
+  final resolvedPlayer = player ?? AudioPlayerService();
+  final resolvedIsActive = isActive ??
+      (resolvedPlayer.currentItemId == itemId &&
+          (episodeId == null ||
+              resolvedPlayer.currentEpisodeId == episodeId));
+  final theme = Theme.of(context);
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.6,
+      minChildSize: 0.05,
+      snap: true,
+      maxChildSize: 0.9,
+      builder: (_, scrollController) => _PlaybackHistoryBody(
+        itemId: itemId,
+        episodeId: episodeId,
+        api: context.read<AuthProvider>().apiService,
+        accent: accent ?? theme.colorScheme.primary,
+        tt: textTheme ?? theme.textTheme,
+        isActive: resolvedIsActive,
+        player: resolvedPlayer,
+        parentCtx: context,
+        scrollController: scrollController,
+        initialTab: initialTab,
+      ),
+    ),
+  );
+}
+
 const String _kAdvancedHistoryPrefKey = 'playback_history_advanced';
 
 class _PlaybackHistoryBody extends StatefulWidget {
   final String itemId;
+  final String? episodeId;
+  final ApiService? api;
   final Color accent;
   final TextTheme tt;
   final bool isActive;
   final AudioPlayerService player;
   final BuildContext parentCtx;
-  final BuildContext sheetCtx;
   final ScrollController scrollController;
+  final PlaybackHistoryTab initialTab;
 
   const _PlaybackHistoryBody({
     required this.itemId,
+    this.episodeId,
+    required this.api,
     required this.accent,
     required this.tt,
     required this.isActive,
     required this.player,
     required this.parentCtx,
-    required this.sheetCtx,
     required this.scrollController,
+    required this.initialTab,
   });
 
   @override
-  State<_PlaybackHistoryBody> createState() => _PlaybackHistoryBodyState();
+  State<_PlaybackHistoryBody> createState() =>
+      _PlaybackHistorySheetBodyState();
 }
 
-class _PlaybackHistoryBodyState extends State<_PlaybackHistoryBody> {
+class _PlaybackHistorySheetBodyState extends State<_PlaybackHistoryBody>
+    with SingleTickerProviderStateMixin {
   bool _advanced = false;
-  Future<List<PlaybackEvent>>? _future;
+  late int _selectedTab;
+  late final TabController _tabController;
+  late final Future<List<PlaybackEvent>> _localFuture;
+  Future<List<Map<String, dynamic>>?>? _serverFuture;
+  bool _speedAdjustedTime = true;
+  double _savedSpeed = 1.0;
+
+  double get _displaySpeed {
+    if (!_speedAdjustedTime) return 1.0;
+    return widget.isActive ? widget.player.speed : _savedSpeed;
+  }
 
   @override
   void initState() {
     super.initState();
-    _future = PlaybackHistoryService().getHistory(widget.itemId);
+    PlayerSettings.getSpeedAdjustedTime().then((v) {
+      if (mounted && v != _speedAdjustedTime) setState(() => _speedAdjustedTime = v);
+    });
+    PlayerSettings.getBookSpeed(widget.itemId).then((s) async {
+      final speed = s ?? await PlayerSettings.getDefaultSpeed();
+      if (mounted && speed != _savedSpeed) setState(() => _savedSpeed = speed);
+    });
+    _selectedTab = widget.initialTab.index;
+    _tabController = TabController(
+      length: 2,
+      initialIndex: _selectedTab,
+      vsync: this,
+    )
+      ..addListener(_onTabChanged);
+    _localFuture = PlaybackHistoryService().getHistory(widget.itemId);
+    if (_selectedTab == PlaybackHistoryTab.sessions.index) {
+      _serverFuture = _fetchServerSessions();
+    }
     ScopedPrefs.getBool(_kAdvancedHistoryPrefKey).then((v) {
       if (!mounted) return;
       setState(() => _advanced = v ?? false);
     });
+  }
+
+  @override
+  void dispose() {
+    _tabController
+      ..removeListener(_onTabChanged)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    final selected = _tabController.index;
+    if (selected == _selectedTab) return;
+    final serverFuture = selected == 1 && _serverFuture == null
+        ? _fetchServerSessions()
+        : null;
+    setState(() {
+      _selectedTab = selected;
+      if (serverFuture != null) _serverFuture = serverFuture;
+    });
+  }
+
+  Future<List<Map<String, dynamic>>?> _fetchServerSessions() {
+    final api = widget.api;
+    if (api == null) return Future.value(null);
+    return api.getItemListeningSessions(
+      widget.itemId,
+      episodeId: widget.episodeId,
+    );
+  }
+
+  void _retryServerSessions() {
+    setState(() => _serverFuture = _fetchServerSessions());
   }
 
   Future<void> _toggleAdvanced() async {
@@ -1965,11 +2509,11 @@ class _PlaybackHistoryBodyState extends State<_PlaybackHistoryBody> {
 
   @override
   Widget build(BuildContext context) {
-    final l = AppLocalizations.of(widget.parentCtx)!;
-    final cs = Theme.of(widget.parentCtx).colorScheme;
+    final l = AppLocalizations.of(context)!;
+    final cs = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
-        color: Theme.of(widget.parentCtx).bottomSheetTheme.backgroundColor,
+        color: Theme.of(context).bottomSheetTheme.backgroundColor,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
         border: Border(top: BorderSide(color: widget.accent.withValues(alpha: 0.2), width: 1)),
       ),
@@ -1987,140 +2531,307 @@ class _PlaybackHistoryBodyState extends State<_PlaybackHistoryBody> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(children: [
-            const Spacer(),
-            Text(
-              l.playbackHistory,
-              style: widget.tt.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            const SizedBox(width: 48),
+            Expanded(
+              child: Text(
+                l.playbackHistory,
+                textAlign: TextAlign.center,
+                style: widget.tt.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ),
-            const Spacer(),
-            IconButton(
-              icon: Icon(Icons.delete_outline_rounded, size: 20, color: cs.onSurfaceVariant),
-              onPressed: () async {
-                await PlaybackHistoryService().clearHistory(widget.itemId);
-                if (widget.sheetCtx.mounted) Navigator.pop(widget.sheetCtx);
-              },
-              tooltip: l.clearHistoryTooltip,
+            SizedBox.square(
+              dimension: 48,
+              child: _selectedTab == 0
+                  ? IconButton(
+                      icon: Icon(
+                        Icons.delete_outline_rounded,
+                        size: 20,
+                        color: cs.onSurfaceVariant,
+                      ),
+                      onPressed: () async {
+                        await PlaybackHistoryService()
+                            .clearHistory(widget.itemId);
+                        if (context.mounted) Navigator.maybePop(context);
+                      },
+                      tooltip: l.clearHistoryTooltip,
+                    )
+                  : null,
             ),
           ]),
         ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          child: Row(children: [
-            if (widget.isActive)
-              Expanded(
-                child: Text(
-                  l.tapEventToJump,
-                  style: widget.tt.bodySmall?.copyWith(
-                    color: cs.onSurfaceVariant.withValues(alpha: 0.6),
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              )
-            else
-              const Spacer(),
-            Text(
-              'Show more',
-              style: widget.tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
-            ),
-            const SizedBox(width: 8),
-            Transform.scale(
-              scale: 0.8,
-              child: Switch(
-                value: _advanced,
-                onChanged: (_) => _toggleAdvanced(),
-                activeThumbColor: widget.accent,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: TabBar(
+            controller: _tabController,
+            indicatorColor: widget.accent,
+            labelColor: widget.accent,
+            unselectedLabelColor: cs.onSurfaceVariant,
+            dividerColor: cs.onSurface.withValues(alpha: 0.08),
+            tabs: [
+              Tab(
+                key: const ValueKey('playback-history-local-tab'),
+                text: l.historyLocalTab,
+              ),
+              Tab(
+                key: const ValueKey('playback-history-server-tab'),
+                text: l.historyServerTab,
+              ),
+            ],
+          ),
+        ),
+        if (_selectedTab == 0) _buildLocalOptions(l, cs),
+        Expanded(
+          child: _selectedTab == 0
+              ? _buildLocalHistory(l, cs)
+              : _buildServerHistory(l, cs),
+        ),
+      ]),
+    );
+  }
+
+  Widget _buildLocalOptions(AppLocalizations l, ColorScheme cs) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Row(children: [
+        if (widget.isActive)
+          Expanded(
+            child: Text(
+              l.tapEventToJump,
+              style: widget.tt.bodySmall?.copyWith(
+                color: cs.onSurfaceVariant.withValues(alpha: 0.6),
+                fontStyle: FontStyle.italic,
               ),
             ),
-          ]),
+          )
+        else
+          const Spacer(),
+        Text(
+          'Show more',
+          style: widget.tt.bodySmall?.copyWith(color: cs.onSurfaceVariant),
         ),
-        Expanded(
-          child: FutureBuilder<List<PlaybackEvent>>(
-            future: _future,
-            builder: (futureCtx, snap) {
-              if (!snap.hasData) {
-                return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-              }
-              final all = snap.data!;
-              final events = _advanced
-                  ? all
-                  : all.where((e) => !kAdvancedHistoryEvents.contains(e.type)).toList();
-              if (events.isEmpty) {
-                return Center(
-                  child: Text(
-                    l.noHistoryYet,
-                    style: widget.tt.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
-                  ),
-                );
-              }
-
-              final items = <Widget>[];
-              String? lastDate;
-              for (int i = 0; i < events.length; i++) {
-                final e = events[i];
-                final dl = dateLabel(e.timestamp);
-                if (dl != lastDate) {
-                  lastDate = dl;
-                  items.add(Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text(
-                      dl,
-                      style: widget.tt.labelSmall?.copyWith(
-                        color: widget.accent.withValues(alpha: 0.6),
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                  ));
-                }
-                final posLabel = fmtTime(e.positionSeconds);
-                final timeStr = timeOfDay(e.timestamp);
-                final isAdvancedEvent = kAdvancedHistoryEvents.contains(e.type);
-                items.add(ListTile(
-                  dense: true,
-                  visualDensity: const VisualDensity(vertical: -2),
-                  leading: Icon(
-                    historyIcon(e.type),
-                    size: 18,
-                    color: widget.accent.withValues(alpha: isAdvancedEvent ? 0.45 : 0.7),
-                  ),
-                  title: Text(
-                    e.label,
-                    style: widget.tt.bodySmall?.copyWith(
-                      color: cs.onSurface.withValues(alpha: isAdvancedEvent ? 0.55 : 0.7),
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    l.atPosition(posLabel),
-                    style: widget.tt.labelSmall?.copyWith(color: cs.onSurfaceVariant),
-                  ),
-                  trailing: Text(
-                    timeStr,
-                    style: widget.tt.labelSmall?.copyWith(
-                      color: cs.onSurface.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  onTap: widget.isActive
-                      ? () {
-                          widget.player.seekTo(Duration(seconds: e.positionSeconds.round()));
-                          Navigator.pop(futureCtx);
-                          ScaffoldMessenger.of(widget.parentCtx).showSnackBar(
-                            SnackBar(
-                              duration: const Duration(seconds: 3),
-                              content: Text(l.jumpedToPosition(posLabel)),
-                            ),
-                          );
-                        }
-                      : null,
-                ));
-              }
-
-              return ListView(controller: widget.scrollController, children: items);
-            },
+        const SizedBox(width: 8),
+        Transform.scale(
+          scale: 0.8,
+          child: Switch(
+            value: _advanced,
+            onChanged: (_) => _toggleAdvanced(),
+            activeThumbColor: widget.accent,
           ),
         ),
       ]),
     );
   }
+
+  Widget _buildLocalHistory(AppLocalizations l, ColorScheme cs) {
+    return FutureBuilder<List<PlaybackEvent>>(
+      future: _localFuture,
+      builder: (futureContext, snapshot) {
+        if (!snapshot.hasData) {
+          return const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          );
+        }
+        final all = snapshot.data!;
+        final events = _advanced
+            ? all
+            : all
+                .where((event) =>
+                    !kAdvancedHistoryEvents.contains(event.type))
+                .toList();
+        if (events.isEmpty) {
+          return Center(
+            child: Text(
+              l.noHistoryYet,
+              style: widget.tt.bodyMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+          );
+        }
+
+        final items = <Widget>[];
+        String? lastDate;
+        for (final event in events) {
+          final eventDate = dateLabel(event.timestamp, l);
+          if (eventDate != lastDate) {
+            lastDate = eventDate;
+            items.add(_dateHeader(eventDate));
+          }
+          final positionLabel = fmtTime(event.positionSeconds / _displaySpeed);
+          final isAdvancedEvent =
+              kAdvancedHistoryEvents.contains(event.type);
+          items.add(ListTile(
+            dense: true,
+            visualDensity: const VisualDensity(vertical: -2),
+            leading: Icon(
+              historyIcon(event.type),
+              size: 18,
+              color: widget.accent.withValues(
+                alpha: isAdvancedEvent ? 0.45 : 0.7,
+              ),
+            ),
+            title: Text(
+              event.label,
+              style: widget.tt.bodySmall?.copyWith(
+                color: cs.onSurface.withValues(
+                  alpha: isAdvancedEvent ? 0.55 : 0.7,
+                ),
+              ),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              l.atPosition(positionLabel),
+              style: widget.tt.labelSmall?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            trailing: Text(
+              timeOfDay(event.timestamp, l),
+              style: widget.tt.labelSmall?.copyWith(
+                color: cs.onSurface.withValues(alpha: 0.3),
+              ),
+            ),
+            onTap: widget.isActive
+                ? () {
+                    widget.player.seekTo(
+                      Duration(seconds: event.positionSeconds.round()),
+                    );
+                    Navigator.pop(futureContext);
+                    showOverlayToast(
+                      widget.parentCtx,
+                      l.jumpedToPosition(positionLabel),
+                      icon: Icons.my_location_rounded,
+                    );
+                  }
+                : null,
+          ));
+        }
+
+        return ListView(
+          controller: widget.scrollController,
+          children: items,
+        );
+      },
+    );
+  }
+
+  Widget _buildServerHistory(AppLocalizations l, ColorScheme cs) {
+    final future = _serverFuture;
+    if (future == null) {
+      return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+    }
+    return FutureBuilder<List<Map<String, dynamic>>?>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Center(
+            child: CircularProgressIndicator(strokeWidth: 2),
+          );
+        }
+        final sessions = snapshot.data;
+        if (snapshot.hasError || sessions == null) {
+          return _serverMessage(
+            widget.api == null
+                ? l.bookmarksNotConnected
+                : l.historyServerLoadFailed,
+            l,
+            cs,
+            showRetry: widget.api != null,
+          );
+        }
+        if (sessions.isEmpty) {
+          return _serverMessage(l.historyNoServerSessions, l, cs);
+        }
+
+        return ListView(
+          controller: widget.scrollController,
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          children: [
+            for (final session in sessions)
+              ListeningSessionCard(
+                session: session,
+                onTap: () => _showServerSessionDetails(session),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _showServerSessionDetails(
+    Map<String, dynamic> session,
+  ) async {
+    final changed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SessionDetailsSheet(
+        session: session,
+        onJumped: () {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) Navigator.maybePop(context);
+          });
+        },
+      ),
+    );
+    if (changed == true && mounted) {
+      setState(() => _serverFuture = _fetchServerSessions());
+    }
+  }
+
+  Widget _serverMessage(
+    String message,
+    AppLocalizations l,
+    ColorScheme cs, {
+    bool showRetry = false,
+  }) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.cloud_outlined,
+              size: 36,
+              color: cs.onSurface.withValues(alpha: 0.18),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: widget.tt.bodyMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
+            ),
+            if (showRetry) ...[
+              const SizedBox(height: 12),
+              OutlinedButton(
+                onPressed: _retryServerSessions,
+                child: Text(l.retry),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dateHeader(String label) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      child: Text(
+        label,
+        style: widget.tt.labelSmall?.copyWith(
+          color: widget.accent.withValues(alpha: 0.6),
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+
 }

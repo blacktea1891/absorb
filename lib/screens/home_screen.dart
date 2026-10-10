@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -10,13 +11,15 @@ import '../providers/auth_provider.dart';
 import '../providers/library_provider.dart';
 import '../services/audio_player_service.dart';
 import '../services/download_service.dart';
+import '../widgets/desktop_batch_actions.dart';
 import '../widgets/home_section.dart';
 import '../widgets/absorb_page_header.dart';
+import '../widgets/library_picker_sheet.dart';
 import '../widgets/shimmer.dart';
 import '../widgets/book_detail_sheet.dart';
 import '../widgets/card_buttons.dart';
 import '../widgets/episode_list_sheet.dart';
-import '../main.dart' show oledNotifier;
+import '../main.dart' show flatNotifier, gradientIntensityNotifier;
 import '../widgets/home_customize_sheet.dart';
 import '../widgets/playlist_detail_sheet.dart';
 import '../widgets/collection_detail_sheet.dart';
@@ -40,6 +43,123 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
   final _player = AudioPlayerService();
   bool _hideEbookOnly = false;
   bool _rectangleCovers = false;
+  bool _showSubtitles = false;
+
+  // ── Batch selection ──
+  bool _selectionMode = false;
+  bool _batchActionBusy = false;
+  final Set<String> _selectedItemIds = {};
+
+  void _resetSelectionState() {
+    _selectionMode = false;
+    _batchActionBusy = false;
+    _selectedItemIds.clear();
+  }
+
+  void _clearSelection() {
+    if (!_selectionMode && _selectedItemIds.isEmpty) return;
+    setState(_resetSelectionState);
+  }
+
+  void _toggleSelection(Map<String, dynamic> item) {
+    final itemId = item['id'] as String?;
+    if (itemId == null) return;
+    setState(() {
+      _selectionMode = true;
+      if (!_selectedItemIds.add(itemId)) _selectedItemIds.remove(itemId);
+    });
+  }
+
+  /// A shelf entity is only selectable when it resolves to a plain library
+  /// item: authors, series and episodes have no id the batch endpoints accept,
+  /// and a playlist row wraps the real item one level down.
+  Map<String, dynamic>? _selectableHomeItem(
+    dynamic entity, {
+    required String sectionType,
+  }) {
+    if (sectionType == 'author' ||
+        sectionType == 'authors' ||
+        sectionType == 'series' ||
+        sectionType == 'episode') {
+      return null;
+    }
+    if (entity is! Map<String, dynamic>) return null;
+    var item = entity;
+    if (sectionType == 'playlist') {
+      if (entity['episodeId'] != null) return null;
+      final nested = entity['libraryItem'];
+      if (nested is! Map<String, dynamic>) return null;
+      item = nested;
+    }
+    if (item['recentEpisode'] != null || item['id'] is! String) return null;
+    return item;
+  }
+
+  /// Every selectable item on screen, deduped: the same book can sit in
+  /// Continue Listening and in a shelf below it.
+  List<Map<String, dynamic>> _selectableHomeItems() {
+    final byId = <String, Map<String, dynamic>>{};
+    for (final item in _cachedClItems ?? const <dynamic>[]) {
+      final selectable = _selectableHomeItem(item, sectionType: 'book');
+      final id = selectable?['id'] as String?;
+      if (id != null) byId[id] = selectable!;
+    }
+    for (final section in _cachedSections ?? const <Map<String, dynamic>>[]) {
+      final id = section['id'] as String? ?? '';
+      if (id == 'continue-listening') continue;
+      final type = id.startsWith('playlist:')
+          ? 'playlist'
+          : id.startsWith('collection:')
+          ? 'collection'
+          : (section['type'] as String? ?? 'book');
+      final entities = _filterEbookOnly(
+        section['entities'] as List<dynamic>? ?? const [],
+        sectionType: section['type'] as String?,
+      );
+      for (final entity in entities) {
+        final selectable = _selectableHomeItem(entity, sectionType: type);
+        final itemId = selectable?['id'] as String?;
+        if (itemId != null) byId[itemId] = selectable!;
+      }
+    }
+    return byId.values.toList();
+  }
+
+  void _toggleSelectAll() {
+    final ids = _selectableHomeItems()
+        .map((item) => item['id'] as String)
+        .toSet();
+    setState(() {
+      _selectionMode = true;
+      if (ids.isNotEmpty && _selectedItemIds.containsAll(ids)) {
+        _selectedItemIds.removeAll(ids);
+      } else {
+        _selectedItemIds.addAll(ids);
+      }
+    });
+  }
+
+  Future<void> _runBatchAction(Future<bool?> Function() action) async {
+    if (_batchActionBusy) return;
+    final visibleIds = _selectableHomeItems()
+        .map((item) => item['id'] as String)
+        .toSet();
+    setState(() {
+      _selectedItemIds.retainAll(visibleIds);
+      if (_selectedItemIds.isEmpty) {
+        _resetSelectionState();
+      } else {
+        _batchActionBusy = true;
+      }
+    });
+    if (_selectedItemIds.isEmpty) return;
+    final success = await action();
+    if (!mounted) return;
+    setState(() {
+      _batchActionBusy = false;
+      if (success == true) _resetSelectionState();
+    });
+  }
 
   // ── Scroll-to-hide bars ──
   /// Continuous 0..1 reveal value the AppShell mirrors onto the bottom nav.
@@ -82,14 +202,22 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
     });
   }
 
+  // Which library the cover shape was resolved for; re-resolved when the
+  // selected library changes (see build) or settings change.
+  String? _coversLibraryId;
+
   Future<void> _loadSettings() async {
+    final libId = mounted ? context.read<LibraryProvider>().selectedLibraryId : null;
+    _coversLibraryId = libId;
     final results = await Future.wait([
       PlayerSettings.getHideEbookOnly(),
-      PlayerSettings.getRectangleCovers(),
+      PlayerSettings.getRectangleCoversFor(libId),
+      PlayerSettings.getShowSubtitlesFor(libId),
     ]);
     if (mounted) setState(() {
       _hideEbookOnly = results[0];
       _rectangleCovers = results[1];
+      _showSubtitles = results[2];
     });
   }
 
@@ -199,79 +327,6 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
     }
   }
 
-  void _showLibraryPicker(BuildContext context, ColorScheme cs, TextTheme tt,
-      List<dynamic> allLibraries, LibraryProvider lib) {
-    final l = AppLocalizations.of(context)!;
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        final bottomPad = MediaQuery.of(ctx).viewPadding.bottom;
-        return Container(
-          constraints:
-              BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.6),
-          decoration: BoxDecoration(
-            color: cs.surface,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Center(
-                  child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                          color: cs.onSurfaceVariant.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(2)))),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(l.selectLibrary,
-                    style:
-                        tt.titleLarge?.copyWith(fontWeight: FontWeight.w600)),
-              ),
-              const SizedBox(height: 12),
-              Flexible(
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  padding: EdgeInsets.only(bottom: bottomPad + 16),
-                  itemCount: allLibraries.length,
-                  itemBuilder: (_, i) {
-                    final library = allLibraries[i] as Map<String, dynamic>;
-                    final id = library['id'] as String;
-                    final name = library['name'] as String? ?? l.libraryFallback;
-                    final mediaType = library['mediaType'] as String? ?? 'book';
-                    final isSelected = id == lib.selectedLibraryId;
-                    return ListTile(
-                      leading: Icon(
-                          mediaType == 'podcast'
-                              ? Icons.podcasts_rounded
-                              : Icons.auto_stories_rounded,
-                          color: isSelected ? cs.primary : cs.onSurfaceVariant),
-                      title: Text(name),
-                      trailing: isSelected
-                          ? Icon(Icons.check_circle_rounded, color: cs.primary)
-                          : null,
-                      selected: isSelected,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        if (!isSelected) lib.selectLibrary(id);
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   static const _sectionIcons = {
     'continue-listening': Icons.play_circle_outline_rounded,
     'continue-series': Icons.auto_stories_rounded,
@@ -292,6 +347,16 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
     final lib = context.watch<LibraryProvider>();
     final allLibraries = lib.libraries;
     final libraryName = lib.selectedLibrary?['name'] as String? ?? l.libraryFallback;
+    // Cover shape can differ per library; re-resolve after a library switch.
+    if (lib.selectedLibraryId != _coversLibraryId) {
+      _coversLibraryId = lib.selectedLibraryId;
+      PlayerSettings.getRectangleCoversFor(_coversLibraryId).then((v) {
+        if (mounted && v != _rectangleCovers) setState(() => _rectangleCovers = v);
+      });
+      PlayerSettings.getShowSubtitlesFor(_coversLibraryId).then((v) {
+        if (mounted && v != _showSubtitles) setState(() => _showSubtitles = v);
+      });
+    }
     if (lib.isLoading) {
       // Reset cache so stale data isn't shown after a user switch
       // (where the new user may have the same number of sections).
@@ -302,16 +367,80 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
       _refreshFilteredCache(lib);
     }
 
+    final auth = context.watch<AuthProvider>();
+    final selectionAvailable = !lib.isOffline;
+    if (!selectionAvailable && _selectionMode) _resetSelectionState();
+    // Only walked while selecting: this crosses every shelf, and home rebuilds
+    // far too often to pay for that when there is nothing selected.
+    final selectableItems = selectionAvailable && _selectionMode
+        ? _selectableHomeItems()
+        : const <Map<String, dynamic>>[];
+    // Shelves reshuffle as progress changes, so drop anything that is no
+    // longer on screen rather than acting on a book the user can't see.
+    if (_selectionMode) {
+      _selectedItemIds.retainAll(
+        selectableItems.map((item) => item['id'] as String).toSet(),
+      );
+    }
+
     return Scaffold(
       backgroundColor: scaffoldBg,
+      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
+      floatingActionButton: !(_selectionMode && selectionAvailable)
+          ? null
+          : DesktopBatchActionBar(
+              selectedCount: _selectedItemIds.length,
+              selectableCount: selectableItems.length,
+              busy: _batchActionBusy,
+              canQuickMatch: auth.isAdmin && !lib.isPodcastLibrary,
+              canMarkProgress: !lib.isPodcastLibrary,
+              canDelete: auth.canDelete,
+              canDownload: !lib.isPodcastLibrary,
+              onSelectAll: _toggleSelectAll,
+              onClear: _clearSelection,
+              onDownload: () => _runBatchAction(
+                () => DesktopBatchActions.download(
+                  context,
+                  selectableItems
+                      .where((i) => _selectedItemIds.contains(i['id']))
+                      .toList(),
+                ),
+              ),
+              onQuickMatch: () => _runBatchAction(
+                () => DesktopBatchActions.quickMatch(
+                  context,
+                  _selectedItemIds.toList(),
+                ),
+              ),
+              onMarkFinished: () => _runBatchAction(
+                () => DesktopBatchActions.setFinished(
+                  context,
+                  _selectedItemIds.toList(),
+                  isFinished: true,
+                ),
+              ),
+              onMarkUnfinished: () => _runBatchAction(
+                () => DesktopBatchActions.setFinished(
+                  context,
+                  _selectedItemIds.toList(),
+                  isFinished: false,
+                ),
+              ),
+              onDelete: () => _runBatchAction(
+                () => DesktopBatchActions.delete(
+                  context,
+                  _selectedItemIds.toList(),
+                ),
+              ),
+            ),
       body: Container(
-        decoration: oledNotifier.value ? null : BoxDecoration(
+        decoration: flatNotifier.value ? null : BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             stops: const [0.0, 0.22, 0.72, 1.0],
             colors: [
-              cs.primary.withValues(alpha: 0.06),
+              cs.primary.withValues(alpha: gradientIntensityNotifier.value),
               cs.surface,
               lowerFade,
               scaffoldBg,
@@ -351,14 +480,31 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
                       },
                     ),
                     actions: [
+                      if (selectionAvailable)
+                        Tooltip(
+                          message: _selectionMode
+                              ? l.downloadsCancelSelection
+                              : l.downloadsSelect,
+                          child: IconButton(
+                            onPressed: _batchActionBusy
+                                ? null
+                                : _selectionMode
+                                ? _clearSelection
+                                : () => setState(() => _selectionMode = true),
+                            icon: Icon(
+                              _selectionMode
+                                  ? Icons.close_rounded
+                                  : Icons.library_add_check_rounded,
+                            ),
+                          ),
+                        ),
                       if (allLibraries.length > 1)
                         Material(
                           color: cs.onSurface.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(20),
                           clipBehavior: Clip.antiAlias,
                           child: InkWell(
-                            onTap: () => _showLibraryPicker(
-                                context, cs, tt, allLibraries, lib),
+                            onTap: () => showLibraryPickerSheet(context, lib),
                             borderRadius: BorderRadius.circular(20),
                             child: Container(
                               padding: const EdgeInsets.symmetric(
@@ -566,6 +712,14 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
                                   return RepaintBoundary(child: _ContinueListeningCard(
                                     item: item, lib: lib, player: _player,
                                     rectangleCovers: _rectangleCovers,
+                                    selectionMode: selectionAvailable && _selectionMode,
+                                    selected: _selectedItemIds
+                                        .contains(item['id'] as String?),
+                                    onSelectionToggle: selectionAvailable &&
+                                            item['recentEpisode'] == null &&
+                                            item['id'] is String
+                                        ? () => _toggleSelection(item)
+                                        : null,
                                   ));
                                 },
                               ),
@@ -628,8 +782,14 @@ class HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMi
                           entities: entities,
                           sectionType: type,
                           sectionId: id,
-                          onTitleTap: titleTap,
+                          onTitleTap: _selectionMode ? null : titleTap,
                           coverAspectRatio: _rectangleCovers ? 2 / 3 : 1.0,
+                          showSubtitles: _showSubtitles,
+                          selectionMode: selectionAvailable && _selectionMode,
+                          selectedItemIds: _selectedItemIds,
+                          onSelectionToggle: selectionAvailable
+                              ? _toggleSelection
+                              : null,
                         ),
                       ),
                     ];
@@ -660,12 +820,18 @@ class _ContinueListeningCard extends StatefulWidget {
   final LibraryProvider lib;
   final AudioPlayerService player;
   final bool rectangleCovers;
+  final bool selectionMode;
+  final bool selected;
+  final VoidCallback? onSelectionToggle;
 
   const _ContinueListeningCard({
     required this.item,
     required this.lib,
     required this.player,
     required this.rectangleCovers,
+    this.selectionMode = false,
+    this.selected = false,
+    this.onSelectionToggle,
   });
 
   @override
@@ -804,6 +970,10 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
           (recentEpisode != null
               ? (recentEpisode['duration'] as num?)?.toDouble() ?? 0
               : (media['duration'] as num?)?.toDouble() ?? 0);
+      // Offline there is no server record, only what this phone saved.
+      if (progressData == null && progress > 0) {
+        currentTime = progress * totalDuration;
+      }
     }
 
     final accent = _accent ?? cs.primary;
@@ -822,6 +992,16 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
     final Color cardBgBottom = bgHsl != null
         ? bgHsl.withLightness(isDark ? 0.11 : 0.88).toColor()
         : cardBgTop;
+    // The percent and progress bar sit on the tinted card bottom; a dark
+    // cover accent on its own dark tint is invisible (and the reverse in
+    // light mode). Keep the hue but force lightness contrast with the card.
+    final Color rowAccent = bgHsl != null
+        ? HSLColor.fromColor(accent)
+            .withLightness(isDark ? 0.72 : 0.30)
+            .withSaturation(
+                HSLColor.fromColor(accent).saturation.clamp(0.35, 1.0))
+            .toColor()
+        : accent;
     final progressValue =
         (totalDuration > 0 ? currentTime / totalDuration : progress).clamp(0.0, 1.0);
     final remaining = totalDuration > 0 ? totalDuration - currentTime : 0.0;
@@ -836,7 +1016,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
           if (serverCurrentTime > playerPosSec + 5.0) {
             _startBook(context, itemId);
           } else {
-            player.play();
+            player.play(fromUi: true);
           }
         }
       } else {
@@ -869,7 +1049,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
       }
     }
 
-    return Material(
+    final card = Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(14),
       clipBehavior: Clip.antiAlias,
@@ -883,8 +1063,8 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
           ),
         ),
         child: InkWell(
-          onTap: resume,
-          onLongPress: openQuickActions,
+          onTap: widget.selectionMode ? widget.onSelectionToggle : resume,
+          onLongPress: widget.selectionMode ? null : openQuickActions,
           borderRadius: BorderRadius.circular(14),
           child: SizedBox(
             width: 150,
@@ -975,8 +1155,8 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                         child: LinearProgressIndicator(
                           value: progressValue,
                           minHeight: 3,
-                          backgroundColor: cs.outlineVariant.withValues(alpha: 0.3),
-                          valueColor: AlwaysStoppedAnimation(accent),
+                          backgroundColor: rowAccent.withValues(alpha: 0.22),
+                          valueColor: AlwaysStoppedAnimation(rowAccent),
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -984,7 +1164,7 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
                         Text('${(progressValue * 100).round()}%',
                             style: tt.labelSmall?.copyWith(
                                 fontWeight: FontWeight.w700,
-                                color: accent,
+                                color: rowAccent,
                                 fontSize: 11)),
                         if (remaining > 0) ...[
                           const SizedBox(width: 6),
@@ -1006,6 +1186,49 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
         ),
         ),
       ),
+    );
+
+    if (!widget.selectionMode) return card;
+    return Stack(
+      children: [
+        card,
+        Positioned(
+          top: 6,
+          left: 6,
+          child: IgnorePointer(
+            child: Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: widget.selected
+                    ? cs.primary
+                    : Colors.black.withValues(alpha: 0.55),
+                border: Border.all(
+                  color: widget.selected ? cs.primary : Colors.white70,
+                ),
+              ),
+              child: Icon(
+                widget.selected ? Icons.check_rounded : Icons.circle_outlined,
+                size: 17,
+                color: widget.selected ? cs.onPrimary : Colors.white70,
+              ),
+            ),
+          ),
+        ),
+        if (widget.selected)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: cs.primary, width: 3),
+                  color: cs.primary.withValues(alpha: 0.18),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1042,30 +1265,63 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
         chapters: [],
         episodeId: episodeId,
         episodeTitle: episodeTitle,
+        libraryId: widget.item['libraryId'] as String?,
+        fromUi: true,
       );
       if (mounted) {
-        if (error != null) showErrorSnackBar(context, error);
+        if (error != null) showErrorToast(context, error);
         setState(() => _isLoading = false);
       }
       return;
     }
 
-    // Fetch full item data to get chapters
-    final fullItem = await api.getLibraryItem(itemId);
-    if (fullItem == null) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
+    final String title;
+    final String author;
+    double duration;
+    List<dynamic> chapters;
+    String? libraryId;
+    final downloads = DownloadService();
+    if (downloads.isDownloaded(itemId)) {
+      // The download carries everything the player needs, so a book on the
+      // phone starts without asking the server, offline or not.
+      final media = widget.item['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      final info = downloads.getInfo(itemId);
+      title = metadata['title'] as String? ?? info.title ?? '';
+      author = metadata['authorName'] as String? ?? info.author ?? '';
+      duration = (media['duration'] as num?)?.toDouble() ?? 0;
+      chapters = (media['chapters'] as List<dynamic>?) ?? [];
+      libraryId = widget.item['libraryId'] as String? ?? info.libraryId;
+      final cached = downloads.getCachedSessionData(itemId);
+      if (cached != null && (duration <= 0 || chapters.isEmpty)) {
+        try {
+          final session = jsonDecode(cached) as Map<String, dynamic>;
+          if (duration <= 0) {
+            duration = (session['duration'] as num?)?.toDouble() ?? 0;
+          }
+          if (chapters.isEmpty) {
+            chapters = session['chapters'] as List<dynamic>? ?? [];
+          }
+        } catch (_) {}
+      }
+    } else {
+      final fullItem = await api.getLibraryItem(itemId);
+      if (fullItem == null) {
+        if (mounted) {
+          showErrorToast(context, AppLocalizations.of(context)!.loginCouldNotReachServer);
+          setState(() => _isLoading = false);
+        }
+        return;
+      }
+      final media = fullItem['media'] as Map<String, dynamic>? ?? {};
+      final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
+      title = metadata['title'] as String? ?? '';
+      author = metadata['authorName'] as String? ?? '';
+      duration = (media['duration'] as num?)?.toDouble() ?? 0;
+      chapters = (media['chapters'] as List<dynamic>?) ?? [];
+      libraryId = fullItem['libraryId'] as String?;
     }
-
-    final media = fullItem['media'] as Map<String, dynamic>? ?? {};
-    final metadata = media['metadata'] as Map<String, dynamic>? ?? {};
-    final title = metadata['title'] as String? ?? '';
-    final author = metadata['authorName'] as String? ?? '';
     final coverUrl = widget.lib.getCoverUrl(itemId);
-    final duration = (media['duration'] is num)
-        ? (media['duration'] as num).toDouble()
-        : 0.0;
-    final chapters = (media['chapters'] as List<dynamic>?) ?? [];
 
     // Start playback
     final error = await widget.player.playItem(
@@ -1076,8 +1332,10 @@ class _ContinueListeningCardState extends State<_ContinueListeningCard> {
       coverUrl: coverUrl,
       totalDuration: duration,
       chapters: chapters,
+      libraryId: libraryId,
+      fromUi: true,
     );
-    if (error != null && mounted) showErrorSnackBar(context, error);
+    if (error != null && mounted) showErrorToast(context, error);
 
     // Ensure this book is on the absorbing list (clear any manual remove)
     if (context.mounted) {

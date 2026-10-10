@@ -1,7 +1,11 @@
 import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import '../utils/episode_key.dart';
+import '../widgets/nav_hold_options.dart'
+    show navHoldTabs, navHoldPrefKey, navHoldMenuPrefKey;
 import 'audio_player_service.dart';
+import 'reader_font_service.dart';
 import 'scoped_prefs.dart';
 import 'sleep_timer_service.dart';
 import 'user_account_service.dart';
@@ -23,11 +27,18 @@ class BackupService {
       // Legacy keys for backward compat with older app versions
       'autoPlayNextBook': (await PlayerSettings.getQueueMode()) == 'auto_next',
       'autoPlayNextPodcast': (await PlayerSettings.getQueueMode()) == 'auto_next',
+      'cardScrubberMode': (await PlayerSettings.getCardScrubberMode()).name,
       'showBookSlider': await PlayerSettings.getShowBookSlider(),
       'speedAdjustedTime': await PlayerSettings.getSpeedAdjustedTime(),
+      'keepScreenOnPlayer': await PlayerSettings.getKeepScreenOnInPlayer(),
+      'keepScreenOnCarMode': await PlayerSettings.getKeepScreenOnInCarMode(),
       'forwardSkip': await PlayerSettings.getForwardSkip(),
       'backSkip': await PlayerSettings.getBackSkip(),
+      'longSkipButtons': await PlayerSettings.getLongSkipButtons(),
+      'longForwardSkip': await PlayerSettings.getLongForwardSkip(),
+      'longBackSkip': await PlayerSettings.getLongBackSkip(),
       'shakeMode': await PlayerSettings.getShakeMode(),
+      'sleepButtonMode': await PlayerSettings.getSleepButtonMode(),
       'shakeAddMinutes': await PlayerSettings.getShakeAddMinutes(),
       'shakeSensitivity': await PlayerSettings.getShakeSensitivity(),
       'resetSleepOnPause': await PlayerSettings.getResetSleepOnPause(),
@@ -51,9 +62,16 @@ class BackupService {
       'rollingDownloadCount': await PlayerSettings.getRollingDownloadCount(),
       'rollingDownloadDeleteFinished': await PlayerSettings.getRollingDownloadDeleteFinished(),
       'queueAutoDownload': await PlayerSettings.getQueueAutoDownload(),
-      'mergeAbsorbingLibraries': await PlayerSettings.getMergeAbsorbingLibraries(),
+      'mergeAbsorbingLibraries': await PlayerSettings.getMergeAbsorbingLibrariesRaw(),
+      'podcastTabEnabled': await PlayerSettings.getPodcastTabEnabled(),
+      'podcastTabLibraryId': await PlayerSettings.getPodcastTabLibraryId(),
+      'episodeNotifIntervalMinutes': await PlayerSettings.getEpisodeNotifIntervalMinutes(),
       'maxConcurrentDownloads': await PlayerSettings.getMaxConcurrentDownloads(),
       'colorSource': await PlayerSettings.getColorSource(),
+      'flatBackground': await PlayerSettings.getFlatBackground(),
+      'manualSeedColor': await PlayerSettings.getManualSeedColor(),
+      'gradientIntensity': await PlayerSettings.getGradientIntensity(),
+      'useColorEverywhere': await PlayerSettings.getUseColorEverywhere(),
       'snappyTransitions': await PlayerSettings.getSnappyTransitions(),
       'bookmarkSort': await PlayerSettings.getBookmarkSort(),
       'autoDownloadOnStream': await PlayerSettings.getAutoDownloadOnStream(),
@@ -74,6 +92,8 @@ class BackupService {
       'cardSingleRow': await PlayerSettings.getCardSingleRow(),
       'cardMoreInline': await PlayerSettings.getCardMoreInline(),
       'rectangleCovers': await PlayerSettings.getRectangleCovers(),
+      'coverSize': await PlayerSettings.getCoverSize(),
+      'cardButtonFill': await PlayerSettings.getCardButtonFill(),
       'coverPlayButton': await PlayerSettings.getCoverPlayButton(),
       'whenFinished': await PlayerSettings.getWhenFinished(),
       'sleepRewindSeconds': await PlayerSettings.getSleepRewindSeconds(),
@@ -83,6 +103,7 @@ class BackupService {
       'skipChapterBarrier': await PlayerSettings.getSkipChapterBarrier(),
       'audibleRegion': await PlayerSettings.getAudibleRegion(),
       'upcomingReleasesSortByDate': await PlayerSettings.getUpcomingReleasesSortByDate(),
+      'upcomingFinishedAfterYears': await PlayerSettings.getUpcomingFinishedAfterYears(),
       'libraryTagFilter': await PlayerSettings.getLibraryTagFilter(),
       'librarySeriesFilter': await PlayerSettings.getLibrarySeriesFilter(),
       'narratorSort': await PlayerSettings.getNarratorSort(),
@@ -91,12 +112,30 @@ class BackupService {
       'sectionGridView': await PlayerSettings.getSectionGridView(),
       'collapseBookSeries': await PlayerSettings.getCollapseBookSeries(),
       'showExplicitBadge': await PlayerSettings.getShowExplicitBadge(),
+      'showEbookBadge': await PlayerSettings.getShowEbookBadge(),
       'includePreReleases': await PlayerSettings.getIncludePreReleases(),
       'language': await PlayerSettings.getLanguage(),
       'showUpNextLabel': await PlayerSettings.getShowUpNextLabel(),
       'queuePlaylistId': await PlayerSettings.getQueuePlaylistId(),
+      'queueCollectionId': await PlayerSettings.getQueueCollectionId(),
+      'queueCollectionName': await PlayerSettings.getQueueCollectionName(),
       'coverSeedColor': await PlayerSettings.getCoverSeedColor(),
       'speedPresets': await PlayerSettings.getSpeedPresets(),
+      'cardBackground': await PlayerSettings.getCardBackgroundRaw(),
+      'lockSeekBar': await PlayerSettings.getLockSeekBar(),
+      'mediaControlsSpeedBookmark': await PlayerSettings.getMediaControlsSpeedBookmark(),
+      'progressTextScale': await PlayerSettings.getProgressTextScale(),
+      'lockPortrait': await PlayerSettings.getLockPortrait(),
+      'autoSeriesDownloadDefault': await PlayerSettings.getAutoSeriesDownloadDefault(),
+      'statsGoalDailyMinutes': await PlayerSettings.getStatsGoalMinutesFor('daily'),
+      'statsGoalWeeklyMinutes': await PlayerSettings.getStatsGoalMinutesFor('weekly'),
+      'statsGoalMonthlyMinutes': await PlayerSettings.getStatsGoalMinutesFor('monthly'),
+      'statsBookGoal': await PlayerSettings.getStatsBookGoal(),
+      'statsWeekStart': await PlayerSettings.getStatsWeekStart(),
+      'statsChartStyle': await PlayerSettings.getStatsChartStyle(),
+      'statsChartRange': await PlayerSettings.getStatsChartRange(),
+      'statsSectionOrder': await PlayerSettings.getStatsSectionOrder(),
+      'statsHiddenSections': await PlayerSettings.getStatsHiddenSections(),
     };
 
     // AutoRewind (scoped)
@@ -149,17 +188,6 @@ class BackupService {
     // Offline mode (global)
     final offlineMode = prefs.getBool('manual_offline_mode') ?? false;
 
-    // Bookmarks for current account (scoped)
-    final bookmarks = <String, List<String>>{};
-    final bmPrefix = scope.isNotEmpty ? '$scope:bookmarks_' : 'bookmarks_';
-    for (final key in prefs.getKeys()) {
-      if (key.startsWith(bmPrefix)) {
-        final itemId = key.substring(bmPrefix.length);
-        final list = prefs.getStringList(key);
-        if (list != null && list.isNotEmpty) bookmarks[itemId] = list;
-      }
-    }
-
     // Notes for current account (scoped)
     final notes = <String, String>{};
     final notesPrefix = scope.isNotEmpty ? '$scope:notes_' : 'notes_';
@@ -174,19 +202,34 @@ class BackupService {
     // Saved ebooks (scoped)
     final savedEbooks = await ScopedPrefs.getStringList('saved_ebooks');
 
-    // Rolling download series (scoped)
+    // Rolling download series (scoped). The id set carries no type, so the
+    // companion name map has to come along or the auto-download list restores
+    // as a column of unnamed ids until the caches happen to repopulate.
     final rollingDownloadSeries = await ScopedPrefs.getStringList('rolling_download_series');
+    final rollingDownloadSourceNames =
+        await ScopedPrefs.getString('rolling_download_source_names');
+
+    // Upcoming-scan per-series overrides + removed-books list (scoped)
+    final upcomingAlwaysScan = await ScopedPrefs.getStringList('upcoming_always_scan_series');
+    final upcomingNeverScan = await ScopedPrefs.getStringList('upcoming_never_scan_series');
+    final upcomingIgnoredBooks = await ScopedPrefs.getString('upcomingReleasesIgnoredBooks');
 
     // Podcast subscriptions + manually-curated Absorbing list (scoped)
     final subscribedPodcasts = await ScopedPrefs.getStringList('subscribed_podcasts');
     final absorbingManualAdds = await ScopedPrefs.getStringList('absorbing_manual_adds');
+    final absorbingFinishedManualAdds =
+        await ScopedPrefs.getStringList('absorbing_finished_manual_adds');
     final absorbingManualRemoves = await ScopedPrefs.getStringList('absorbing_manual_removes');
+    final absorbingOrder = await ScopedPrefs.getStringList('absorbing_seen_ids');
+    // Books hidden from the local "finished this year" count and list
+    final yearHiddenIds = await ScopedPrefs.getStringList('year_hidden_ids');
 
     // Pending offline state (scoped) - server hasn't received these yet
     final pendingSyncs = await ScopedPrefs.getStringList('pending_syncs');
     final pendingOfflineListening = await ScopedPrefs.getStringList('pending_offline_listening');
     final bookmarksPendingCreates = await ScopedPrefs.getString('bookmarks_pending_creates');
     final bookmarksPendingDeletes = await ScopedPrefs.getString('bookmarks_pending_deletes');
+    final pendingEbookProgress = await ScopedPrefs.getString('pending_ebook_progress');
 
     // Offline listening accumulators (scoped) - keyed by itemId
     final offlineListening = <String, int>{};
@@ -204,6 +247,7 @@ class BackupService {
       'baseUrl': await ScopedPrefs.getString('rmab_base_url'),
       'apiToken': await ScopedPrefs.getString('rmab_api_token'),
       'legacyUrl': await ScopedPrefs.getString('rmab_url'),
+      'customHeaders': await ScopedPrefs.getString('rmab_custom_headers'),
     };
 
     // Home screen layout per library (scoped, keyed by libraryId)
@@ -223,6 +267,21 @@ class BackupService {
     collectHome('home_hidden_sections_', 'hidden');
     collectHome('home_genre_sections_', 'genres');
 
+    final librarySettings = <String, Map<String, dynamic>>{};
+    void collectLibrarySetting(String shortPrefix, String field) {
+      final fullPrefix = '$scopePrefix$shortPrefix';
+      for (final key in prefs.getKeys()) {
+        if (!key.startsWith(fullPrefix)) continue;
+        final libraryId = key.substring(fullPrefix.length);
+        final value = prefs.get(key);
+        if (value is! String && value is! int) continue;
+        librarySettings.putIfAbsent(libraryId, () => {})[field] = value;
+      }
+    }
+    collectLibrarySetting('rectangleCovers_', 'coverShape');
+    collectLibrarySetting('skipOverrideForward_', 'skipForward');
+    collectLibrarySetting('skipOverrideBack_', 'skipBack');
+
     // Per-item metadata overrides (scoped, keyed by itemId)
     final metadataOverrides = <String, String>{};
     final metaPrefix = '${scopePrefix}metadata_override_';
@@ -231,6 +290,66 @@ class BackupService {
       final itemId = key.substring(metaPrefix.length);
       final value = prefs.getString(key);
       if (value != null && value.isNotEmpty) metadataOverrides[itemId] = value;
+    }
+
+    // Podcast bookmarks (scoped, keyed 'showId-episodeId'). An ABS bookmark
+    // has no episode id, so these never go to the server - the backup is the
+    // only way they reach another device. Book bookmarks are left out: they
+    // round-trip through ABS already.
+    final podcastBookmarks = <String, List<String>>{};
+    final bookmarkPrefix = '${scopePrefix}bookmarks_';
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith(bookmarkPrefix)) continue;
+      final itemKey = key.substring(bookmarkPrefix.length);
+      if (!isEpisodeKey(itemKey)) continue;
+      final List<String> stored;
+      try {
+        stored = prefs.getStringList(key) ?? const [];
+      } catch (_) {
+        continue; // the pending-create/delete keys are Strings, not lists
+      }
+      if (stored.isNotEmpty) podcastBookmarks[itemKey] = stored;
+    }
+
+    // Ebook annotations (scoped, keyed by itemId). Highlights, bookmarks and
+    // their notes live only on-device (ABS has no ebook annotation API), so
+    // the backup is their only way to survive a reinstall.
+    final ebookAnnotations = <String, String>{};
+    final annotPrefix = '${scopePrefix}ebook_annotations_';
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith(annotPrefix)) continue;
+      final itemId = key.substring(annotPrefix.length);
+      final value = prefs.getString(key);
+      if (value != null && value.isNotEmpty) ebookAnnotations[itemId] = value;
+    }
+
+    // E-reader appearance + behavior (scoped)
+    final ereader = <String, dynamic>{
+      'fontSize': await ScopedPrefs.getInt('ereader_fontSize'),
+      'lineHeight': await ScopedPrefs.getDouble('ereader_lineHeight'),
+      'alignLeft': await ScopedPrefs.getBool('ereader_alignLeft'),
+      'marginH': await ScopedPrefs.getInt('ereader_margin_h'),
+      'marginV': await ScopedPrefs.getInt('ereader_margin_v'),
+      'spread': await ScopedPrefs.getInt('ereader_spread'),
+      'theme': await ScopedPrefs.getString('ereader_theme'),
+      'font': await ScopedPrefs.getString('ereader_font'),
+      'barAction': await ScopedPrefs.getString('ereader_bar_action'),
+      'volumeNav': await PlayerSettings.getEreaderVolumeNav(),
+      'volumeNavWhilePlaying': await PlayerSettings.getEreaderVolumeNavWhilePlaying(),
+    };
+
+    // Nav-tab hold shortcuts (scoped): one entry per tab plus the arrangement
+    // of the hold menu. A shortcut that means nothing on the receiving device
+    // (an admin page, ReadMeABook) is filtered out when the menu is drawn, so
+    // travelling is safe.
+    final navHold = <String, dynamic>{};
+    for (final tab in navHoldTabs) {
+      final v = await ScopedPrefs.getString(navHoldPrefKey(tab));
+      if (v != null && v.isNotEmpty) navHold[tab] = v;
+    }
+    final navHoldMenu = await ScopedPrefs.getString(navHoldMenuPrefKey);
+    if (navHoldMenu != null && navHoldMenu.isNotEmpty) {
+      navHold['menuIds'] = navHoldMenu;
     }
 
     // Per-podcast UI prefs (GLOBAL, not scoped - keyed by itemId)
@@ -245,11 +364,30 @@ class BackupService {
       }
     }
     collectPodcast('podcast_sort_newest_', 'sortNewest', (k) => prefs.getBool(k));
+    collectPodcast('podcast_sort_mode_', 'sortMode', (k) => prefs.getString(k));
     collectPodcast('podcast_hide_finished_', 'hideFinished', (k) => prefs.getBool(k));
     collectPodcast('podcast_advance_dir_', 'advanceDir', (k) => prefs.getString(k));
 
     // Custom download path (GLOBAL)
     final customDownloadPath = prefs.getString('custom_download_path');
+
+    // Settings-sync setup (scoped). This lives in the backup file but never in
+    // the synced payload itself - a sync config that synced itself would be
+    // circular, and the point of putting it here is that restoring a backup on
+    // a second phone leaves the two already keeping each other in step.
+    //
+    // The WebDAV password rides with `includeAccounts` for the same reason the
+    // server tokens do: a settings-only backup is a file people hand around,
+    // and it should not carry the key to their Nextcloud.
+    final settingsSync = <String, dynamic>{
+      'url': await ScopedPrefs.getString('settingsSyncUrl'),
+      'username': await ScopedPrefs.getString('settingsSyncUser'),
+      'headers': await ScopedPrefs.getString('settingsSyncHeaders'),
+      'enabled': await ScopedPrefs.getBool('settingsSyncEnabled'),
+      'includeRmab': await ScopedPrefs.getBool('settingsSyncIncludeRmab'),
+      if (includeAccounts)
+        'password': await ScopedPrefs.getString('settingsSyncPass'),
+    }..removeWhere((_, v) => v == null);
 
     // Accounts & custom headers (optional - contain auth data)
     List<Map<String, dynamic>>? accounts;
@@ -277,23 +415,41 @@ class BackupService {
       'equalizer': equalizer,
       'bookSpeeds': bookSpeeds,
       'offlineMode': offlineMode,
-      'bookmarks': bookmarks,
       'notes': notes,
       'savedEbooks': savedEbooks,
       'rollingDownloadSeries': rollingDownloadSeries,
+      if (rollingDownloadSourceNames != null &&
+          rollingDownloadSourceNames.isNotEmpty)
+        'rollingDownloadSourceNames': rollingDownloadSourceNames,
+      'upcomingAlwaysScan': upcomingAlwaysScan,
+      'upcomingNeverScan': upcomingNeverScan,
+      if (upcomingIgnoredBooks != null && upcomingIgnoredBooks.isNotEmpty)
+        'upcomingIgnoredBooks': upcomingIgnoredBooks,
       'subscribedPodcasts': subscribedPodcasts,
       'absorbingManualAdds': absorbingManualAdds,
+      'absorbingFinishedManualAdds': absorbingFinishedManualAdds,
       'absorbingManualRemoves': absorbingManualRemoves,
+      // Only when there is one: an empty list from a device that has not
+      // loaded its shelf yet must not wipe the order everywhere else.
+      if (absorbingOrder.isNotEmpty) 'absorbingOrder': absorbingOrder,
+      'yearHiddenIds': yearHiddenIds,
       'pendingSyncs': pendingSyncs,
       'pendingOfflineListening': pendingOfflineListening,
       'bookmarksPendingCreates': bookmarksPendingCreates,
       'bookmarksPendingDeletes': bookmarksPendingDeletes,
+      'pendingEbookProgress': pendingEbookProgress,
       'offlineListening': offlineListening,
       'rmab': rmab,
       'homeLayouts': homeLayouts,
+      'librarySettings': librarySettings,
       'metadataOverrides': metadataOverrides,
+      'ebookAnnotations': ebookAnnotations,
+      'podcastBookmarks': podcastBookmarks,
+      'ereader': ereader,
+      if (navHold.isNotEmpty) 'navHold': navHold,
       'podcastPrefs': podcastPrefs,
       'customDownloadPath': customDownloadPath,
+      if (settingsSync.isNotEmpty) 'settingsSync': settingsSync,
       'accounts': accounts,
       'customHeaders': customHeaders,
     };
@@ -333,18 +489,27 @@ class BackupService {
   static Future<void> importSettings(Map<String, dynamic> data) async {
     final prefs = await SharedPreferences.getInstance();
 
+    final customHeaders = data['customHeaders'] as Map<String, dynamic>?;
+    final restoredCustomHeaders = customHeaders == null
+        ? const <String, String>{}
+        : Map<String, String>.from(customHeaders);
+
     // Restore accounts FIRST so ScopedPrefs has the right scope
     // when we write settings below. saveAccount() sets the active scope key.
     final accounts = data['accounts'] as List<dynamic>?;
     if (accounts != null) {
-      for (final a in accounts) {
+      // saveAccount inserts at the front. Restore in reverse so the backup's
+      // first (active) account stays first and owns the scoped settings below.
+      for (final a in accounts.reversed) {
         final map = a as Map<String, dynamic>;
-        await UserAccountService().saveAccount(SavedAccount.fromJson(map));
+        await UserAccountService().saveAccount(SavedAccount.fromJson(
+          map,
+          legacyCustomHeaders: restoredCustomHeaders,
+        ));
       }
     }
 
     // Custom headers (restore early, before any API calls)
-    final customHeaders = data['customHeaders'] as Map<String, dynamic>?;
     if (customHeaders != null) {
       await prefs.setString('custom_headers', jsonEncode(customHeaders));
     }
@@ -364,11 +529,23 @@ class BackupService {
     if (s['bookQueueMode'] != null) PlayerSettings.setBookQueueMode(s['bookQueueMode'] as String);
     if (s['podcastQueueMode'] != null) PlayerSettings.setPodcastQueueMode(s['podcastQueueMode'] as String);
     if (s['whenFinished'] != null) PlayerSettings.setWhenFinished(s['whenFinished'] as String);
-    if (s['showBookSlider'] != null) PlayerSettings.setShowBookSlider(s['showBookSlider'] as bool);
+    final cardScrubberMode = s['cardScrubberMode'] as String?;
+    if (cardScrubberMode != null) {
+      final mode = CardScrubberMode.values.firstWhere(
+        (value) => value.name == cardScrubberMode,
+        orElse: () => CardScrubberMode.chapter,
+      );
+      await PlayerSettings.setCardScrubberMode(mode);
+    } else if (s['showBookSlider'] != null) {
+      await PlayerSettings.setShowBookSlider(s['showBookSlider'] as bool);
+    }
     if (s['speedAdjustedTime'] != null) PlayerSettings.setSpeedAdjustedTime(s['speedAdjustedTime'] as bool);
+    if (s['keepScreenOnPlayer'] != null) PlayerSettings.setKeepScreenOnInPlayer(s['keepScreenOnPlayer'] as bool);
+    if (s['keepScreenOnCarMode'] != null) PlayerSettings.setKeepScreenOnInCarMode(s['keepScreenOnCarMode'] as bool);
     if (s['forwardSkip'] != null) PlayerSettings.setForwardSkip(s['forwardSkip'] as int);
     if (s['backSkip'] != null) PlayerSettings.setBackSkip(s['backSkip'] as int);
     if (s['shakeMode'] != null) PlayerSettings.setShakeMode(s['shakeMode'] as String);
+    if (s['sleepButtonMode'] != null) PlayerSettings.setSleepButtonMode(s['sleepButtonMode'] as String);
     // Migrate old bool setting
     if (s['shakeMode'] == null && s['shakeToResetSleep'] != null) {
       PlayerSettings.setShakeMode(s['shakeToResetSleep'] as bool ? 'addTime' : 'off');
@@ -401,8 +578,25 @@ class BackupService {
     if (s['rollingDownloadDeleteFinished'] != null) PlayerSettings.setRollingDownloadDeleteFinished(s['rollingDownloadDeleteFinished'] as bool);
     if (s['queueAutoDownload'] != null) PlayerSettings.setQueueAutoDownload(s['queueAutoDownload'] as bool);
     if (s['mergeAbsorbingLibraries'] != null) PlayerSettings.setMergeAbsorbingLibraries(s['mergeAbsorbingLibraries'] as bool);
+    if (s['podcastTabLibraryId'] != null) {
+      await ScopedPrefs.setString(
+        'podcastTabLibraryId',
+        s['podcastTabLibraryId'] as String,
+      );
+    }
+    if (s['podcastTabEnabled'] != null) {
+      await ScopedPrefs.setBool(
+        'podcastTabEnabled',
+        s['podcastTabEnabled'] as bool,
+      );
+    }
+    if (s['episodeNotifIntervalMinutes'] != null) PlayerSettings.setEpisodeNotifIntervalMinutes(s['episodeNotifIntervalMinutes'] as int);
     if (s['maxConcurrentDownloads'] != null) PlayerSettings.setMaxConcurrentDownloads(s['maxConcurrentDownloads'] as int);
     if (s['colorSource'] != null) PlayerSettings.setColorSource(s['colorSource'] as String);
+    if (s['flatBackground'] != null) PlayerSettings.setFlatBackground(s['flatBackground'] as bool);
+    if (s['manualSeedColor'] != null) PlayerSettings.setManualSeedColor(s['manualSeedColor'] as int);
+    if (s['gradientIntensity'] != null) PlayerSettings.setGradientIntensity((s['gradientIntensity'] as num).toDouble());
+    if (s['useColorEverywhere'] != null) PlayerSettings.setUseColorEverywhere(s['useColorEverywhere'] as bool);
     if (s['snappyTransitions'] != null) PlayerSettings.setSnappyTransitions(s['snappyTransitions'] as bool);
     if (s['bookmarkSort'] != null) PlayerSettings.setBookmarkSort(s['bookmarkSort'] as String);
     if (s['autoDownloadOnStream'] != null) PlayerSettings.setAutoDownloadOnStream(s['autoDownloadOnStream'] as bool);
@@ -423,14 +617,20 @@ class BackupService {
     if (s['cardSingleRow'] != null) PlayerSettings.setCardSingleRow(s['cardSingleRow'] as bool);
     if (s['cardMoreInline'] != null) PlayerSettings.setCardMoreInline(s['cardMoreInline'] as bool);
     if (s['rectangleCovers'] != null) PlayerSettings.setRectangleCovers(s['rectangleCovers'] as bool);
+    if (s['coverSize'] != null) PlayerSettings.setCoverSize(s['coverSize'] as String);
+    if (s['cardButtonFill'] != null) PlayerSettings.setCardButtonFill(s['cardButtonFill'] as String);
     if (s['coverPlayButton'] != null) PlayerSettings.setCoverPlayButton(s['coverPlayButton'] as bool);
     if (s['sleepRewindSeconds'] != null) PlayerSettings.setSleepRewindSeconds(s['sleepRewindSeconds'] as int);
     if (s['sleepTimerTab'] != null) PlayerSettings.setSleepTimerTab(s['sleepTimerTab'] as int);
     if (s['sheetGridView'] != null) PlayerSettings.setSheetGridView(s['sheetGridView'] as bool);
     if (s['sheetCollapseSeries'] != null) PlayerSettings.setSheetCollapseSeries(s['sheetCollapseSeries'] as bool);
     if (s['skipChapterBarrier'] != null) PlayerSettings.setSkipChapterBarrier(s['skipChapterBarrier'] as bool);
+    if (s['longSkipButtons'] != null) PlayerSettings.setLongSkipButtons(s['longSkipButtons'] as bool);
+    if (s['longForwardSkip'] != null) PlayerSettings.setLongForwardSkip(s['longForwardSkip'] as int);
+    if (s['longBackSkip'] != null) PlayerSettings.setLongBackSkip(s['longBackSkip'] as int);
     if (s['audibleRegion'] != null) await PlayerSettings.setAudibleRegion(s['audibleRegion'] as String);
     if (s['upcomingReleasesSortByDate'] != null) await PlayerSettings.setUpcomingReleasesSortByDate(s['upcomingReleasesSortByDate'] as bool);
+    if (s['upcomingFinishedAfterYears'] != null) await PlayerSettings.setUpcomingFinishedAfterYears((s['upcomingFinishedAfterYears'] as num).toInt());
     if (s['libraryTagFilter'] != null) await PlayerSettings.setLibraryTagFilter(s['libraryTagFilter'] as String);
     if (s['librarySeriesFilter'] != null) await PlayerSettings.setLibrarySeriesFilter(s['librarySeriesFilter'] as String);
     if (s['narratorSort'] != null) await PlayerSettings.setNarratorSort(s['narratorSort'] as String);
@@ -439,14 +639,43 @@ class BackupService {
     if (s['sectionGridView'] != null) await PlayerSettings.setSectionGridView(s['sectionGridView'] as bool);
     if (s['collapseBookSeries'] != null) await PlayerSettings.setCollapseBookSeries(s['collapseBookSeries'] as bool);
     if (s['showExplicitBadge'] != null) await PlayerSettings.setShowExplicitBadge(s['showExplicitBadge'] as bool);
+    if (s['showEbookBadge'] != null) await PlayerSettings.setShowEbookBadge(s['showEbookBadge'] as bool);
     if (s['includePreReleases'] != null) await PlayerSettings.setIncludePreReleases(s['includePreReleases'] as bool);
     if (s['language'] != null) await PlayerSettings.setLanguage(s['language'] as String);
     if (s['showUpNextLabel'] != null) await PlayerSettings.setShowUpNextLabel(s['showUpNextLabel'] as bool);
     if (s['queuePlaylistId'] != null) await PlayerSettings.setQueuePlaylistId(s['queuePlaylistId'] as String?);
+    if (s['queueCollectionId'] != null) await ScopedPrefs.setString('queueCollectionId', s['queueCollectionId'] as String);
+    if (s['queueCollectionName'] != null) await ScopedPrefs.setString('queueCollectionName', s['queueCollectionName'] as String);
     if (s['coverSeedColor'] != null) await PlayerSettings.setCoverSeedColor(s['coverSeedColor'] as int);
     if (s['speedPresets'] is List) {
       await PlayerSettings.setSpeedPresets((s['speedPresets'] as List).map((e) => (e as num).toDouble()).toList());
     }
+    if (s['cardBackground'] != null) await PlayerSettings.setCardBackground(s['cardBackground'] as String);
+    if (s['lockSeekBar'] != null) await PlayerSettings.setLockSeekBar(s['lockSeekBar'] as bool);
+    if (s['mediaControlsSpeedBookmark'] != null) await PlayerSettings.setMediaControlsSpeedBookmark(s['mediaControlsSpeedBookmark'] as bool);
+    if (s['progressTextScale'] != null) await PlayerSettings.setProgressTextScale((s['progressTextScale'] as num).toDouble());
+    if (s['lockPortrait'] != null) await PlayerSettings.setLockPortrait(s['lockPortrait'] as bool);
+    if (s['autoSeriesDownloadDefault'] != null) await PlayerSettings.setAutoSeriesDownloadDefault(s['autoSeriesDownloadDefault'] as bool);
+    for (final p in PlayerSettings.statsGoalPeriods) {
+      final key = 'statsGoal${p[0].toUpperCase()}${p.substring(1)}Minutes';
+      if (s[key] != null) await PlayerSettings.setStatsGoalMinutesFor(p, s[key] as int);
+    }
+    // Backups from before goals went per-period carried one target plus the
+    // period it applied to.
+    if (s['statsGoalDailyMinutes'] == null &&
+        s['statsGoalWeeklyMinutes'] == null &&
+        s['statsGoalMonthlyMinutes'] == null &&
+        s['statsGoalMinutes'] != null &&
+        PlayerSettings.statsGoalPeriods.contains(s['statsGoalType'])) {
+      await PlayerSettings.setStatsGoalMinutesFor(
+          s['statsGoalType'] as String, s['statsGoalMinutes'] as int);
+    }
+    if (s['statsBookGoal'] != null) await PlayerSettings.setStatsBookGoal(s['statsBookGoal'] as int);
+    if (s['statsWeekStart'] != null) await PlayerSettings.setStatsWeekStart(s['statsWeekStart'] as int);
+    if (s['statsChartStyle'] != null) await PlayerSettings.setStatsChartStyle(s['statsChartStyle'] as String);
+    if (s['statsChartRange'] != null) await PlayerSettings.setStatsChartRange(s['statsChartRange'] as int);
+    if (s['statsSectionOrder'] is List) await PlayerSettings.setStatsSectionOrder((s['statsSectionOrder'] as List).cast<String>());
+    if (s['statsHiddenSections'] is List) await PlayerSettings.setStatsHiddenSections((s['statsHiddenSections'] as List).cast<String>());
 
     // AutoRewind (scoped via save())
     final r = data['autoRewind'] as Map<String, dynamic>?;
@@ -503,15 +732,6 @@ class BackupService {
       await prefs.setBool('manual_offline_mode', data['offlineMode'] as bool);
     }
 
-    // Bookmarks (scoped)
-    final bookmarks = data['bookmarks'] as Map<String, dynamic>?;
-    if (bookmarks != null) {
-      for (final entry in bookmarks.entries) {
-        final list = (entry.value as List<dynamic>).cast<String>();
-        await ScopedPrefs.setStringList('bookmarks_${entry.key}', list);
-      }
-    }
-
     // Notes (scoped)
     final notes = data['notes'] as Map<String, dynamic>?;
     if (notes != null) {
@@ -534,6 +754,73 @@ class BackupService {
         rollingDownloadSeries.cast<String>(),
       );
     }
+    final rollingDownloadSourceNames =
+        data['rollingDownloadSourceNames'] as String?;
+    if (rollingDownloadSourceNames != null &&
+        rollingDownloadSourceNames.isNotEmpty) {
+      await ScopedPrefs.setString(
+        'rolling_download_source_names',
+        rollingDownloadSourceNames,
+      );
+    }
+
+    // Settings-sync setup. Restoring it is what makes a backup taken on one
+    // phone leave the second one already syncing. A backup saved without login
+    // info carries no password, so sync stays switched off until one is typed
+    // rather than silently failing to authenticate on every foreground.
+    final settingsSync = data['settingsSync'] as Map<String, dynamic>?;
+    if (settingsSync != null) {
+      final url = settingsSync['url'] as String?;
+      final username = settingsSync['username'] as String?;
+      final headers = settingsSync['headers'] as String?;
+      final password = settingsSync['password'] as String?;
+      if (url != null) await ScopedPrefs.setString('settingsSyncUrl', url);
+      if (username != null) {
+        await ScopedPrefs.setString('settingsSyncUser', username);
+      }
+      if (headers != null) {
+        await ScopedPrefs.setString('settingsSyncHeaders', headers);
+      }
+      if (password != null) {
+        await ScopedPrefs.setString('settingsSyncPass', password);
+      }
+      if (settingsSync['includeRmab'] is bool) {
+        await ScopedPrefs.setBool(
+          'settingsSyncIncludeRmab',
+          settingsSync['includeRmab'] as bool,
+        );
+      }
+      final wantEnabled = settingsSync['enabled'] == true;
+      await ScopedPrefs.setBool(
+        'settingsSyncEnabled',
+        wantEnabled && password != null && password.isNotEmpty,
+      );
+      // This device has just taken on another's settings wholesale, so clear
+      // the sync bookkeeping: leaving the donor's "last seen" timestamp behind
+      // would make the next pull think it had already caught up.
+      await ScopedPrefs.remove('settingsSyncLastSeen');
+      await ScopedPrefs.remove('settingsSyncLastHash');
+    }
+
+    // Upcoming-scan per-series overrides (scoped)
+    final upcomingAlwaysScan = data['upcomingAlwaysScan'] as List<dynamic>?;
+    if (upcomingAlwaysScan != null && upcomingAlwaysScan.isNotEmpty) {
+      await ScopedPrefs.setStringList(
+        'upcoming_always_scan_series',
+        upcomingAlwaysScan.cast<String>(),
+      );
+    }
+    final upcomingNeverScan = data['upcomingNeverScan'] as List<dynamic>?;
+    if (upcomingNeverScan != null && upcomingNeverScan.isNotEmpty) {
+      await ScopedPrefs.setStringList(
+        'upcoming_never_scan_series',
+        upcomingNeverScan.cast<String>(),
+      );
+    }
+    final upcomingIgnoredBooks = data['upcomingIgnoredBooks'] as String?;
+    if (upcomingIgnoredBooks != null && upcomingIgnoredBooks.isNotEmpty) {
+      await ScopedPrefs.setString('upcomingReleasesIgnoredBooks', upcomingIgnoredBooks);
+    }
 
     // Podcast subscriptions + Absorbing manual list (scoped)
     final subscribedPodcasts = data['subscribedPodcasts'] as List<dynamic>?;
@@ -544,9 +831,25 @@ class BackupService {
     if (absorbingManualAdds != null) {
       await ScopedPrefs.setStringList('absorbing_manual_adds', absorbingManualAdds.cast<String>());
     }
+    final absorbingFinishedManualAdds =
+        data['absorbingFinishedManualAdds'] as List<dynamic>?;
+    if (absorbingFinishedManualAdds != null) {
+      await ScopedPrefs.setStringList(
+        'absorbing_finished_manual_adds',
+        absorbingFinishedManualAdds.cast<String>(),
+      );
+    }
     final absorbingManualRemoves = data['absorbingManualRemoves'] as List<dynamic>?;
     if (absorbingManualRemoves != null) {
       await ScopedPrefs.setStringList('absorbing_manual_removes', absorbingManualRemoves.cast<String>());
+    }
+    final absorbingOrder = data['absorbingOrder'] as List<dynamic>?;
+    if (absorbingOrder != null && absorbingOrder.isNotEmpty) {
+      await ScopedPrefs.setStringList('absorbing_seen_ids', absorbingOrder.cast<String>());
+    }
+    final yearHiddenIds = data['yearHiddenIds'] as List<dynamic>?;
+    if (yearHiddenIds != null) {
+      await ScopedPrefs.setStringList('year_hidden_ids', yearHiddenIds.cast<String>());
     }
 
     // Pending offline state (scoped) - so offline changes still push after restore
@@ -562,6 +865,8 @@ class BackupService {
     if (bmpc != null) await ScopedPrefs.setString('bookmarks_pending_creates', bmpc);
     final bmpd = data['bookmarksPendingDeletes'] as String?;
     if (bmpd != null) await ScopedPrefs.setString('bookmarks_pending_deletes', bmpd);
+    final pep = data['pendingEbookProgress'] as String?;
+    if (pep != null) await ScopedPrefs.setString('pending_ebook_progress', pep);
 
     // Offline listening accumulators (scoped, per-item) - write through SharedPreferences
     // directly because ScopedPrefs doesn't expose setInt with scope handling here.
@@ -583,6 +888,10 @@ class BackupService {
       if (apiToken != null) await ScopedPrefs.setString('rmab_api_token', apiToken);
       final legacyUrl = rmab['legacyUrl'] as String?;
       if (legacyUrl != null) await ScopedPrefs.setString('rmab_url', legacyUrl);
+      final customHeaders = rmab['customHeaders'] as String?;
+      if (customHeaders != null) {
+        await ScopedPrefs.setString('rmab_custom_headers', customHeaders);
+      }
     }
 
     // Home screen layout per library (scoped)
@@ -600,11 +909,129 @@ class BackupService {
       }
     }
 
+    final librarySettings = data['librarySettings'] as Map<String, dynamic>?;
+    if (librarySettings != null) {
+      final scope = UserAccountService().activeScopeKey;
+      final scopePrefix = scope.isNotEmpty ? '$scope:' : '';
+      final prefixes = [
+        '${scopePrefix}rectangleCovers_',
+        '${scopePrefix}skipOverrideForward_',
+        '${scopePrefix}skipOverrideBack_',
+      ];
+      final oldKeys = prefs
+          .getKeys()
+          .where((key) => prefixes.any(key.startsWith))
+          .toList();
+      for (final key in oldKeys) {
+        await prefs.remove(key);
+      }
+      for (final entry in librarySettings.entries) {
+        final libraryId = entry.key;
+        final settings = entry.value as Map<String, dynamic>;
+        final coverShape = settings['coverShape'] as String?;
+        if (coverShape == 'rect' || coverShape == 'square') {
+          await PlayerSettings.setRectangleCoversOverride(
+            libraryId,
+            coverShape,
+          );
+        }
+        final skipForward = (settings['skipForward'] as num?)?.toInt();
+        final skipBack = (settings['skipBack'] as num?)?.toInt();
+        if (skipForward != null && skipBack != null) {
+          await PlayerSettings.setSkipOverride(
+            libraryId,
+            forward: skipForward,
+            back: skipBack,
+          );
+        }
+      }
+    }
+
     // Per-item metadata overrides (scoped)
     final metadataOverrides = data['metadataOverrides'] as Map<String, dynamic>?;
     if (metadataOverrides != null) {
       for (final entry in metadataOverrides.entries) {
         await ScopedPrefs.setString('metadata_override_${entry.key}', entry.value as String);
+      }
+    }
+
+    // Ebook annotations (scoped, keyed by itemId)
+    final ebookAnnotations = data['ebookAnnotations'] as Map<String, dynamic>?;
+    if (ebookAnnotations != null) {
+      for (final entry in ebookAnnotations.entries) {
+        await ScopedPrefs.setString('ebook_annotations_${entry.key}', entry.value as String);
+      }
+    }
+
+    // Podcast bookmarks (scoped, keyed 'showId-episodeId'). Merged rather than
+    // overwritten: this device's own episode bookmarks live nowhere else, so a
+    // straight replace would throw away anything made since the file was
+    // written. Same position (within a second) counts as the same bookmark.
+    final podcastBookmarks = data['podcastBookmarks'] as Map<String, dynamic>?;
+    if (podcastBookmarks != null) {
+      for (final entry in podcastBookmarks.entries) {
+        final incoming = (entry.value as List<dynamic>?)?.whereType<String>().toList();
+        if (incoming == null || incoming.isEmpty) continue;
+        final key = 'bookmarks_${entry.key}';
+        final existing = (await ScopedPrefs.getStringList(key)).toList();
+        final positions = <double>[];
+        for (final raw in existing) {
+          try {
+            final pos = (jsonDecode(raw) as Map<String, dynamic>)['pos'] as num?;
+            if (pos != null) positions.add(pos.toDouble());
+          } catch (_) {}
+        }
+        for (final raw in incoming) {
+          double? pos;
+          try {
+            pos = ((jsonDecode(raw) as Map<String, dynamic>)['pos'] as num?)?.toDouble();
+          } catch (_) {
+            continue; // not a bookmark we can read - leave it out
+          }
+          if (pos == null) continue;
+          if (positions.any((p) => (p - pos!).abs() < 1.0)) continue;
+          positions.add(pos);
+          existing.add(raw);
+        }
+        await ScopedPrefs.setStringList(key, existing);
+      }
+    }
+
+    // E-reader appearance + behavior (scoped)
+    final er = data['ereader'] as Map<String, dynamic>?;
+    if (er != null) {
+      if (er['fontSize'] != null) await ScopedPrefs.setInt('ereader_fontSize', er['fontSize'] as int);
+      if (er['lineHeight'] != null) await ScopedPrefs.setDouble('ereader_lineHeight', (er['lineHeight'] as num).toDouble());
+      if (er['alignLeft'] != null) await ScopedPrefs.setBool('ereader_alignLeft', er['alignLeft'] as bool);
+      if (er['marginH'] != null) await ScopedPrefs.setInt('ereader_margin_h', er['marginH'] as int);
+      if (er['marginV'] != null) await ScopedPrefs.setInt('ereader_margin_v', er['marginV'] as int);
+      if (er['spread'] != null) await ScopedPrefs.setInt('ereader_spread', er['spread'] as int);
+      if (er['theme'] != null) await ScopedPrefs.setString('ereader_theme', er['theme'] as String);
+      if (er['barAction'] != null) await ScopedPrefs.setString('ereader_bar_action', er['barAction'] as String);
+      if (er['font'] != null) {
+        final fontId = er['font'] as String;
+        await ScopedPrefs.setString('ereader_font', fontId);
+        // The woff2 files aren't in the backup - re-fetch the selected font
+        // so the restored choice actually renders.
+        final font = readerFontById(fontId);
+        if (font != null && font.downloadable) ReaderFontService().download(font);
+      }
+      if (er['volumeNav'] != null) await PlayerSettings.setEreaderVolumeNav(er['volumeNav'] as String);
+      if (er['volumeNavWhilePlaying'] != null) await PlayerSettings.setEreaderVolumeNavWhilePlaying(er['volumeNavWhilePlaying'] as bool);
+    }
+
+    // Nav-tab hold shortcuts (scoped)
+    final navHold = data['navHold'] as Map<String, dynamic>?;
+    if (navHold != null) {
+      for (final tab in navHoldTabs) {
+        final v = navHold[tab];
+        if (v is String && v.isNotEmpty) {
+          await ScopedPrefs.setString(navHoldPrefKey(tab), v);
+        }
+      }
+      final menuIds = navHold['menuIds'];
+      if (menuIds is String && menuIds.isNotEmpty) {
+        await ScopedPrefs.setString(navHoldMenuPrefKey, menuIds);
       }
     }
 
@@ -615,6 +1042,7 @@ class BackupService {
         final itemId = entry.key;
         final p = entry.value as Map<String, dynamic>;
         if (p['sortNewest'] != null) await prefs.setBool('podcast_sort_newest_$itemId', p['sortNewest'] as bool);
+        if (p['sortMode'] != null) await prefs.setString('podcast_sort_mode_$itemId', p['sortMode'] as String);
         if (p['hideFinished'] != null) await prefs.setBool('podcast_hide_finished_$itemId', p['hideFinished'] as bool);
         if (p['advanceDir'] != null) await prefs.setString('podcast_advance_dir_$itemId', p['advanceDir'] as String);
       }
@@ -625,5 +1053,7 @@ class BackupService {
     if (customDownloadPath != null) {
       await prefs.setString('custom_download_path', customDownloadPath);
     }
+
+    PlayerSettings.notifySettingsChanged();
   }
 }

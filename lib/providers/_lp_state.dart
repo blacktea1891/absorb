@@ -2,9 +2,13 @@ part of 'library_provider.dart';
 
 mixin _StateMixin on ChangeNotifier {
   AuthProvider? _auth;
-  ApiService? get _api => _auth?.apiService;
+  // Signed out, the library makes no server calls and shows what is on the
+  // phone, like offline.
+  ApiService? get _api => _signedOut ? null : _auth?.apiService;
+  bool get _signedOut => _auth?.isSignedOut ?? false;
 
   List<dynamic> _libraries = [];
+  bool _librariesFromCache = false;
   String? _selectedLibraryId;
   List<dynamic> _personalizedSections = [];
   List<dynamic> _series = [];
@@ -24,10 +28,15 @@ mixin _StateMixin on ChangeNotifier {
   final Map<String, int> _pendingUnfinishedDeltas = {};
   final Map<String, (int, int)> _unfinishedCountAdjustments = {};
 
+  /// Personalized sections cached per library, so tab-driven flips between
+  /// the book library and the dedicated Podcasts tab restore instantly
+  /// instead of blanking and refetching. Refreshed through the normal
+  /// loadPersonalizedView path.
+  final Map<String, List<dynamic>> _sectionsByLibrary = {};
+  final Map<String, DateTime> _sectionsFetchedAt = {};
+
   Future<void>? _personalizedInFlight;
   Future<void>? _progressShelvesInFlight;
-  DateTime? _lastPersonalizedFetchAt;
-  String? _lastPersonalizedFetchLibraryId;
   DateTime? _lastProgressShelvesFetchAt;
   String? _lastProgressShelvesLibraryId;
   bool _rssHydrationInFlight = false;
@@ -65,6 +74,8 @@ mixin _StateMixin on ChangeNotifier {
   final Map<String, Map<String, dynamic>> _subSeriesCache = {};
 
   Set<String> _rollingDownloadSeries = {};
+  // id -> {name, kind} for the settings list; the set above is bare ids.
+  Map<String, Map<String, String>> _rollingDownloadSourceNames = {};
   Set<String> _subscribedPodcasts = {};
   // Book ids the user hid from the local "finished this year" stats list.
   // Purely local; the server's finished date is left untouched.
@@ -76,27 +87,40 @@ mixin _StateMixin on ChangeNotifier {
   bool _isReconnecting = false;
   Timer? _serverPingTimer;
   Timer? _healthCheckTimer;
+  Timer? _bookOrbitPollTimer;
   Timer? _localProbeTimer;
   int _localProbeFailures = 0;
   DateTime? _localLastReachableAt;
 
   bool _isBackgrounded = false;
+  // The ebook reader holds the app in the foreground for long stretches with
+  // nothing on screen that needs live data, so it asks for the same quiet the
+  // app keeps while backgrounded.
+  bool _readerQuiet = false;
+  DateTime? _readerQuietAt;
   bool _socketSoftDisconnected = false;
-  Timer? _idleDisconnectTimer;
-  static const _idleTimeout = Duration(minutes: 5);
+  DateTime? _backgroundedAt;
 
   Map<String, Map<String, dynamic>> _progressMap = {};
   final Map<String, double> _localProgressOverrides = {};
   final Set<String> _resetItems = {};
 
   Set<String> _manualAbsorbAdds = {};
+  Set<String> _finishedManualAbsorbAdds = {};
   Set<String> _manualAbsorbRemoves = {};
   List<String> _absorbingBookIds = [];
   Map<String, Map<String, dynamic>> _absorbingItemCache = {};
+  int _queueDownloadPlanGeneration = 0;
   String? _lastFinishedItemId;
+  // A just-arrived subscribed-podcast episode the user asked to land at the top
+  // of the queue. The absorbing screen's "keep last-finished/playing on top"
+  // pins yield to this so a "beginning" episode actually stays first. Persisted
+  // so it survives an app kill; cleared once the user plays or reorders.
+  String? _freshQueuedFrontKey;
   final Set<String> _locallyFinishedItems = {};
 
   StreamSubscription? _connectivitySub;
+  Timer? _connectivityDebounce;
   bool _listeningToDownloads = false;
   String? _lastAuthKey;
   bool? _lastUseLocalServer;
@@ -116,7 +140,7 @@ mixin _StateMixin on ChangeNotifier {
   bool get isLoadingCollections => _isLoadingCollections;
   List<String> get sectionOrder => _sectionOrder;
   Set<String> get hiddenSectionIds => _hiddenSectionIds;
-  bool get isOffline => _manualOffline || _networkOffline;
+  bool get isOffline => _manualOffline || _networkOffline || _signedOut;
   bool get isManualOffline => _manualOffline;
   bool get isReconnecting => _isReconnecting;
   Set<String> get manualAbsorbAdds => _manualAbsorbAdds;
@@ -124,6 +148,7 @@ mixin _StateMixin on ChangeNotifier {
   List<String> get absorbingBookIds => _absorbingBookIds;
   Map<String, Map<String, dynamic>> get absorbingItemCache =>
       _absorbingItemCache;
+  String? get freshQueuedFrontKey => _freshQueuedFrontKey;
 
   Map<String, dynamic>? get selectedLibrary {
     if (_selectedLibraryId == null) return null;
@@ -140,6 +165,23 @@ mixin _StateMixin on ChangeNotifier {
     final lib = selectedLibrary;
     if (lib == null) return false;
     return (lib['mediaType'] as String? ?? 'book') == 'podcast';
+  }
+
+  /// Whether one item is a podcast, from the item itself. The selected
+  /// library is the wrong thing to ask when a list mixes types or was
+  /// reached from elsewhere: with the unified library a podcast playing
+  /// made a series list open its books as podcasts.
+  bool isPodcastItem(Map<String, dynamic>? item) {
+    final t = item?['mediaType'] as String?;
+    if (t != null) return t == 'podcast';
+    final media = item?['media'] as Map<String, dynamic>?;
+    if (media != null) {
+      if (media['episodes'] != null) return true;
+      if (media['numTracks'] != null || media['audioFiles'] != null) {
+        return false;
+      }
+    }
+    return isPodcastLibrary;
   }
 
   String get selectedMediaType {
@@ -246,7 +288,18 @@ mixin _StateMixin on ChangeNotifier {
     _seriesTabCache[key] = {'items': items, 'total': total};
   }
 
-  void registerUpdatedAt(String id, int ts) => _itemUpdatedAt[id] = ts;
+  // Monotonic: only ever advances. A slow/stale personalized load that carries
+  // a pre-change snapshot must not write an older timestamp over a newer one, or
+  // it would mask a server change (e.g. an ebook file just added) from widgets
+  // watching the tick.
+  void registerUpdatedAt(String id, int ts) {
+    final cur = _itemUpdatedAt[id];
+    if (cur == null || ts > cur) _itemUpdatedAt[id] = ts;
+  }
+  /// Per-item "last changed on the server" tick, bumped on every socket
+  /// item_updated. Widgets watch this to re-fetch when an item changes (e.g. an
+  /// ebook file added to a book) without an app restart.
+  int? itemUpdatedAt(String id) => _itemUpdatedAt[id];
 
   void registerHasCover(String id, bool hasCover) {
     if (hasCover) {
@@ -311,13 +364,12 @@ mixin _StateMixin on ChangeNotifier {
     return cached;
   }
 
-  void _showRollingSnackBar(String message) {
-    scaffoldMessengerKey.currentState
-      ?..clearSnackBars()
-      ..showSnackBar(SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 3),
-      ));
+  void _showRollingToast(String message, {IconData? icon}) {
+    showNavigatorOverlayToast(
+      rootNavigatorKey.currentState,
+      message,
+      icon: icon,
+    );
   }
 
   /// Look up [AppLocalizations] via the root navigator. Returns null if no
@@ -350,6 +402,8 @@ mixin _StateMixin on ChangeNotifier {
     if (dl.localCoverPath != null) {
       return dl.localCoverPath;
     }
+    final kept = DownloadService().keptEbook(itemId);
+    if (kept?.localCoverPath != null) return kept!.localCoverPath;
 
     if (dl.status == DownloadStatus.none) {
       final match = DownloadService()
