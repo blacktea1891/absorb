@@ -932,6 +932,9 @@ class AndroidAutoService {
     return ctx != null ? AppLocalizations.of(ctx) : null;
   }
 
+  /// Expose the current app locale for the matching CarPlay browse UI.
+  AppLocalizations? get currentLocalizations => _l();
+
   List<MediaItem> _getRootChildren() {
     // Always show all three tabs so the layout is consistent and doesn't
     // look like a missing 4th button.  Each tab fetches on-demand if its
@@ -945,7 +948,7 @@ class AndroidAutoService {
       ),
       MediaItem(
         id: AutoMediaIds.recentlyAdded,
-        title: 'New',
+        title: l?.androidAutoTabNew ?? 'New',
         playable: false,
       ),
       MediaItem(

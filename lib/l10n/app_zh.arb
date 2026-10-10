@@ -4267,7 +4267,7 @@
       }
     }
   },
-  "androidAutoTabContinue": "在车载终端上直接接力播放断点",
+  "androidAutoTabContinue": "继续收听",
   "androidAutoTabLibrary": "媒体库",
   "androidAutoTabDownloads": "下载",
   "settingsSearchHint": "搜索设置…",
@@ -4284,9 +4284,9 @@
   "carPodcastOrder": "车载播客排序",
   "carEpisodesOldestFirst": "优先播放最早的单集",
   "carEpisodesOldestFirstSubtitle": "适合从第一集开始追听的播客",
-  "androidAutoCatBooks": "有声书专区",
-  "androidAutoCatSeries": "长篇连载系列专区",
-  "androidAutoCatAuthors": "作者专区",
+  "androidAutoCatBooks": "有声书",
+  "androidAutoCatSeries": "系列",
+  "androidAutoCatAuthors": "作者",
   "androidAutoCatCollections": "收藏集",
   "androidAutoCatPlaylists": "播放列表",
   "showTipsAgain": "再次显示提示",
@@ -5438,5 +5438,6 @@
   "adminLibraryMetadataDeleteNoneRemoved": "找到 {found} 个 {filename} 文件，但一个也没能删除。",
   "@adminLibraryMetadataDeleteNoneRemoved": {"placeholders":{"found":{"type":"int"},"filename":{"type":"String"}}},
   "adminLibraryMetadataDeleteSuccess": "已删除 {found} 个 {filename} 文件中的 {removed} 个。",
-  "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}}
+  "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}},
+  "androidAutoTabNew": "最近添加"
 }

@@ -5239,5 +5239,6 @@
   "adminLibraryMetadataDeleteNoneRemoved": "{found} {filename} files were found, but none could be removed.",
   "@adminLibraryMetadataDeleteNoneRemoved": {"placeholders":{"found":{"type":"int"},"filename":{"type":"String"}}},
   "adminLibraryMetadataDeleteSuccess": "Removed {removed} of {found} {filename} files.",
-  "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}}
+  "@adminLibraryMetadataDeleteSuccess": {"placeholders":{"removed":{"type":"int"},"found":{"type":"int"},"filename":{"type":"String"}}},
+  "androidAutoTabNew": "New"
 }

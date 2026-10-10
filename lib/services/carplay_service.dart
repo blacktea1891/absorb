@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_carplay/flutter_carplay.dart';
+import '../l10n/app_localizations.dart';
 import 'android_auto_service.dart';
 import 'api_service.dart';
 import 'audio_player_service.dart';
@@ -19,6 +20,11 @@ class CarPlayService {
 
   final _autoService = AndroidAutoService();
   final _flutterCarplay = FlutterCarplay();
+
+  String _localized(String Function(AppLocalizations) translated, String fallback) {
+    final l = _autoService.currentLocalizations;
+    return l == null ? fallback : translated(l);
+  }
 
   /// Bridges CarPlay Now Playing button taps to/from native. The buttons live
   /// only on CPNowPlayingTemplate, so the iOS lock screen is never affected.
@@ -268,10 +274,10 @@ class CarPlayService {
       if (!_connected) return;
       await FlutterCarplay.showAlert(
         template: CPAlertTemplate(
-          titleVariants: const ['Bookmark added'],
+          titleVariants: [_localized((l) => l.bookmarkAdded, 'Bookmark added')],
           actions: [
             CPAlertAction(
-              title: 'OK',
+              title: _localized((l) => l.ok, 'OK'),
               onPress: () {
                 _bannerDismissTimer?.cancel();
                 _bannerShowing = false;
@@ -314,7 +320,7 @@ class CarPlayService {
     final items = entries.map((e) => _playableListItem(e, api)).toList();
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'Continue',
+      title: _localized((l) => l.androidAutoTabContinue, 'Continue'),
       systemIcon: 'play.circle.fill',
     );
   }
@@ -327,7 +333,7 @@ class CarPlayService {
     final items = entries.map((e) => _playableListItem(e, api)).toList();
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'New',
+      title: _localized((l) => l.androidAutoTabNew, 'New'),
       systemIcon: 'sparkles',
     );
   }
@@ -366,7 +372,7 @@ class CarPlayService {
 
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'Library',
+      title: _localized((l) => l.androidAutoTabLibrary, 'Library'),
       systemIcon: 'books.vertical.fill',
     );
   }
@@ -379,7 +385,7 @@ class CarPlayService {
     final items = entries.map((e) => _playableListItem(e, api)).toList();
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'Downloads',
+      title: _localized((l) => l.androidAutoTabDownloads, 'Downloads'),
       systemIcon: 'arrow.down.circle.fill',
     );
   }
@@ -389,7 +395,7 @@ class CarPlayService {
   Future<CPListTemplate> _buildBookSubCategories(String libraryId, String title) async {
     final items = [
       CPListItem(
-        text: 'Books',
+        text: _localized((l) => l.androidAutoCatBooks, 'Books'),
         accessoryType: CPListItemAccessoryTypes.disclosureIndicator,
         onPress: (complete, self) async {
           final template = await _buildBooksList(libraryId);
@@ -398,7 +404,7 @@ class CarPlayService {
         },
       ),
       CPListItem(
-        text: 'Series',
+        text: _localized((l) => l.androidAutoCatSeries, 'Series'),
         accessoryType: CPListItemAccessoryTypes.disclosureIndicator,
         onPress: (complete, self) async {
           final template = await _buildSeriesList(libraryId);
@@ -407,7 +413,7 @@ class CarPlayService {
         },
       ),
       CPListItem(
-        text: 'Authors',
+        text: _localized((l) => l.androidAutoCatAuthors, 'Authors'),
         accessoryType: CPListItemAccessoryTypes.disclosureIndicator,
         onPress: (complete, self) async {
           final template = await _buildAuthorsList(libraryId);
@@ -416,11 +422,11 @@ class CarPlayService {
         },
       ),
       CPListItem(
-        text: 'Collections',
+        text: _localized((l) => l.androidAutoCatCollections, 'Collections'),
         accessoryType: CPListItemAccessoryTypes.disclosureIndicator,
         onPress: (complete, self) async {
           final template = await _buildGroupList(
-            title: 'Collections',
+            title: _localized((l) => l.androidAutoCatCollections, 'Collections'),
             icon: 'square.stack.fill',
             groups: await _autoService.fetchCollectionsData(libraryId),
             entries: _autoService.fetchCollectionBooksData,
@@ -431,11 +437,11 @@ class CarPlayService {
       ),
       if (!ServerBackend.active.isBookOrbit)
       CPListItem(
-        text: 'Playlists',
+        text: _localized((l) => l.androidAutoCatPlaylists, 'Playlists'),
         accessoryType: CPListItemAccessoryTypes.disclosureIndicator,
         onPress: (complete, self) async {
           final template = await _buildGroupList(
-            title: 'Playlists',
+            title: _localized((l) => l.androidAutoCatPlaylists, 'Playlists'),
             icon: 'music.note.list',
             groups: await _autoService.fetchPlaylistsData(libraryId),
             entries: _autoService.fetchPlaylistItemsData,
@@ -470,7 +476,7 @@ class CarPlayService {
       final items = all.map((e) => _playableListItem(e, api)).toList();
       return CPListTemplate(
         sections: [CPListSection(items: items)],
-        title: 'Books',
+        title: _localized((l) => l.androidAutoCatBooks, 'Books'),
         systemIcon: 'book.fill',
       );
     }
@@ -490,7 +496,7 @@ class CarPlayService {
     }).toList();
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'Books',
+      title: _localized((l) => l.androidAutoCatBooks, 'Books'),
       systemIcon: 'book.fill',
     );
   }
@@ -504,7 +510,7 @@ class CarPlayService {
     final items = books.map((e) => _playableListItem(e, api)).toList();
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: prefix.isEmpty ? 'Books' : prefix,
+      title: prefix.isEmpty ? _localized((l) => l.androidAutoCatBooks, 'Books') : prefix,
       systemIcon: 'book.fill',
     );
   }
@@ -561,7 +567,7 @@ class CarPlayService {
 
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'Series',
+      title: _localized((l) => l.androidAutoCatSeries, 'Series'),
       systemIcon: 'rectangle.stack.fill',
     );
   }
@@ -595,7 +601,7 @@ class CarPlayService {
 
     return CPListTemplate(
       sections: [CPListSection(items: items)],
-      title: 'Authors',
+      title: _localized((l) => l.androidAutoCatAuthors, 'Authors'),
       systemIcon: 'person.2.fill',
     );
   }
