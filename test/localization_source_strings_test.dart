@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import '../lib/l10n/app_localizations_en.dart';
+import 'package:absorb/l10n/app_localizations_en.dart';
 
 void main() {
   group('Extracted English localization strings', () {
