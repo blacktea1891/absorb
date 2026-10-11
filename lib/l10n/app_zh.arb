@@ -3110,7 +3110,7 @@
   "statsScreenDayFri": "星期五",
   "statsScreenDaySat": "星期六",
   "statsScreenDaySun": "星期日",
-  "statsScreenDurationHm": "{h} 小时零 {m} 分钟",
+  "statsScreenDurationHm": "{h} 小时 {m} 分钟",
   "@statsScreenDurationHm": {
     "placeholders": {
       "h": {
