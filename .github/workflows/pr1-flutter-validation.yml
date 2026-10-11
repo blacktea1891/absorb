@@ -1,0 +1,67 @@
+name: PR1 Flutter Validation (temporary)
+
+on:
+  push:
+    branches:
+      - ci/pr1-flutter-validation-20261011
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout exact PR1 source
+        uses: actions/checkout@v4
+
+      - name: Install Flutter stable
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Print Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Generate localization source
+        run: flutter gen-l10n
+
+      - name: Test added localization cases
+        run: flutter test test/localization_source_strings_test.dart
+
+      - name: Analyze changed Flutter files and test
+        run: |
+          flutter analyze --no-pub \
+            lib/screens/admin_library_edit_screen.dart \
+            lib/screens/admin_screen.dart \
+            lib/screens/admin_server_logs_screen.dart \
+            lib/screens/home_screen.dart \
+            lib/screens/library_screen.dart \
+            lib/screens/settings_screen.dart \
+            lib/screens/settings_search_index.dart \
+            lib/widgets/card_button_config.dart \
+            lib/widgets/card_buttons.dart \
+            lib/widgets/clip_editor_sheet.dart \
+            lib/widgets/desktop_batch_actions.dart \
+            lib/widgets/feature_hint.dart \
+            test/localization_source_strings_test.dart
+
+      - name: Generate temporary Android debug signing key
+        run: |
+          cd android
+          keytool -genkey -keystore app/dummy.keystore -storepass dummy123 -alias dummy -keypass dummy123 -keyalg RSA -keysize 2048 -validity 30 -dname "CN=TemporaryCI"
+          {
+            echo "storePassword=dummy123"
+            echo "keyPassword=dummy123"
+            echo "keyAlias=dummy"
+            echo "storeFile=dummy.keystore"
+          } > key.properties
+
+      - name: Build Android debug APK
+        run: flutter build apk --debug --flavor github
