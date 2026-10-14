@@ -23,12 +23,14 @@ import 'dart:convert';
 import 'admin_screen.dart';
 import 'admin_api_keys_screen.dart';
 import 'admin_rmab_screen.dart';
+import 'book_requests_screen.dart';
 import '../widgets/rmab_config_sheet.dart'
     show showRmabConfigSheet, kRmabBaseUrlKey, kRmabApiTokenKey, kRmabLegacyUrlKey;
 import '../widgets/rmab_search_results_sheet.dart';
 import 'admin_email_screen.dart';
 import 'admin_libraries_screen.dart';
 import 'admin_server_logs_screen.dart';
+import 'admin_auth_settings_screen.dart';
 import 'admin_server_settings_screen.dart';
 import 'admin_sessions_screen.dart';
 import 'admin_stats_screen.dart';
@@ -919,6 +921,7 @@ class _AppShellState extends State<AppShell>
 
   bool _rmabConfigured = false;
   bool _rmabWeb = false;
+  bool _bookRequests = false;
 
   Future<void> _loadRmabAvailability() async {
     final base = await ScopedPrefs.getString(kRmabBaseUrlKey);
@@ -929,6 +932,9 @@ class _AppShellState extends State<AppShell>
     // The site opens from the legacy URL when there is one, otherwise the
     // API base's origin - same rule the setup sheet's button uses.
     _rmabWeb = (legacy?.isNotEmpty ?? false) || (base?.isNotEmpty ?? false);
+    if (!mounted) return;
+    final api = context.read<AuthProvider>().apiService;
+    _bookRequests = api != null && (await api.bookRequestAccess()).canRequest;
   }
 
   Future<void> _runNavHold(String tab) async {
@@ -945,7 +951,7 @@ class _AppShellState extends State<AppShell>
         !navHoldIdAvailable(id,
             isAdmin: isAdmin,
             rmabConfigured: _rmabConfigured,
-            rmabWeb: _rmabWeb)) {
+            rmabWeb: _rmabWeb, bookRequests: _bookRequests)) {
       id = null;
     }
     if (id == null) {
@@ -1038,7 +1044,7 @@ class _AppShellState extends State<AppShell>
                                   : navHoldIdAvailable(o.id,
                                       isAdmin: isAdmin,
                                       rmabConfigured: _rmabConfigured,
-                                      rmabWeb: _rmabWeb)))
+                                      rmabWeb: _rmabWeb, bookRequests: _bookRequests)))
                             ActionPillData(
                               icon: o.icon,
                               label: navHoldLabel(o.id, l),
@@ -1074,14 +1080,14 @@ class _AppShellState extends State<AppShell>
         navHoldDefaultMenu(
           isAdmin: isAdmin,
           rmabConfigured: _rmabConfigured,
-          rmabWeb: _rmabWeb,
+          rmabWeb: _rmabWeb, bookRequests: _bookRequests,
         );
     return [
       for (final id in ids)
         if (navHoldIdAvailable(id,
             isAdmin: isAdmin,
             rmabConfigured: _rmabConfigured,
-            rmabWeb: _rmabWeb))
+            rmabWeb: _rmabWeb, bookRequests: _bookRequests))
           id,
     ];
   }
@@ -1175,7 +1181,7 @@ class _AppShellState extends State<AppShell>
           if ((lib['id'] as String?)?.isNotEmpty == true) lib['id'] as String,
       ],
       rmabConfigured: _rmabConfigured,
-      rmabWeb: _rmabWeb,
+      rmabWeb: _rmabWeb, bookRequests: _bookRequests,
     ).where((id) =>
         id != 'menu' && id != 'none' && !ids.contains(id)).toList();
     if (all.isEmpty) return null;
@@ -1332,6 +1338,8 @@ class _AppShellState extends State<AppShell>
             isAdminContext: context.read<AuthProvider>().isAdmin);
       case 'rmabWeb':
         unawaited(_openRmabSite());
+      case 'bookRequests':
+        unawaited(BookRequestsScreen.open(context));
       case 'none':
         break;
     }
@@ -1347,6 +1355,8 @@ class _AppShellState extends State<AppShell>
     switch (page) {
       case 'settings':
         screen = const AdminServerSettingsScreen();
+      case 'auth':
+        screen = const AdminAuthSettingsScreen();
       case 'logs':
         screen = const AdminServerLogsScreen();
       case 'stats':
