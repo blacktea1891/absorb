@@ -803,6 +803,11 @@ class AuthProvider extends ChangeNotifier {
             backend: backend,
           );
 
+    if (result?['bookOrbitPasswordOff'] == true) {
+      _errorMessage = l?.authBookOrbitPasswordOff ??
+          'Password sign-in is turned off on this server. Sign in with a magic link or single sign-on.';
+      return false;
+    }
     if (result?['bookOrbitDefaultPassword'] == true) {
       _errorMessage = l?.authBookOrbitDefaultPassword ??
           'This account still has its default password. Change it in BookOrbit, then sign in again.';
