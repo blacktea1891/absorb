@@ -353,6 +353,9 @@ class DownloadService extends ChangeNotifier {
   /// per-track progress and finalize the book, including after an app relaunch.
   final Map<String, _PendingBook> _pending = {};
 
+  /// Play sessions kept open for downloads that use their temporary links.
+  final Map<String, ({ApiService api, String sessionId})> _linkSessions = {};
+
   StreamSubscription<TaskUpdate>? _updatesSub;
   bool _downloaderConfigured = false;
 
@@ -1770,8 +1773,19 @@ class DownloadService extends ChangeNotifier {
         }
       }
 
+      final sessionId = sessionData['id'] as String?;
       await api.prepareDownload(apiItemId);
-      final files = _resolveDurableFiles(api, apiItemId, audioTracks);
+      final files = _resolveDurableFiles(api, apiItemId, audioTracks,
+          sessionId: sessionId);
+      // A server without the permanent file links (an ABS look-alike) only
+      // gives this session's temporary ones, which die when the session
+      // closes, so it stays open until the download ends.
+      final usesSessionLinks = files.any((f) => _isSessionLink(f.url));
+      if (usesSessionLinks) {
+        _linkSessions[itemId] = (api: api, sessionId: sessionId!);
+        debugPrint('[Download] No permanent file links for "$title", downloading '
+            'through play session $sessionId (kept open until the download ends)');
+      }
 
       // Pull the companion ebook into the offline cache too, so a downloaded
       // book is fully readable offline. Fire-and-forget - never blocks or fails
@@ -1831,11 +1845,13 @@ class DownloadService extends ChangeNotifier {
         slimItem['libraryFiles'] = [if (ebookFile != null) ebookFile];
         slimSession['libraryItem'] = slimItem;
       }
-      final sessionId = sessionData['id'] as String?;
-      if (sessionId != null) unawaited(api.closePlaybackSession(sessionId));
+      if (sessionId != null && !usesSessionLinks) {
+        unawaited(api.closePlaybackSession(sessionId));
+      }
 
       // Cancelled while we were resolving? Bail before enqueueing anything.
       if (_cancelledIds.remove(itemId)) {
+        _closeLinkSession(itemId);
         await _cleanupBookDir(bookDirRef, itemId);
         _activeDownloadIds.remove(itemId);
         _downloads.remove(itemId);
@@ -2007,8 +2023,12 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
+  /// The permanent `/api/items/:id/file/:ino` link of every track. With a
+  /// play session's [sessionId], a track that has none may use that
+  /// session's temporary `/public/session/:id/track/:index` link instead.
   List<({String url, String filename})> _resolveDurableFiles(
-      ApiService api, String apiItemId, List<dynamic> audioTracks) {
+      ApiService api, String apiItemId, List<dynamic> audioTracks,
+      {String? sessionId}) {
     final out = <({String url, String filename})>[];
     for (int i = 0; i < audioTracks.length; i++) {
       final track = audioTracks[i] as Map<String, dynamic>;
@@ -2040,6 +2060,13 @@ class DownloadService extends ChangeNotifier {
         }
         ino = segments[segment + 4];
         break;
+      }
+      if (ino == null &&
+          sessionId != null &&
+          sessionId.isNotEmpty &&
+          uri.path.contains('/public/session/$sessionId/track/')) {
+        out.add((url: api.buildTrackUrl(contentUrl), filename: _trackFileName(track, i)));
+        continue;
       }
       if (ino == null ||
           ino.isEmpty ||
@@ -2279,8 +2306,9 @@ class DownloadService extends ChangeNotifier {
     required ApiService api,
     required String itemId,
     required List<dynamic> audioTracks,
+    String? sessionId,
   }) =>
-      _resolveDurableFiles(api, itemId, audioTracks);
+      _resolveDurableFiles(api, itemId, audioTracks, sessionId: sessionId);
 
   @visibleForTesting
   Future<void> debugReset() async {
@@ -2327,9 +2355,23 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
+  static bool _isSessionLink(String url) =>
+      Uri.tryParse(url)?.path.contains('/public/session/') ?? false;
+
+  /// Close the play session a download used for temporary links. Kept in
+  /// memory only: after an app restart the session is left for the server
+  /// to clear.
+  void _closeLinkSession(String itemId) {
+    final link = _linkSessions.remove(itemId);
+    if (link == null) return;
+    debugPrint('[Download] Closing play session ${link.sessionId} used for "$itemId"');
+    unawaited(link.api.closePlaybackSession(link.sessionId));
+  }
+
   Future<void> _finalizeSuccess(String itemId) async {
     final p = _pending[itemId];
     if (p == null) return;
+    _closeLinkSession(itemId);
 
     // Files always land in internal storage first.
     final localPaths = p.expectedPaths.where((path) => File(path).existsSync()).toList();
@@ -2411,6 +2453,7 @@ class DownloadService extends ChangeNotifier {
       if (p.finalizing) return;
       p.finalizing = true;
     }
+    _closeLinkSession(itemId);
     final t = title ?? p?.title ?? '';
     final a = author ?? p?.author;
     final c = coverUrl ?? p?.coverUrl;
@@ -2472,6 +2515,7 @@ class DownloadService extends ChangeNotifier {
 
   Future<void> _handleCanceled(String itemId) async {
     final p = _pending[itemId];
+    _closeLinkSession(itemId);
     // A canceled book still ends its group notification as "complete" (the
     // package counts canceled tasks as finished, not failed), which would
     // leave a lingering "Download Complete" for a book the user just
